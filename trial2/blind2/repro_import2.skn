@@ -1,0 +1,6 @@
+import std.fs
+
+fn main():
+    let t = fs.read_text("scores.csv") catch e:
+        return
+    print(t)

@@ -1,0 +1,41 @@
+# 표준 라이브러리 둘러보기.
+from std.math import sqrt, sin, pi, round
+from std.random import seed, rand_int
+from std.fs import write_text, read_text, exists, remove
+
+fn main() -> !Unit:
+    # ---- 수학 ----
+    print("√2 = " + str(sqrt(2.0)) + "\n")
+    print("pi = " + str(round(pi() * 100.0)) + " / 100\n")
+    print("sin(pi/2) = " + str(sin(pi() / 2.0)) + "\n")
+
+    # ---- 난수 (씨앗을 심으면 항상 같은 값이 나옵니다) ----
+    seed(2026)
+    print("주사위 다섯 번:")
+    var i = 0
+    while i < 5:
+        print(" " + str(rand_int(1, 7)))
+        i = i + 1
+    print("\n")
+
+    # ---- 리스트 ----
+    var xs = [5, 3, 9, 1, 7]
+    xs.sort()
+    print("정렬: " + str(xs) + "\n")
+    print("합계: " + str(sum(xs)) + ", 9는 " + str(xs.index_of(9)) + "번째\n")
+    print("앞에서 셋: " + str(xs.slice(0, 3)) + "\n")
+
+    # ---- 문자열 (한글도 한 글자로 셉니다) ----
+    let s = "안녕하세요 미카"
+    print("글자 수: " + str(s.len()) + "\n")
+    print("앞 두 글자: " + s.slice(0, 2) + "\n")
+    print("'미카'의 자리: " + str(s.find("미카")) + "\n")
+    print("반복: " + "-".repeat(20) + "\n")
+
+    # ---- 파일 ----
+    let path = "/tmp/siskin_example.txt"
+    try write_text(path, "안녕\n")
+    print("읽은 내용: " + (try read_text(path)))
+    try remove(path)
+    print("지운 뒤 있나? " + str(exists(path)) + "\n")
+    return

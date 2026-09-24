@@ -1,0 +1,67 @@
+# 15. 여러 일을 동시에 — spawn 과 channel
+#
+# `spawn 함수(인자)` 는 그 호출을 새 작업(스레드)에서 돌리고 바로 돌아옵니다.
+# 결과는 나중에 `.wait()` 로 받습니다. 작업끼리 값을 주고받을 때는 통로(channel)를 씁니다.
+# 작업에 넘긴 값은 복사본이라, 두 작업이 같은 메모리를 동시에 만지는 일이 없습니다.
+#
+# `siskin run` 과 `siskin build` 모두 CPU 여러 개를 진짜로 같이 씁니다.
+
+fn count_primes(lo: Int, hi: Int) -> Int:
+    var n = 0
+    for x in range(lo, hi):
+        if x < 2:
+            continue
+        var d = 2
+        var prime = true
+        while d * d <= x:
+            if x % d == 0:
+                prime = false
+                break
+            d += 1
+        if prime:
+            n += 1
+    return n
+
+# 받은 줄마다 단어 수를 세어 결과 통로로 보냅니다.
+fn word_counter(lines: Chan[Str], out: Chan[Int]):
+    for line in lines:
+        out.send(line.split(" ").len())
+    out.close()
+
+fn main():
+    # 1) 일을 넷으로 나눠 동시에 셉니다.
+    var tasks: [Task[Int]] = []
+    for i in range(4):
+        tasks.push(spawn count_primes(i * 25000, (i + 1) * 25000))
+    var total = 0
+    for t in tasks:
+        total += t.wait()
+    print(f"10만 아래 소수: {total}개\n")
+
+    # 2) 통로로 주고받기: 보내는 쪽이 다 보내면 close 합니다.
+    let lines = channel[Str]()
+    let counts = channel[Int]()
+    let w = spawn word_counter(lines, counts)
+    lines.send("하나 둘 셋")
+    lines.send("hello siskin")
+    lines.close()
+    for c in counts:
+        print(f"단어 {c}개\n")
+    w.wait()
+
+    # 3) 크기를 정한 통로: 꽉 차면 보내는 쪽이 기다립니다(생산자가 너무 앞서가지 않게).
+    let small = channel[Int](2)
+    let p = spawn fill(small, 5)
+    var got: [Int] = []
+    while true:
+        let v = small.recv()
+        if v == none:
+            break
+        got.push(v)
+    p.wait()
+    print(f"받은 것: {got}\n")
+
+fn fill(ch: Chan[Int], n: Int):
+    for i in range(n):
+        ch.send(i * 10)
+    ch.close()

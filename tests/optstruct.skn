@@ -1,0 +1,47 @@
+struct Point:
+    x: Int
+    y: Int
+
+struct Node:
+    name: Str
+    pos: ?Point
+    parent: ?Point
+
+struct Job:
+    name: Str
+    result: !Point
+
+fn mk(ok: Bool) -> !Point:
+    if ok:
+        return Point(x: 1, y: 2)
+    return error("bad")
+
+fn main():
+    var n = Node(name: "a", pos: none, parent: Point(x: 5, y: 6))
+    print(f"{n.pos == none}\n")
+    if n.parent != none:
+        print(f"parent {n.parent.x},{n.parent.y}\n")
+    n.pos = Point(x: 3, y: 4)
+    if n.pos != none:
+        n.pos.x = 30
+        print(f"pos {n.pos.x}\n")
+    let p = n.pos else Point(x: 0, y: 0)
+    print(f"{p.x}\n")
+    print(f"{n}\n")
+    let j = Job(name: "j", result: mk(true))
+    let r = j.result catch e:
+        Point(x: -1, y: -1)
+    print(f"{r.x}\n")
+    let j2 = Job(name: "j2", result: mk(false))
+    let r2 = j2.result catch e:
+        print(f"err {e}\n")
+        Point(x: -1, y: -1)
+    print(f"{r2.x}\n")
+    var ns: [Node] = []
+    ns.push(n)
+    ns.push(Node(name: "b", pos: none, parent: none))
+    for m in ns:
+        if m.pos == none:
+            print(f"{m.name} nopos\n")
+        else:
+            print(f"{m.name} {m.pos.x}\n")

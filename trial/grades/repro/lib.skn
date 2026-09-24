@@ -1,0 +1,4 @@
+fn bad[T](xs: [T]) -> [T]:
+    var ys = xs
+    ys.sort_by(fn(x): 0)
+    return ys

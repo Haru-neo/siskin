@@ -1,0 +1,47 @@
+from std.fs import read_text
+
+struct Student:
+    name: Str
+    total: Int
+    count: Int
+
+fn average(s: Student) -> Float:
+    return float(s.total) / float(s.count)
+
+fn main():
+    let text = read_text("scores.csv") catch e:
+        print("error: cannot read scores.csv\n")
+        return
+    let lines = text.split("\n")
+    var students: {Str: Student} = {}
+    var max_score = 0
+    var first = true
+    for line in lines:
+        if first:
+            first = false
+            continue
+        let trimmed = line.strip()
+        if trimmed == "":
+            continue
+        let parts = trimmed.split(",")
+        if len(parts) != 3:
+            print(f"warning: bad row: {trimmed}\n")
+            continue
+        let score = int(parts[2]) catch e:
+            print(f"warning: bad score in row: {trimmed}\n")
+            continue
+        let name = parts[0]
+        let existing = students[name]
+        if existing != none:
+            students[name] = Student(name, existing.total + score, existing.count + 1)
+        else:
+            students[name] = Student(name, score, 1)
+        if score > max_score:
+            max_score = score
+    var list: [Student] = []
+    for key, st in students:
+        list.push(st)
+    list.sort_by(fn(s: Student): -average(s))
+    for s in list:
+        print(f"{s.name}: {average(s):.1f}\n")
+    print(f"max score: {max_score}\n")

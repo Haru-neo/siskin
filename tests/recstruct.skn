@@ -1,0 +1,19 @@
+struct Node:
+    v: Int
+    next: ?Node
+
+fn total(n: Node) -> Int:
+    if n.next == none:
+        return n.v
+    return n.v + total(n.next)
+
+fn main():
+    var a = Node(v: 1, next: none)
+    let b = Node(v: 2, next: a)
+    let c = Node(v: 3, next: b)
+    a.v = 100
+    print(f"{total(c)} {a.v}\n")
+    var d = c
+    if d.next != none:
+        d.next.v = 50
+    print(f"{total(c)} {total(d)}\n")

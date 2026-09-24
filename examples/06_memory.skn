@@ -1,0 +1,38 @@
+# 메모리 3계층 — 같은 프로그램 안에서 필요한 만큼만 내려갑니다.
+
+fn main():
+    # ---- Level 0: 그냥 쓰기. 해제를 신경 쓰지 않습니다. ----
+    var names = ["하루", "미카"]
+    names.push("루비")
+    print("Level 0 — " + str(names) + "\n")
+
+    # ---- Level 1: 아레나. 블록이 끝나면 통째로 풀립니다. ----
+    with arena a:
+        var xs = a.list[Int]()
+        var i = 0
+        while i < 6:
+            xs.push(i * i)
+            i = i + 1
+        print("Level 1 — " + str(xs) + "\n")
+    # 여기서 a가 잡아 둔 메모리는 전부 사라졌습니다.
+
+    # ---- Level 2: 원시 포인터. C와 같은 자유도입니다. ----
+    unsafe:
+        let p = alloc[Int](4)      # 칸 4개짜리 메모리
+        p[0] = 10
+        p[1] = 20
+        p[2] = p[0] + p[1]
+
+        let q = p + 1              # 포인터 산술: 한 칸 뒤
+        print("Level 2 — q[0]=" + str(q[0]) + ", q[1]=" + str(q[1]) + "\n")
+
+        free(p)                    # 여기서만 직접 해제합니다
+
+    # 아레나 안에서 원시 메모리를 쓸 수도 있습니다.
+    # 이때는 free를 부르지 않습니다. 블록 끝에서 같이 풀립니다.
+    with arena a2:
+        unsafe:
+            let buf = a2.alloc[Int](3)
+            buf[0] = 7
+            buf[2] = buf[0] * 3
+            print("Level 1+2 — buf[2]=" + str(buf[2]) + "\n")

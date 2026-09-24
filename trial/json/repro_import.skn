@@ -1,0 +1,4 @@
+from std.process import args
+
+fn main():
+    print("hi\n")

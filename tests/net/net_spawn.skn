@@ -1,0 +1,45 @@
+import std.net
+import std.time
+
+fn handle(c: Conn):
+    let line = c.recv_line() catch e:
+        return
+    sleep(0.3)
+    c.send("echo " + line) catch e:
+        pass
+    c.close()
+
+fn serve(s: Server, n: Int):
+    var hs: [Task[()]] = []
+    for i in range(n):
+        let c = s.accept() catch e:
+            return
+        hs.push(spawn handle(c))
+    for h in hs:
+        h.wait()
+
+fn client(port: Int, k: Int) -> Str:
+    let c = connect("127.0.0.1", port) catch e:
+        return "fail " + e
+    c.send(f"hi {k}\n") catch e:
+        return "fail"
+    let r = c.recv_line() catch e:
+        return "fail"
+    c.close()
+    return r.strip()
+
+fn main():
+    let s = listen_on("127.0.0.1", 0) catch e:
+        print(e)
+        return
+    let port = s.port()
+    let srv = spawn serve(s, 3)
+    let t0 = clock()
+    var cs: [Task[Str]] = []
+    for k in range(3):
+        cs.push(spawn client(port, k))
+    for c in cs:
+        print(c.wait() + "\n")
+    srv.wait()
+    let dt = clock() - t0
+    print(f"{dt < 0.8}\n")

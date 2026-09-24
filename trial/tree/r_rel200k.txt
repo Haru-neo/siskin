@@ -1,0 +1,9 @@
+safe: size=199981 height=45 probe_hits=500
+time safe: insert=0.7551015130000001s queries+walk=0.065690209s
+arena: size=199981 height=45 probe_hits=500
+time arena: insert=0.08355991499999993s queries+walk=0.03268288100000005s
+heap: size=199981 height=45 probe_hits=500
+time heap: insert=0.04915523300000002s queries+walk=0.03197220000000012s
+agree: sorted=true height=true contains=true
+arena/heap agree: true
+strictly ascending: true

@@ -1,0 +1,20 @@
+# 할당 자체를 재는 벤치마크.
+# "요청" 2000번, 각 요청마다 작은 블록 1000개를 씁니다.
+# 아레나: 포인터를 앞으로 미는 것이 전부. 해제는 요청이 끝날 때 한 번에.
+fn main():
+    let reqs = 2000
+    let per = 1000
+    let total = 0
+    let r = 0
+    while r < reqs:
+        with arena a:
+            unsafe:
+                let i = 0
+                while i < per:
+                    let p = a.alloc[Int](8)
+                    p[0] = i
+                    p[7] = i + 1
+                    total = total + p[0] + p[7]
+                    i = i + 1
+        r = r + 1
+    print(str(total) + "\n")

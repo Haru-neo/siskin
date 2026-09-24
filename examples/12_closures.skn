@@ -1,0 +1,49 @@
+# 함수를 값으로 넘기기, 익명 함수, 클로저
+#
+# `fn(x: Int): x * k` 는 이름 없는 함수입니다. 바깥의 `k` 를 "붙잡습니다".
+# 붙잡은 값은 만들 때의 복사본이고, 안에서는 읽기만 합니다.
+
+struct Person:
+    name: Str
+    age: Int
+
+# 함수를 받는 함수. `(Int) -> Int` 가 "Int 를 받아 Int 를 돌려주는 함수" 타입입니다.
+fn apply_twice(f: (Int) -> Int, x: Int) -> Int:
+    return f(f(x))
+
+# 함수를 돌려주는 함수. 돌려받은 함수는 n 을 기억합니다.
+fn make_adder(n: Int) -> (Int) -> Int:
+    return fn(x): x + n
+
+fn main():
+    let k = 3
+    let times_k = fn(x: Int): x * k
+    print(f"3배: {times_k(5)}\n")                     # 15
+
+    let add10 = make_adder(10)
+    print(f"10 더하기 두 번: {apply_twice(add10, 1)}\n")  # 21
+
+    # 리스트와 함께 쓰기 — 원소 타입을 알기 때문에 x 의 타입은 적지 않아도 됩니다.
+    let nums = [5, 3, 8, 1, 9, 2]
+    let limit = 4
+    print(f"제곱: {nums.map(fn(x): x * x)}\n")
+    print(f"{limit}보다 큼: {nums.filter(fn(x): x > limit)}\n")
+    print(f"9가 있나: {nums.any(fn(x): x == 9)}\n")
+
+    var people = [Person(name: "하루", age: 20), Person(name: "미카", age: 3), Person(name: "가온", age: 7)]
+    people.sort_by(fn(p): p.age)
+    print(f"나이순: {people.map(fn(p): p.name)}\n")
+
+    # 여러 줄이 필요하면 함수 안에 함수를 선언합니다. 이것도 바깥 값을 붙잡습니다.
+    let unit = "살"
+    fn describe(p: Person) -> Str:
+        if p.age < 10:
+            return p.name + "(어린이, " + str(p.age) + unit + ")"
+        return p.name + "(" + str(p.age) + unit + ")"
+    print(people.map(describe).join(", ") + "\n")
+
+    # 붙잡은 값은 만들 때의 값입니다.
+    var base = 1
+    let plus_base = fn(x: Int): x + base
+    base = 100
+    print(f"만들 때 base 는 1: {plus_base(1)}\n")      # 2

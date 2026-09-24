@@ -1,0 +1,43 @@
+# 인터넷: HTTP 요청, 그리고 작은 서버
+# (std.net 을 쓰면 `siskin run` 도 네이티브로 컴파일해서 돌립니다)
+import std.net
+from std.json import parse
+
+fn main():
+    # ---- 웹에서 JSON 받아 오기 ----
+    let r = http_get("https://pypi.org/pypi/requests/json") catch e:
+        print("인터넷에 닿지 못했습니다: " + e + "\n")
+        return
+    print(f"상태 {r.status}, 성공? {r.ok()}\n")
+    print("종류: " + (r.header("Content-Type") else "?") + "\n")
+    let data = parse(r.body) catch e:
+        print("JSON 이 아닙니다: " + e + "\n")
+        return
+    let info = data.get("info")
+    if info != none:
+        let name = info.get("name")
+        if name != none:
+            print("패키지 이름: " + (name.as_str() else "?") + "\n")
+
+    # ---- 내 컴퓨터 안에서 서버와 손님 ----
+    let server = listen_on("127.0.0.1", 0) catch e:      # 0 = 빈 포트 아무거나
+        print(e + "\n")
+        return
+    let guest = connect("127.0.0.1", server.port()) catch e:
+        print(e + "\n")
+        return
+    guest.send("안녕하세요\n") catch e:
+        print(e + "\n")
+    let conn = server.accept() catch e:
+        print(e + "\n")
+        return
+    let line = conn.recv_line() catch e:
+        ""
+    conn.send("잘 받았어요: " + line) catch e:
+        print(e + "\n")
+    conn.close()
+    let answer = guest.recv() catch e:
+        ""
+    print("손님이 들은 말: " + answer)
+    guest.close()
+    server.close()

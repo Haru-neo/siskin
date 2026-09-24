@@ -1,0 +1,4 @@
+from lib import bad
+
+fn main():
+    print(f"{bad([3, 1])}\n")

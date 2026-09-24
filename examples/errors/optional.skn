@@ -1,0 +1,14 @@
+struct User:
+    id: Int
+    name: Str
+
+fn find(users: [User], id: Int) -> ?User:
+    for u in users:
+        if u.id == id:
+            return u
+    return none
+
+fn main():
+    let users = [User(id: 1, name: "하루")]
+    let u = find(users, 1)
+    print(f"{u.name}\n")

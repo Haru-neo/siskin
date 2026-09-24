@@ -1,0 +1,8 @@
+fn calculate_total(xs: [Int]) -> Int:
+    var t = 0
+    for x in xs:
+        t += x
+    return t
+
+fn main():
+    print(f"{calculate_totl([1, 2, 3])}\n")

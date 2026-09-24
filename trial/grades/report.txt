@@ -1,0 +1,27 @@
+Skipped rows:
+  line 6: score 'abc' is not a number
+
+Averages:
+  Kim: 69.7
+  Lee: 63.0
+  Park: 70.0
+  Choi: 62.0
+  Jung: 71.0
+  Kang: 46.7
+  Cho: 59.0
+  Yoon: 58.3
+  Jang: 67.3
+  Lim: 74.3
+
+Top scorer per subject:
+  math: Lim (76)
+  english: Kim (100)
+  science: Lim (100)
+
+Passed every subject (all scores >= 60):
+  (none)
+
+Top 3 by average:
+  1. Lim 74.3
+  2. Jung 71.0
+  3. Park 70.0

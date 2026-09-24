@@ -1,0 +1,15 @@
+rank  word    count
+-------------------
+   1  the        18
+   2  fox        15
+   3  dog         9
+   4  and         6
+   5  it          6
+   6  lazy        6
+   7  not         6
+   8  quick       6
+   9  개는        6
+  10  amused      3
+
+total words:    144
+distinct words: 31

@@ -1,0 +1,44 @@
+# https 서버: 시험용 인증서로 보안 포트를 열고, 같은 프로그램 안에서 https 로 요청합니다.
+# 인증서는 tests/tools.sh 가 만들어 둡니다 (cert.pem, key.pem). SSL_CERT_FILE=cert.pem 으로 믿게 합니다.
+import std.net
+
+fn serve(server: Server, count: Int) -> Int:
+    var served = 0
+    while served < count:
+        let req = server.next_request() catch e:
+            print("서버 오류: " + e + "\n")
+            return served
+        if req.path == "/hello":
+            let name = req.query["name"] else "손님"
+            req.respond(200, f"안녕하세요, {name}님") catch e:
+                print(e + "\n")
+        elif req.method == "POST":
+            req.respond(201, "{\"got\": " + f"{req.body.len()}" + "}") catch e:
+                print(e + "\n")
+        else:
+            req.respond(404, "<h1>없음</h1>") catch e:
+                print(e + "\n")
+        served += 1
+    return served
+
+fn main():
+    let server = listen_tls_on("127.0.0.1", 0, "cert.pem", "key.pem") catch e:
+        print("열 수 없음: " + e + "\n")
+        return
+    let port = server.port()
+    let job = spawn serve(server, 3)
+    let base = f"https://localhost:{port}"
+    let a = http_get(base + "/hello?name=%EA%B9%80+%EB%B0%A5") catch e:
+        print("실패: " + e + "\n")
+        return
+    print(f"{a.status} {a.header("content-type") else "?"} {a.body}\n")
+    let b = http_post(base + "/data", "[1, 2, 3]") catch e:
+        print("실패: " + e + "\n")
+        return
+    print(f"{b.status} {b.body}\n")
+    let c = http_get(base + "/nope") catch e:
+        print("실패: " + e + "\n")
+        return
+    print(f"{c.status} {c.body}\n")
+    print(f"처리한 요청: {job.wait()}\n")
+    server.close()

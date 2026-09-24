@@ -1,0 +1,29 @@
+# 리스트 + 함수: map / filter / any / all / sort_by
+struct Person:
+    name: Str
+    age: Int
+
+fn is_even(x: Int) -> Bool:
+    return x % 2 == 0
+
+fn main():
+    let nums = [5, 3, 8, 1, 9, 2]
+    let limit = 4
+    print(f"{nums.map(fn(x): x * x)}\n")
+    print(f"{nums.filter(fn(x): x > limit)}\n")
+    print(f"{nums.filter(is_even)}\n")
+    print(f"{nums.any(fn(x): x > 8)} {nums.all(fn(x): x > 0)} {nums.any(fn(x): x > 100)}\n")
+    print(f"{nums.map(fn(x): str(x) + '개')}\n")
+    var people = [Person(name: "하루", age: 20), Person(name: "미카", age: 3), Person(name: "보라", age: 20), Person(name: "가온", age: 7)]
+    people.sort_by(fn(p): p.age)
+    print(f"{people.map(fn(p): p.name)}\n")
+    people.sort_by(fn(p): p.name)
+    print(f"{people.map(fn(p): p.name)}\n")
+    var fs = [2.5, -1.0, 0.5]
+    fs.sort_by(fn(x): 0.0 - x)
+    print(f"{fs}\n")
+    let adults = people.filter(fn(p): p.age >= 18).map(fn(p): p.name)
+    print(f"{adults}\n")
+    print(f"{people}\n")
+    let grid = [[1, 2], [3], []]
+    print(f"{grid.map(fn(r): r.len())}\n")

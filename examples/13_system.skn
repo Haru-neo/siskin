@@ -1,0 +1,41 @@
+# 날짜, 다른 프로그램 실행, 폴더 다루기
+import std.time
+import std.process
+from std.process import env, cwd
+from std.fs import make_dir, list_dir, write_text, is_dir
+
+fn main():
+    # ---- 날짜 ----
+    let launch = date(2026, 12, 25)
+    print(launch.format("%Y년 %m월 %d일 (%K)") + "\n")          # 2026년 12월 25일 (금)
+    print(f"그 다음 주: {launch.add_days(7).date_str()}\n")
+    print(f"새해까지 {launch.days_until(date(2027, 1, 1))}일\n")
+    let when = parse_time("2026-03-01 09:30", "%Y-%m-%d %H:%M") catch e:
+        print("날짜 모양이 이상합니다: " + e + "\n")
+        return
+    print(when.to_str() + "\n")
+    print(f"올해가 2026년 이후인가? {today().year >= 2026}\n")
+
+    # ---- 다른 프로그램 실행 ----
+    let r = run("echo 셋 하나 둘 | tr ' ' '\\n' | sort")   # 셸 명령 한 줄 (파이프도 됩니다)
+    print(f"끝난 코드 {r.code}, 출력:\n{r.out}")
+    let ls = run_args("ls", ["-d", "/tmp"])     # 셸을 거치지 않습니다
+    print(f"성공? {ls.ok()} {ls.out}")
+    let home = env("HOME") else "(없음)"
+    print(f"HOME 이 있나? {home != '(없음)'}\n")
+
+    # ---- 폴더 ----
+    let dir = "/tmp/siskin_example_13/a/b"
+    make_dir(dir) catch e:                        # 중간 폴더까지 한 번에 만듭니다
+        print(e + "\n")
+        return
+    write_text(dir + "/메모.txt", "안녕") catch e:
+        print(e + "\n")
+    let names = list_dir(dir) catch e:
+        print(e + "\n")
+        return
+    print(f"{names} {is_dir(dir)}\n")
+    let missing = list_dir("/tmp/없는_폴더_xyz") catch e:
+        print("안 됨: " + e + "\n")
+        []
+    print(f"{missing.len()}개\n")

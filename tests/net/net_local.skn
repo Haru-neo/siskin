@@ -1,0 +1,73 @@
+# std.net: 이 컴퓨터 안에서 HTTP 와 TCP 확인 (python3 tests/net/net_srv.py 18431 이 떠 있어야 함)
+import std.net
+
+fn show(r: Response):
+    print(f"{r.status} {r.ok()} [{r.body}]\n")
+
+fn attempt(r: !Response):
+    let v = r catch e:
+        print("오류: " + e + "\n")
+        return
+    show(v)
+
+fn main():
+    let base = "http://127.0.0.1:18431"
+    let a = http_get(base + "/hello?q=" + url_encode("김 밥&")) catch e:
+        print("실패: " + e + "\n")
+        return
+    show(a)
+    print((a.header("Content-Type") else "?") + " / " + (a.headers["x-test"] else "?") + "\n")
+    attempt(http_get(base + "/chunk"))
+    attempt(http_get(base + "/go"))
+    attempt(http_get(base + "/rel/a"))
+    attempt(http_get(base + "/nope"))
+    attempt(http_post(base + "/echo", "{\"a\": 1}"))
+    attempt(http_post(base + "/echo", "그냥 글"))
+    attempt(http_post(base + "/see", "x"))
+    attempt(http_request("GET", base + "/ua", {"User-Agent": "myapp/1", "X-Key": "k1"}, ""))
+    let bad = [base + "/loop", "ftp://x", "http://127.0.0.1:1/", "http://없는호스트.invalid/"]
+    for u in bad:
+        let r = http_get(u) catch e:
+            print("오류: " + e + "\n")
+            continue
+        show(r)
+
+    # TCP: 한 프로그램 안에서 서버와 손님을 둘 다
+    let srv = listen_on("127.0.0.1", 0) catch e:
+        print(e + "\n")
+        return
+    let port = srv.port()
+    print(f"{port > 0}\n")
+    let c = connect("127.0.0.1", port) catch e:
+        print(e + "\n")
+        return
+    c.send("안녕 서버\n둘째 줄\n") catch e:
+        print(e + "\n")
+    let s = srv.accept() catch e:
+        print(e + "\n")
+        return
+    let l1 = s.recv_line() catch e:
+        "?"
+    let l2 = s.recv_line() catch e:
+        "?"
+    print("서버가 받음: " + l1 + "서버가 받음: " + l2)
+    print(f"{s.peer().starts_with('127.0.0.1:')}\n")
+    s.send("반가워요") catch e:
+        print(e + "\n")
+    s.close()
+    let got = c.recv() catch e:
+        "?"
+    let end = c.recv() catch e:
+        "?"
+    print(f"손님이 받음: {got} / 끝: [{end}]\n")
+    c.close()
+    let again = c.recv() catch e:
+        "오류: " + e
+    print(again + "\n")
+    let taken = listen_on("127.0.0.1", port) catch e:
+        Server(id: -1)
+    print(f"{taken.id >= 0}\n")
+    srv.close()
+    let refused = connect("127.0.0.1", port) catch e:
+        print("오류: " + e.replace(str(port), "PORT") + "\n")
+        return

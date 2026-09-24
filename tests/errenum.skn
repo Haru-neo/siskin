@@ -1,0 +1,52 @@
+enum BankError:
+    NoFunds(need: Int)
+    Unknown(id: Int)
+    BadAmount
+
+struct Account:
+    id: Int
+    balance: Int
+
+    fn withdraw(inout self, amount: Int) -> BankError!Unit:
+        if amount <= 0:
+            return error(BadAmount)
+        if amount > self.balance:
+            return error(NoFunds(need: amount - self.balance))
+        self.balance -= amount
+        return
+
+fn find(accs: [Account], id: Int) -> BankError!Int:
+    for i in range(len(accs)):
+        if accs[i].id == id:
+            return i
+    return error(Unknown(id: id))
+
+fn pay(inout accs: [Account], id: Int, amount: Int) -> BankError!Int:
+    let i = try find(accs, id)
+    try accs[i].withdraw(amount)
+    return accs[i].balance
+
+fn legacy(inout accs: [Account]) -> !Int:
+    let b = try pay(accs, 1, 1000)
+    return b
+
+fn main() -> BankError!Unit:
+    var accs = [Account(id: 1, balance: 100)]
+    for (id, amt) in [(1, 30), (1, 500), (2, 5), (1, 0)]:
+        let left = pay(accs, id, amt) catch e:
+            match e:
+                case NoFunds(need):
+                    print(f"모자람 {need}\n")
+                case Unknown(id2):
+                    print(f"없는 계좌 {id2}\n")
+                case BadAmount:
+                    print("금액 오류\n")
+            continue
+        print(f"남음 {left}\n")
+    let msg = legacy(accs) catch e:
+        print(f"글자 오류: {e}\n")
+        -1
+    print(f"{msg}\n")
+    try pay(accs, 9, 1)
+    print("안 옴\n")
+    return

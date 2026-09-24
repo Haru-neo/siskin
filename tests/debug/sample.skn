@@ -1,0 +1,20 @@
+struct Box:
+    items: [Int]
+
+    fn total(self) -> Int:
+        var t = 0
+        for x in self.items:
+            t += x
+        return t
+
+fn double(n: Int) -> Int:
+    let r = n * 2
+    return r
+
+fn main():
+    let b = Box(items: [1, 2, 3])
+    var s = b.total()
+    s = double(s)
+    print(f"합의 두 배: {s}\n")
+    let name = "미카"
+    print(name + "\n")

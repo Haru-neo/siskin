@@ -1,0 +1,263 @@
+# bank.skn — a small in-memory bank.
+#
+# Account (struct + methods), Bank (holds accounts and history),
+# Transaction (enum), BankError (enum describing why an operation failed).
+#
+# Siskin's `!T` errors carry only a Str (`catch e:` always gives a Str), so a
+# BankError is encoded into the error text with `raise_text` and turned back
+# into the enum with `decode` on the caller side, where it is `match`ed.
+
+enum BankError:
+    UnknownAccount(id: Int)
+    InsufficientFunds(id: Int, needed: Int, available: Int)
+    InvalidAmount(amount: Int)
+    Other(message: Str)
+
+fn raise_text(err: BankError) -> Str:
+    match err:
+        case UnknownAccount(id):
+            return f"UnknownAccount|{id}"
+        case InsufficientFunds(id, needed, available):
+            return f"InsufficientFunds|{id}|{needed}|{available}"
+        case InvalidAmount(amount):
+            return f"InvalidAmount|{amount}"
+        case Other(message):
+            return message
+
+fn decode(e: Str) -> BankError:
+    let parts = e.split("|")
+    var nums: [Int] = []
+    for p in parts.slice(1, parts.len()):
+        let n = int(p) catch bad:
+            return Other(message: e)
+        nums.push(n)
+    match parts[0]:
+        case "UnknownAccount":
+            return UnknownAccount(id: nums[0])
+        case "InsufficientFunds":
+            return InsufficientFunds(id: nums[0], needed: nums[1], available: nums[2])
+        case "InvalidAmount":
+            return InvalidAmount(amount: nums[0])
+        case _:
+            return Other(message: e)
+
+enum Transaction:
+    Deposit(account: Int, amount: Int)
+    Withdraw(account: Int, amount: Int)
+    Transfer(src: Int, dst: Int, amount: Int)
+
+struct Account:
+    id: Int
+    owner: Str
+    balance: Int
+
+    fn describe(self) -> Str:
+        return f"#{self.id} {self.owner}: {self.balance}"
+
+    fn can_cover(self, amount: Int) -> Bool:
+        return self.balance >= amount
+
+    # Low-level balance changes. The Bank validates input and turns bad input
+    # into BankError values; these contracts document (and check, in debug
+    # builds) that nobody bypasses that validation.
+    fn credit(inout self, amount: Int) -> Int:
+        requires amount > 0
+        ensures result == self.balance
+        self.balance += amount
+        return self.balance
+
+    fn debit(inout self, amount: Int) -> Int:
+        requires amount > 0
+        requires amount <= self.balance
+        ensures result >= 0
+        self.balance -= amount
+        return self.balance
+
+struct Bank:
+    accounts: [Account]
+    history: [Transaction]
+    next_id: Int
+
+    fn open(inout self, owner: Str) -> Int:
+        let id = self.next_id
+        self.accounts.push(Account(id: id, owner: owner, balance: 0))
+        self.next_id += 1
+        return id
+
+    fn index_of(self, id: Int) -> !Int:
+        var i = 0
+        for a in self.accounts:
+            if a.id == id:
+                return i
+            i += 1
+        return error(raise_text(UnknownAccount(id: id)))
+
+    fn deposit(inout self, id: Int, amount: Int) -> !Int:
+        if amount <= 0:
+            return error(raise_text(InvalidAmount(amount: amount)))
+        let i = try self.index_of(id)
+        # (copy-modify-store: `self.accounts[i].credit(...)` fails in `siskin build`)
+        var acc = self.accounts[i]
+        let bal = acc.credit(amount)
+        self.accounts[i] = acc
+        self.history.push(Deposit(account: id, amount: amount))
+        return bal
+
+    fn withdraw(inout self, id: Int, amount: Int) -> !Int:
+        if amount <= 0:
+            return error(raise_text(InvalidAmount(amount: amount)))
+        let i = try self.index_of(id)
+        var acc = self.accounts[i]
+        if not acc.can_cover(amount):
+            return error(raise_text(InsufficientFunds(id: id, needed: amount, available: acc.balance)))
+        let bal = acc.debit(amount)
+        self.accounts[i] = acc
+        self.history.push(Withdraw(account: id, amount: amount))
+        return bal
+
+    fn transfer(inout self, src: Int, dst: Int, amount: Int) -> !Int:
+        if amount <= 0:
+            return error(raise_text(InvalidAmount(amount: amount)))
+        let i = try self.index_of(src)
+        let j = try self.index_of(dst)
+        var from_acc = self.accounts[i]
+        if not from_acc.can_cover(amount):
+            return error(raise_text(InsufficientFunds(id: src, needed: amount, available: from_acc.balance)))
+        from_acc.debit(amount)
+        self.accounts[i] = from_acc
+        var to_acc = self.accounts[j]
+        to_acc.credit(amount)
+        self.accounts[j] = to_acc
+        self.history.push(Transfer(src: src, dst: dst, amount: amount))
+        return amount
+
+    fn total(self) -> Int:
+        var t = 0
+        for a in self.accounts:
+            t += a.balance
+        return t
+
+fn describe_error(e: BankError) -> Str:
+    match e:
+        case UnknownAccount(id):
+            return f"unknown account #{id}"
+        case InsufficientFunds(id, needed, available):
+            return f"insufficient funds in #{id}: needed {needed}, available {available}"
+        case InvalidAmount(amount):
+            return f"amount must be positive, got {amount}"
+        case Other(message):
+            return message
+
+fn describe_tx(t: Transaction) -> Str:
+    match t:
+        case Deposit(account, amount):
+            return f"DEPOSIT   {amount} -> #{account}"
+        case Withdraw(account, amount):
+            return f"WITHDRAW  {amount} <- #{account}"
+        case Transfer(src, dst, amount):
+            return f"TRANSFER  {amount}: #{src} -> #{dst}"
+
+fn main():
+    var bank = Bank(accounts: [], history: [], next_id: 1)
+    let alice = bank.open("Alice")
+    let bob = bank.open("Bob")
+    let carol = bank.open("Carol")
+    let ghost = 99
+
+    print("== successful operations ==\n")
+    let b1 = bank.deposit(alice, 500) catch e:
+        print(f"unexpected: {describe_error(decode(e))}\n")
+        return
+    print(f"deposit 500 to Alice -> balance {b1}\n")
+
+    let b2 = bank.deposit(bob, 200) catch e:
+        print(f"unexpected: {describe_error(decode(e))}\n")
+        return
+    print(f"deposit 200 to Bob -> balance {b2}\n")
+
+    let b3 = bank.withdraw(alice, 120) catch e:
+        print(f"unexpected: {describe_error(decode(e))}\n")
+        return
+    print(f"withdraw 120 from Alice -> balance {b3}\n")
+
+    let moved = bank.transfer(alice, carol, 80) catch e:
+        print(f"unexpected: {describe_error(decode(e))}\n")
+        return
+    print(f"transfer {moved} Alice -> Carol\n")
+
+    print("\n== failing operations (each error kind handled differently) ==\n")
+
+    # 1. Unknown account on deposit: skip and fall back to 0.
+    let r1 = bank.deposit(ghost, 50) catch e:
+        match decode(e):
+            case UnknownAccount(id):
+                print(f"deposit refused: no account #{id}; ignoring\n")
+            case _:
+                print(f"unexpected: {e}\n")
+        0
+    print(f"  r1 = {r1}\n")
+
+    # 2. Insufficient funds on withdraw: retry with what is available.
+    var r2 = 0
+    let first = bank.withdraw(bob, 1000) catch e:
+        match decode(e):
+            case InsufficientFunds(id, needed, available):
+                print(f"withdraw refused: #{id} has {available}, wanted {needed}; withdrawing all instead\n")
+                let all = bank.withdraw(id, available) catch e2:
+                    print(f"retry failed: {describe_error(decode(e2))}\n")
+                    0
+                r2 = all
+            case UnknownAccount(id):
+                print(f"no account #{id}\n")
+            case InvalidAmount(amount):
+                print(f"bad amount {amount}\n")
+            case Other(message):
+                print(f"unexpected: {message}\n")
+        -1
+    if first >= 0:
+        r2 = first
+    print(f"  r2 (Bob balance after retry) = {r2}\n")
+
+    # 3. Non-positive amounts, zero and negative.
+    for amt in [0, -30]:
+        let r3 = bank.transfer(alice, bob, amt) catch e:
+            match decode(e):
+                case InvalidAmount(amount):
+                    print(f"transfer refused: amount {amount} is not positive (user input error)\n")
+                case UnknownAccount(id):
+                    print(f"no account #{id}\n")
+                case InsufficientFunds(id, needed, available):
+                    print(f"short by {needed - available}\n")
+                case Other(message):
+                    print(f"unexpected: {message}\n")
+            continue
+        print(f"  unexpected success {r3}\n")
+
+    # 4. Transfer to an unknown account: nothing may change.
+    let before = bank.total()
+    let r4 = bank.transfer(alice, ghost, 10) catch e:
+        print(f"transfer refused: {describe_error(decode(e))}\n")
+        -1
+    print(f"  r4 = {r4}, total unchanged: {before == bank.total()}\n")
+
+    # 5. Withdraw from an unknown account and an insufficient transfer, reported
+    #    through the generic describe_error (which itself matches on the enum).
+    let r5 = bank.withdraw(ghost, 5) catch e:
+        print(f"withdraw refused: {describe_error(decode(e))}\n")
+        -1
+    print(f"  r5 = {r5}\n")
+    let r6 = bank.transfer(carol, alice, 81) catch e:
+        print(f"transfer refused: {describe_error(decode(e))}\n")
+        -1
+    print(f"  r6 = {r6}\n")
+
+    print("\n== transaction history ==\n")
+    var n = 1
+    for t in bank.history:
+        print(f"{n}. {describe_tx(t)}\n")
+        n += 1
+
+    print("\n== balances ==\n")
+    for a in bank.accounts:
+        print(a.describe() + "\n")
+    print(f"total: {bank.total()}\n")

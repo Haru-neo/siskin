@@ -1,0 +1,44 @@
+# 클로저: 반복문 안에서 만들기, inout·self 붙잡기, ?T 인자
+struct Acc:
+    total: Int
+
+    fn adder(self) -> (Int) -> Int:
+        return fn(x: Int): self.total + x
+
+    fn bump(inout self, n: Int):
+        let before = self.total
+        let show = fn(): f"{before} -> {before + n}"
+        self.total += n
+        print(show() + "\n")
+
+fn run_all(fs: [(Int) -> Int], x: Int) -> [Int]:
+    var out: [Int] = []
+    for f in fs:
+        out.push(f(x))
+    return out
+
+fn tweak(inout xs: [Int]):
+    let n = xs.len()
+    let add_n = fn(v: Int): v + n
+    xs.push(add_n(100))
+
+fn main():
+    var fs: [(Int) -> Int] = []
+    for i in range(0, 4):
+        fs.push(fn(x): x * 10 + i)
+    print(f"{run_all(fs, 1)}\n")
+    var a = Acc(total: 5)
+    let ad = a.adder()
+    a.bump(10)
+    print(f"{ad(1)} {a.total}\n")
+    var xs = [1, 2, 3]
+    tweak(xs)
+    print(f"{xs}\n")
+    let or_zero = fn(v: ?Int): v else 0
+    print(f"{or_zero(none)} {or_zero(4)}\n")
+    let is_big = fn(v: Int) -> Bool: v > 10
+    print(f"{is_big(3)} {is_big(30)}\n")
+    let pick = fn(b: Bool): "예" if b else "아니오"
+    print(pick(is_big(11)) + "\n")
+    let word_count = fn(s: Str): s.split(" ").len()
+    print(f"{word_count('가 나 다')}\n")

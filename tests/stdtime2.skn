@@ -1,0 +1,14 @@
+# std.time: 지금 시각 (출력은 모양만 확인)
+import std.time
+from std.time import now, sleep
+
+fn main():
+    let a = now()
+    sleep(0.05)
+    let b = now()
+    print(f"{b - a >= 0.05}\n")
+    let t = today()
+    print(f"{t.year >= 2024} {t.month >= 1 and t.month <= 12}\n")
+    print(f"{time.today().year == t.year}\n")
+    let back = local_time(t.timestamp())
+    print(f"{back.to_str() == t.to_str()}\n")

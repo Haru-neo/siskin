@@ -1,0 +1,3 @@
+fn main():
+    let p = alloc[Int](4)
+    p[0] = 1

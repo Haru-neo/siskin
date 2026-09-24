@@ -1,0 +1,16 @@
+fn count_primes(limit: Int) -> Int:
+    var sieve: [Bool] = []
+    for i in range(0, limit):
+        sieve.push(true)
+    var count = 0
+    for i in range(2, limit):
+        if sieve[i]:
+            count += 1
+            var j = i * i
+            while j < limit:
+                sieve[j] = false
+                j += i
+    return count
+
+fn main():
+    print(f"{count_primes(20000000)}\n")

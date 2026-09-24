@@ -1,0 +1,358 @@
+=== 01:32:50 mica check bank.mi
+검사 통과: 최상위 선언 7개
+--- exit 0
+=== 01:32:52 mica run bank.mi
+[ 1] OK        deposit    250 into #1
+[ 2] OK        withdraw    20 from #2
+[ 3] OK        transfer    75 from #1 to #3
+[ 4] NO SUCH   deposit     10 into #42 -- no account #42
+[ 5] REJECTED  deposit      0 into #2 -- 0 is not positive
+[ 6] DECLINED  withdraw   500 from #3 -- #3 has 75, needs 500
+[ 7] NO SUCH   withdraw     5 from #99 -- no account #99
+[ 8] REJECTED  withdraw    -3 from #1 -- -3 is not positive
+[ 9] DECLINED  transfer  1000 from #2 to #1 -- #2 has 30, needs 1000
+[10] NO SUCH   transfer     5 from #1 to #77 -- no account #77
+[11] NO SUCH   transfer     5 from #66 to #1 -- no account #66
+[12] REJECTED  transfer   -10 from #2 to #3 -- -10 is not positive
+[13] ERROR     transfer     5 from #2 to #2 -- same_account: cannot transfer #2 to itself
+[14] OK        transfer    30 from #2 to #3
+[15] DECLINED  withdraw     1 from #2 -- #2 has 0, needs 1
+lookup fallback: no account #1234
+lookup result: -1
+
+4 succeeded, 11 failed
+
+History:
+  1. DEPOSIT   +250 -> #1
+  2. WITHDRAW  -20 <- #2
+  3. TRANSFER  75: #1 -> #3
+  4. TRANSFER  30: #2 -> #3
+
+Balances:
+  #1 Alice     275
+  #2 Bob         0
+  #3 Carol     105
+  total 380 (expected 380)
+--- exit 0
+=== 01:32:58 mica run bank.mi
+[ 1] OK        deposit    250 into #1
+[ 2] OK        withdraw    20 from #2
+[ 3] OK        transfer    75 from #1 to #3
+[ 4] NO SUCH   deposit     10 into #42 -- no account #42
+[ 5] REJECTED  deposit      0 into #2 -- 0 is not positive
+[ 6] DECLINED  withdraw   500 from #3 -- #3 has 75, needs 500
+[ 7] NO SUCH   withdraw     5 from #99 -- no account #99
+[ 8] REJECTED  withdraw    -3 from #1 -- -3 is not positive
+[ 9] DECLINED  transfer  1000 from #2 to #1 -- #2 has 30, needs 1000
+[10] NO SUCH   transfer     5 from #1 to #77 -- no account #77
+[11] NO SUCH   transfer     5 from #66 to #1 -- no account #66
+[12] REJECTED  transfer   -10 from #2 to #3 -- -10 is not positive
+[13] POINTLESS transfer     5 from #2 to #2 -- cannot transfer #2 to itself
+[14] OK        transfer    30 from #2 to #3
+[15] DECLINED  withdraw     1 from #2 -- #2 has 0, needs 1
+lookup fallback: no account #1234
+lookup result: -1
+
+4 succeeded, 11 failed
+
+History:
+  1. DEPOSIT   +250 -> #1
+  2. WITHDRAW  -20 <- #2
+  3. TRANSFER  75: #1 -> #3
+  4. TRANSFER  30: #2 -> #3
+
+Balances:
+  #1 Alice     275
+  #2 Bob         0
+  #3 Carol     105
+  total 380 (expected 380)
+--- exit 0
+=== 01:32:58 mica build bank.mi -o prog
+컴파일 완료: ./prog
+--- exit 0
+=== 01:33:06 mica run probe_contract.mi
+after ok debit: 7
+오류[E0229]: `debit`의 사전 조건이 깨졌습니다: requires amount <= self.balance
+  --> probe_contract.mi:4:1
+  |
+4 |     fn debit(inout self, amount: Int):
+  | ^
+  도움말: 호출하는 쪽에서 이 조건을 먼저 확인하세요
+--- exit 1
+=== 01:33:06 mica build probe_contract.mi -o pc
+컴파일 완료: ./pc
+--- exit 0
+=== 01:33:06 mica run probe_ensures.mi
+post-state ensures passed: 1
+--- exit 0
+=== 01:33:06 mica build probe_ensures.mi -o pe
+컴파일 완료: ./pe
+--- exit 0
+=== 01:33:13 mica check probe_strmatch.mi
+검사 통과: 최상위 선언 2개
+--- exit 0
+=== 01:33:13 mica fmt --stdout bank.mi
+# bank.mi — a small in-memory bank.
+#
+# Account: a struct with methods (credit/debit carry contracts).
+# Tx:      an enum of transactions (Deposit, Withdraw, Transfer).
+# Bank:    holds the accounts and the transaction history.
+#
+# Errors are Mica `!T` values. Mica error values are always Str, so each
+# error starts with a machine-readable kind ("insufficient_funds", ...)
+# followed by ": " and a human message. Callers split off the kind and
+# `match` on it.
+
+struct Account:
+    id: Int
+    owner: Str
+    balance: Int
+
+    fn credit(inout self, amount: Int):
+        requires amount > 0
+        ensures self.balance >= amount
+        self.balance += amount
+
+    fn debit(inout self, amount: Int):
+        requires amount > 0
+        requires amount <= self.balance
+        ensures self.balance >= 0
+        self.balance -= amount
+
+    fn describe(self) -> Str:
+        return f"#{self.id} {self.owner:<6} {self.balance:>6}"
+
+enum Tx:
+    Deposit(account: Int, amount: Int)
+    Withdraw(account: Int, amount: Int)
+    Transfer(src: Int, dst: Int, amount: Int)
+
+fn describe_tx(t: Tx) -> Str:
+    match t:
+        case Deposit(a, amt):
+            return f"deposit  {amt:>5} into #{a}"
+        case Withdraw(a, amt):
+            return f"withdraw {amt:>5} from #{a}"
+        case Transfer(s, d, amt):
+            return f"transfer {amt:>5} from #{s} to #{d}"
+
+struct Bank:
+    accounts: [Account]
+    history: [Tx]
+    next_id: Int
+
+    fn open(inout self, owner: Str, initial: Int) -> Int:
+        requires initial >= 0
+        ensures result == self.next_id - 1
+        let id = self.next_id
+        self.accounts.push(Account(id: id, owner: owner, balance: initial))
+        self.next_id += 1
+        return id
+
+    fn index_of(self, id: Int) -> !Int:
+        var i = 0
+        while i < self.accounts.len():
+            if self.accounts[i].id == id:
+                return i
+            i += 1
+        return error(f"unknown_account: no account #{id}")
+
+    fn deposit(inout self, id: Int, amount: Int) -> !Unit:
+        if amount <= 0:
+            return error(f"invalid_amount: {amount} is not positive")
+        let i = try self.index_of(id)
+        self.accounts[i].credit(amount)
+        self.history.push(Deposit(account: id, amount: amount))
+        return
+
+    fn withdraw(inout self, id: Int, amount: Int) -> !Unit:
+        if amount <= 0:
+            return error(f"invalid_amount: {amount} is not positive")
+        let i = try self.index_of(id)
+        let bal = self.accounts[i].balance
+        if amount > bal:
+            return error(f"insufficient_funds: #{id} has {bal}, needs {amount}")
+        self.accounts[i].debit(amount)
+        self.history.push(Withdraw(account: id, amount: amount))
+        return
+
+    fn transfer(inout self, src: Int, dst: Int, amount: Int) -> !Unit:
+        if amount <= 0:
+            return error(f"invalid_amount: {amount} is not positive")
+        if src == dst:
+            return error(f"same_account: cannot transfer #{src} to itself")
+        let i = try self.index_of(src)
+        let j = try self.index_of(dst)
+        let bal = self.accounts[i].balance
+        if amount > bal:
+            return error(f"insufficient_funds: #{src} has {bal}, needs {amount}")
+        self.accounts[i].debit(amount)
+        self.accounts[j].credit(amount)
+        self.history.push(Transfer(src: src, dst: dst, amount: amount))
+        return
+
+    fn apply(inout self, t: Tx) -> !Unit:
+        match t:
+            case Deposit(a, amt):
+                try self.deposit(a, amt)
+            case Withdraw(a, amt):
+                try self.withdraw(a, amt)
+            case Transfer(s, d, amt):
+                try self.transfer(s, d, amt)
+        return
+
+    fn total(self) -> Int:
+        var sum = 0
+        for acc in self.accounts:
+            sum += acc.balance
+        return sum
+
+# Splits "kind: message" into its two parts.
+fn error_kind(e: Str) -> Str:
+    let at = e.find(": ")
+    if at < 0:
+        return "unknown"
+    return e.slice(0, at)
+
+fn error_message(e: Str) -> Str:
+    let at = e.find(": ")
+    if at < 0:
+        return e
+    return e.slice(at + 2, e.len())
+
+fn main():
+    var bank = Bank(accounts: [], history: [], next_id: 1)
+    let alice = bank.open("Alice", 100)
+    let bob = bank.open("Bob", 50)
+    let carol = bank.open("Carol", 0)
+    let start_total = bank.total()
+
+    # Every success and every failure path, in order.
+    let script = [
+        Deposit(account: alice, amount: 250),         # ok
+        Withdraw(account: bob, amount: 20),           # ok
+        Transfer(src: alice, dst: carol, amount: 75),  # ok
+        Deposit(account: 42, amount: 10),             # unknown account
+        Deposit(account: bob, amount: 0),             # non-positive amount
+        Withdraw(account: carol, amount: 500),        # insufficient funds
+        Withdraw(account: 99, amount: 5),             # unknown account
+        Withdraw(account: alice, amount: -3),         # non-positive amount
+        Transfer(src: bob, dst: alice, amount: 1000),  # insufficient funds
+        Transfer(src: alice, dst: 77, amount: 5),     # unknown destination
+        Transfer(src: 66, dst: alice, amount: 5),     # unknown source
+        Transfer(src: bob, dst: carol, amount: -10),  # non-positive amount
+        Transfer(src: bob, dst: bob, amount: 5),      # same account
+        Transfer(src: bob, dst: carol, amount: 30),   # ok (drains Bob)
+        Withdraw(account: bob, amount: 1),            # insufficient funds (0)
+    ]
+
+    var ok = 0
+    var failed = 0
+    var step = 1
+    for t in script:
+        let label = describe_tx(t)
+        bank.apply(t) catch e:
+            failed += 1
+            let kind = error_kind(e)
+            let msg = error_message(e)
+            match kind:
+                case "insufficient_funds":
+                    print(f"[{step:>2}] DECLINED  {label} -- {msg}\n")
+                case "unknown_account":
+                    print(f"[{step:>2}] NO SUCH   {label} -- {msg}\n")
+                case "invalid_amount":
+                    print(f"[{step:>2}] REJECTED  {label} -- {msg}\n")
+                case "same_account":
+                    print(f"[{step:>2}] POINTLESS {label} -- {msg}\n")
+                case _:
+                    print(f"[{step:>2}] ERROR     {label} -- {e}\n")
+            step += 1
+            continue
+        ok += 1
+        print(f"[{step:>2}] OK        {label}\n")
+        step += 1
+
+    # Direct call with `catch` yielding a fallback value.
+    let lookup = bank.index_of(1234) catch e:
+        if e.starts_with("unknown_account"):
+            print(f"lookup fallback: {error_message(e)}\n")
+        -1
+    print(f"lookup result: {lookup}\n")
+
+    print(f"\n{ok} succeeded, {failed} failed\n")
+
+    print("\nHistory:\n")
+    var n = 1
+    for t in bank.history:
+        match t:
+            case Deposit(a, amt):
+                print(f"  {n}. DEPOSIT   +{amt} -> #{a}\n")
+            case Withdraw(a, amt):
+                print(f"  {n}. WITHDRAW  -{amt} <- #{a}\n")
+            case Transfer(s, d, amt):
+                print(f"  {n}. TRANSFER  {amt}: #{s} -> #{d}\n")
+        n += 1
+
+    print("\nBalances:\n")
+    for acc in bank.accounts:
+        print(f"  {acc.describe()}\n")
+    let deposited = 250
+    let withdrawn = 20
+    print(f"  total {bank.total()} (expected {start_total + deposited - withdrawn})\n")
+--- exit 0
+=== 01:33:17 mica run probe_strmatch.mi
+오류[E0206]: match가 "c"을(를) 처리하지 못했습니다
+  --> probe_strmatch.mi:2:1
+  |
+2 |     match k:
+  | ^
+  도움말: 모든 경우를 덮거나 `case _:`를 추가하세요
+--- exit 1
+=== 01:33:17 mica build probe_strmatch.mi -o ps
+컴파일 완료: ./ps
+--- exit 0
+=== 01:33:22 mica check probe_noreturn.mi
+검사 통과: 최상위 선언 2개
+--- exit 0
+=== 01:33:22 mica run probe_noreturn.mi
+none
+--- exit 0
+=== 01:33:22 mica build probe_noreturn.mi -o pn
+컴파일 완료: ./pn
+--- exit 0
+=== 01:33:30 mica run bank.mi
+[ 1] OK        deposit    250 into #1
+[ 2] OK        withdraw    20 from #2
+[ 3] OK        transfer    75 from #1 to #3
+[ 4] NO SUCH   deposit     10 into #42 -- no account #42
+[ 5] REJECTED  deposit      0 into #2 -- 0 is not positive
+[ 6] DECLINED  withdraw   500 from #3 -- #3 has 75, needs 500
+[ 7] NO SUCH   withdraw     5 from #99 -- no account #99
+[ 8] REJECTED  withdraw    -3 from #1 -- -3 is not positive
+[ 9] DECLINED  transfer  1000 from #2 to #1 -- #2 has 30, needs 1000
+[10] NO SUCH   transfer     5 from #1 to #77 -- no account #77
+[11] NO SUCH   transfer     5 from #66 to #1 -- no account #66
+[12] REJECTED  transfer   -10 from #2 to #3 -- -10 is not positive
+[13] POINTLESS transfer     5 from #2 to #2 -- cannot transfer #2 to itself
+[14] OK        transfer    30 from #2 to #3
+[15] DECLINED  withdraw     1 from #2 -- #2 has 0, needs 1
+lookup fallback: no account #1234
+lookup result: -1
+
+4 succeeded, 11 failed
+
+History:
+  1. DEPOSIT   +250 -> #1
+  2. WITHDRAW  -20 <- #2
+  3. TRANSFER  75: #1 -> #3
+  4. TRANSFER  30: #2 -> #3
+
+Balances:
+  #1 Alice     275
+  #2 Bob         0
+  #3 Carol     105
+  total 380 (expected 380)
+--- exit 0
+=== 01:33:30 mica build bank.mi -o prog
+컴파일 완료: ./prog
+--- exit 0

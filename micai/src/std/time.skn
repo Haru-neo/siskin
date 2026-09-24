@@ -1,0 +1,165 @@
+# std.time — 날짜와 시각.
+from std.time import now
+# 이 파일은 컴파일러 안에 들어 있고, `import std.time` 을 쓰면 프로그램에 합쳐집니다.
+# 운영체제에 묻는 부분(__time_parts, __time_make)만 내장이고 나머지는 Siskin 으로 썼습니다.
+
+struct DateTime:
+    year: Int
+    month: Int
+    day: Int
+    hour: Int
+    minute: Int
+    second: Int
+    weekday: Int
+    offset: Int
+    utc: Bool
+
+    fn format(self, pattern: Str) -> Str:
+        var out = ""
+        var i = 0
+        let n = pattern.len()
+        while i < n:
+            let c = pattern[i]
+            if c != "%" or i + 1 >= n:
+                out += c
+                i += 1
+                continue
+            let k = pattern[i + 1]
+            i += 2
+            if k == "Y":
+                out += __pad(self.year, 4)
+            elif k == "y":
+                out += __pad(self.year % 100, 2)
+            elif k == "m":
+                out += __pad(self.month, 2)
+            elif k == "d":
+                out += __pad(self.day, 2)
+            elif k == "H":
+                out += __pad(self.hour, 2)
+            elif k == "M":
+                out += __pad(self.minute, 2)
+            elif k == "S":
+                out += __pad(self.second, 2)
+            elif k == "a":
+                out += ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][self.weekday - 1]
+            elif k == "A":
+                out += ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][self.weekday - 1]
+            elif k == "b":
+                out += ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][self.month - 1]
+            elif k == "K":
+                out += self.weekday_name()
+            elif k == "z":
+                let sign = "-" if self.offset < 0 else "+"
+                let off = abs(self.offset) / 60
+                out += sign + __pad(off / 60, 2) + __pad(off % 60, 2)
+            elif k == "%":
+                out += "%"
+            else:
+                out += "%" + k
+        return out
+
+    fn date_str(self) -> Str:
+        return self.format("%Y-%m-%d")
+
+    fn time_str(self) -> Str:
+        return self.format("%H:%M:%S")
+
+    fn to_str(self) -> Str:
+        return self.format("%Y-%m-%d %H:%M:%S")
+
+    fn weekday_name(self) -> Str:
+        return ["월", "화", "수", "목", "금", "토", "일"][self.weekday - 1]
+
+    fn timestamp(self) -> Float:
+        return __time_make(self.year, self.month, self.day, self.hour, self.minute, self.second, self.utc)
+
+    fn add_seconds(self, n: Int) -> DateTime:
+        return __from_parts(__time_make(self.year, self.month, self.day, self.hour, self.minute, self.second + n, self.utc), self.utc)
+
+    fn add_days(self, n: Int) -> DateTime:
+        return __from_parts(__time_make(self.year, self.month, self.day + n, self.hour, self.minute, self.second, self.utc), self.utc)
+
+    fn days_until(self, other: DateTime) -> Int:
+        let a = __time_make(self.year, self.month, self.day, 0, 0, 0, true)
+        let b = __time_make(other.year, other.month, other.day, 0, 0, 0, true)
+        return int((b - a) / 86400.0)
+
+fn __pad(n: Int, width: Int) -> Str:
+    var s = str(n)
+    while s.len() < width:
+        s = "0" + s
+    return s
+
+fn __from_parts(t: Float, utc: Bool) -> DateTime:
+    let p = __time_parts(t, utc)
+    return DateTime(year: p[0], month: p[1], day: p[2], hour: p[3], minute: p[4], second: p[5], weekday: p[6], offset: p[7], utc: utc)
+
+fn local_time(t: Float) -> DateTime:
+    return __from_parts(t, false)
+
+fn utc_time(t: Float) -> DateTime:
+    return __from_parts(t, true)
+
+fn today() -> DateTime:
+    return __from_parts(now(), false)
+
+fn date(year: Int, month: Int, day: Int) -> DateTime:
+    return __from_parts(__time_make(year, month, day, 0, 0, 0, false), false)
+
+fn __digits(s: Str, at: Int, count: Int) -> Int:
+    var v = 0
+    var i = 0
+    while i < count:
+        if at + i >= s.len():
+            return -1
+        let c = s[at + i]
+        if c < "0" or c > "9":
+            return -1
+        v = v * 10 + ("0123456789".find(c))
+        i += 1
+    return v
+
+fn parse_time(text: Str, pattern: Str) -> !DateTime:
+    var y = 1970
+    var mo = 1
+    var d = 1
+    var h = 0
+    var mi = 0
+    var s = 0
+    var i = 0
+    var j = 0
+    let n = pattern.len()
+    while i < n:
+        let c = pattern[i]
+        if c == "%" and i + 1 < n:
+            let k = pattern[i + 1]
+            let width = 4 if k == "Y" else 2
+            let v = __digits(text, j, width)
+            if v < 0:
+                return error(f"`{text}` 이(가) `{pattern}` 모양이 아닙니다 ({j + 1}번째 글자)" if __ko() else f"`{text}` does not match `{pattern}` (at character {j + 1})")
+            if k == "Y":
+                y = v
+            elif k == "m":
+                mo = v
+            elif k == "d":
+                d = v
+            elif k == "H":
+                h = v
+            elif k == "M":
+                mi = v
+            elif k == "S":
+                s = v
+            else:
+                return error(f"`%{k}` 는 읽을 수 없습니다. %Y %m %d %H %M %S 만 됩니다" if __ko() else f"cannot parse `%{k}`; only %Y %m %d %H %M %S are supported")
+            i += 2
+            j += width
+            continue
+        if j >= text.len() or text[j] != c:
+            return error(f"`{text}` 이(가) `{pattern}` 모양이 아닙니다 ({j + 1}번째 글자)" if __ko() else f"`{text}` does not match `{pattern}` (at character {j + 1})")
+        i += 1
+        j += 1
+    if j != text.len():
+        return error(f"`{text}` 뒤에 남는 글자가 있습니다" if __ko() else f"unexpected trailing characters in `{text}`")
+    if mo < 1 or mo > 12 or d < 1 or d > 31 or h > 23 or mi > 59 or s > 60:
+        return error(f"`{text}` 은(는) 있을 수 없는 날짜입니다" if __ko() else f"`{text}` is not a valid date")
+    return __from_parts(__time_make(y, mo, d, h, mi, s, false), false)

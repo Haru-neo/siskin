@@ -1,0 +1,38 @@
+# ?T 와 !T — null도 예외도 없습니다
+
+struct User:
+    id: Int
+    name: Str
+
+fn find(users: [User], id: Int) -> ?User:
+    for u in users:
+        if u.id == id:
+            return u
+    return none
+
+fn parse_age(text: Str) -> !Int:
+    let n = try int(text)
+    if n < 0:
+        return error("나이는 음수일 수 없습니다")
+    return n
+
+fn main():
+    let users = [User(id: 1, name: "하루"), User(id: 2, name: "미카")]
+
+    let found = find(users, 2)
+    if found != none:
+        print(f"찾음: {found.name}\n")
+
+    let missing = find(users, 99)
+    if missing == none:
+        print("99번은 없습니다\n")
+
+    let age = parse_age("34") catch e:
+        print(f"실패: {e}\n")
+        return
+    print(f"나이 {age}\n")
+
+    let bad = parse_age("서른넷") catch e:
+        print(f"실패: {e}\n")
+        return
+    print(f"여기는 실행되지 않습니다 {bad}\n")

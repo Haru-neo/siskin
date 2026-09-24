@@ -1,0 +1,6 @@
+fn parse(text: Str) -> Int:
+    let n = try int(text)
+    return n
+
+fn main():
+    print(f"{parse("12")}\n")

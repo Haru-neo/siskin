@@ -1,0 +1,15 @@
+struct Counter:
+    n: Int
+    fn bump(inout self):
+        self.n += 1
+    fn add(inout self, k: Int):
+        self.n += k
+
+fn main():
+    var c = Counter(n: 0)
+    c.bump()
+    c.bump()
+    c.add(10)
+    print("메서드로 세 번 올린 뒤: " + str(c.n) + "\n")
+    c.n += 1
+    print("직접 올린 뒤: " + str(c.n) + "\n")

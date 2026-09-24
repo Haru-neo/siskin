@@ -1,0 +1,59 @@
+struct Tree:
+    v: Int
+    left: ?Tree
+    right: ?Tree
+
+fn insert(t: ?Tree, v: Int) -> Tree:
+    if t == none:
+        return Tree(v: v, left: none, right: none)
+    var n = t
+    if v < n.v:
+        n.left = insert(n.left, v)
+    else:
+        n.right = insert(n.right, v)
+    return n
+
+fn walk(t: ?Tree, inout out: [Int]):
+    if t == none:
+        return
+    walk(t.left, out)
+    out.push(t.v)
+    walk(t.right, out)
+
+fn depth(t: ?Tree) -> Int:
+    if t == none:
+        return 0
+    return 1 + max(depth(t.left), depth(t.right))
+
+enum Expr:
+    Num(v: Int)
+    Wrap(s: Holder)
+
+struct Holder:
+    label: Str
+    inner: ?Expr
+
+struct P:
+    x: Int
+
+fn main():
+    var root: ?Tree = none
+    for v in [5, 3, 8, 1, 4, 9, 7]:
+        root = insert(root, v)
+    var out: [Int] = []
+    walk(root, out)
+    print(f"{out} depth={depth(root)}\n")
+    let t1 = Tree(v: 1, left: none, right: none)
+    let t2 = Tree(v: 1, left: none, right: none)
+    var t3 = t1
+    t3.left = t2
+    print(f"{t1 == t2} {t1 == t3} {t3}\n")
+    let h = Holder(label: "h", inner: Num(v: 3))
+    let e = Wrap(s: h)
+    match e:
+        case Wrap(s):
+            print(f"{s.label} {s.inner}\n")
+        case Num(v):
+            print(f"{v}\n")
+    let pp: ?P = P(x: 2)
+    print(f"{pp}\n")

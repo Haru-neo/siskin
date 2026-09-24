@@ -1,0 +1,93 @@
+# 단어 빈도: 파일을 읽어 가장 많이 나온 단어 10개를 표로 보여 줍니다.
+from std.fs import read_text
+
+fn is_letter(c: Str) -> Bool:
+    """
+    소문자 영문자나 한글 음절이면 참입니다.
+
+    >>> is_letter("a")
+    true
+    >>> is_letter("여")
+    true
+    >>> is_letter("!")
+    false
+    >>> is_letter("Q")
+    false
+    """
+    return (c >= "a" and c <= "z") or (c >= "가" and c <= "힣")
+
+fn split_words(text: Str) -> [Str]:
+    """
+    소문자로 바꾼 뒤 글자만 이어진 덩어리로 자릅니다. 문장 부호는 버립니다.
+
+    >>> split_words("The dog, the FOX!")
+    ["the", "dog", "the", "fox"]
+    >>> split_words("여우와 개는 친구가 아니다.")
+    ["여우와", "개는", "친구가", "아니다"]
+    >>> split_words("  ...  ")
+    []
+    """
+    var words: [Str] = []
+    var cur = ""
+    for c in text.lower():
+        if is_letter(c):
+            cur += c
+        elif cur != "":
+            words.push(cur)
+            cur = ""
+    if cur != "":
+        words.push(cur)
+    return words
+
+fn count_words(words: [Str]) -> {Str: Int}:
+    """
+    >>> count_words(["a", "b", "a"])
+    {"a": 2, "b": 1}
+    """
+    var counts: {Str: Int} = {}
+    for w in words:
+        counts[w] = counts.get(w, 0) + 1
+    return counts
+
+fn ranked(counts: {Str: Int}) -> [(Str, Int)]:
+    """
+    많이 나온 순서, 같으면 알파벳(가나다) 순서입니다.
+
+    >>> ranked({"b": 2, "c": 1, "a": 2})
+    [("a", 2), ("b", 2), ("c", 1)]
+    """
+    var pairs: [(Str, Int)] = []
+    for w, n in counts:
+        pairs.push((w, n))
+    pairs.sort_by(fn(p): p.0)       # 먼저 단어순
+    pairs.sort_by(fn(p): -p.1)      # 그다음 개수순 (안정 정렬이라 단어순이 유지됩니다)
+    return pairs
+
+fn main() -> !Unit:
+    let argv = args()
+    let path = argv[0] if argv.len() > 0 else "input.txt"
+    let text = try read_text(path)
+
+    let words = split_words(text)
+    let counts = count_words(words)
+    let top = ranked(counts).slice(0, 10)
+
+    var wide = "word".width()
+    for (w, n) in top:
+        wide = max(wide, w.width())
+
+    # 개수 칸의 폭: 제목 "count" 와 가장 큰 수 중 넓은 쪽
+    var count_w = "count".width()
+    for (w, n) in top:
+        count_w = max(count_w, str(n).width())
+
+    print(f"{"rank":>4}  {"word".pad_right(wide)}  {"count".pad_left(count_w)}\n")
+    print("-".repeat(4 + 2 + wide + 2 + count_w) + "\n")
+    var rank = 1
+    for (w, n) in top:
+        print(f"{rank:>4}  {w.pad_right(wide)}  {str(n).pad_left(count_w)}\n")
+        rank += 1
+    print("\n")
+    print(f"total words:    {words.len()}\n")
+    print(f"distinct words: {counts.len()}\n")
+    return

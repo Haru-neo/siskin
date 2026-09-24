@@ -1,0 +1,983 @@
+=== 00:12:41 mica check inventory.mi
+오류[E0116]: `)`을(를) 기대했는데 `=`이(가) 왔습니다
+  --> inventory.mi:20:24
+   |
+20 |     return Ok(Item(name=item.name, price=item.price, qty=item.qty - n))
+   |                        ^
+  도움말: 여기에 `)`을(를) 넣으세요
+--- exit 1
+=== 00:12:44 mica check --json inventory.mi
+{"file":"inventory.mi","diagnostics":[{"code":"E0116","severity":"error","file":"inventory.mi","line":20,"col":24,"message":"`)`을(를) 기대했는데 `=`이(가) 왔습니다","fix":"여기에 `)`을(를) 넣으세요"}]}
+--- exit 1
+=== 00:12:47 mica --help
+Mica P1 인터프리터
+
+사용법:
+  mica run <파일.mi>        프로그램을 실행합니다
+  mica check <파일.mi>      문법만 검사합니다
+  mica check --json <파일>  기계가 읽는 진단을 냅니다 (설계 문서 §9.2)
+  mica build <파일.mi>      네이티브 실행 파일로 컴파일합니다
+      -o <이름>             출력 파일 이름 (기본: 소스 이름)
+      --emit-c              C 코드만 내보내고 멈춥니다
+      --release             계약 검사를 빼고 최적화합니다
+      --debug               gdb 로 .mi 줄을 따라갈 수 있게 만듭니다
+  mica test <파일.mi>       docstring 안의 >>> 예제를 실행합니다 (§9.6)
+  mica tokens <파일.mi>     토큰을 출력합니다 (디버그용)
+  mica ffi <헤더.h>        그 라이브러리에서 뭘 쓸 수 있는지 봅니다
+      --cpp                 C++ 헤더로 읽습니다
+      --from <폴더>         헤더를 찾을 폴더
+      --all                 가져온 함수 이름을 전부 보여줍니다
+  mica fmt <파일|폴더>...    코드 모양을 정리합니다 (들여쓰기, 띄어쓰기)
+      --check               고칠 곳이 있으면 알려만 주고 실패로 끝납니다
+      --stdout              파일은 그대로 두고 결과를 화면에 냅니다
+  mica debug <파일.mi>      한 줄씩 따라가며 값을 봅니다 (디버거)
+      -b <줄>               그 줄에서 멈춥니다 (여러 번 써도 됩니다)
+  mica new <이름>           새 프로젝트 폴더를 만듭니다
+  mica add <이름> <주소>    패키지를 씁니다 (git 주소나 폴더, --rev 태그)
+  mica install              mica.toml 의 패키지를 받아 옵니다 (mica.lock 의 판 그대로)
+  mica update               패키지를 새 판으로 올립니다
+  mica remove <이름>        패키지를 뺍니다
+  mica lsp                  에디터용 언어 서버 (VS Code, Neovim 등이 띄웁니다)
+  mica version
+--- exit 2
+=== 00:12:50 mica check inventory.mi
+오류[E0100]: `:`을(를) 기대했는데 `.`이(가) 왔습니다
+  --> inventory.mi:27:22
+   |
+27 |         case Category.Food:
+   |                      ^
+  도움말: 여기에 `:`을(를) 넣으세요
+--- exit 1
+=== 00:12:52 mica check inventory.mi
+오류[E0116]: `)`을(를) 기대했는데 `=`이(가) 왔습니다
+  --> inventory.mi:64:37
+   |
+64 |     sorted_items = sorted(items, key=total_value)
+   |                                     ^
+  도움말: 여기에 `)`을(를) 넣으세요
+--- exit 1
+=== 00:12:55 mica check inventory.mi
+오류[T0001]: 타입 `list`을(를) 찾을 수 없습니다
+  --> inventory.mi:11:1
+   |
+11 | fn find_item(items: list[Item], name: str) -> Option[Item]:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `str`을(를) 찾을 수 없습니다
+  --> inventory.mi:11:1
+   |
+11 | fn find_item(items: list[Item], name: str) -> Option[Item]:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `Option`을(를) 찾을 수 없습니다
+  --> inventory.mi:11:1
+   |
+11 | fn find_item(items: list[Item], name: str) -> Option[Item]:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> inventory.mi:17:1
+   |
+17 | fn sell(item: Item, n: int) -> Result[Item, str]:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `result`을(를) 찾을 수 없습니다
+  --> inventory.mi:17:1
+   |
+17 | fn sell(item: Item, n: int) -> Result[Item, str]:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `float`을(를) 찾을 수 없습니다
+  --> inventory.mi:22:1
+   |
+22 | fn total_value(item: Item) -> float:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `str`을(를) 찾을 수 없습니다
+  --> inventory.mi:25:1
+   |
+25 | fn label(c: Category) -> str:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `list`을(를) 찾을 수 없습니다
+  --> inventory.mi:11:1
+   |
+11 | fn find_item(items: list[Item], name: str) -> Option[Item]:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `str`을(를) 찾을 수 없습니다
+  --> inventory.mi:11:1
+   |
+11 | fn find_item(items: list[Item], name: str) -> Option[Item]:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `Option`을(를) 찾을 수 없습니다
+  --> inventory.mi:11:1
+   |
+11 | fn find_item(items: list[Item], name: str) -> Option[Item]:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0038]: `Some`(이)라는 함수를 찾을 수 없습니다
+  --> inventory.mi:14:20
+   |
+14 |             return Some(item)
+   |                    ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0014]: `None`을(를) 찾을 수 없습니다
+  --> inventory.mi:15:12
+   |
+15 |     return None
+   |            ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> inventory.mi:17:1
+   |
+17 | fn sell(item: Item, n: int) -> Result[Item, str]:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `result`을(를) 찾을 수 없습니다
+  --> inventory.mi:17:1
+   |
+17 | fn sell(item: Item, n: int) -> Result[Item, str]:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> inventory.mi:18:1
+   |
+18 |     if item.qty < n:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `str`을(를) 찾을 수 없습니다
+  --> inventory.mi:19:1
+   |
+19 |         return Err(f"not enough stock for {item.name}: have {item.qty}, want {n}")
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> inventory.mi:19:1
+   |
+19 |         return Err(f"not enough stock for {item.name}: have {item.qty}, want {n}")
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0038]: `Err`(이)라는 함수를 찾을 수 없습니다
+  --> inventory.mi:19:16
+   |
+19 |         return Err(f"not enough stock for {item.name}: have {item.qty}, want {n}")
+   |                ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0001]: 타입 `str`을(를) 찾을 수 없습니다
+  --> inventory.mi:20:1
+   |
+20 |     return Ok(Item(item.name, item.price, item.qty - n))
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `float`을(를) 찾을 수 없습니다
+  --> inventory.mi:20:1
+   |
+20 |     return Ok(Item(item.name, item.price, item.qty - n))
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> inventory.mi:20:1
+   |
+20 |     return Ok(Item(item.name, item.price, item.qty - n))
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `str`을(를) 찾을 수 없습니다
+  --> inventory.mi:20:1
+   |
+20 |     return Ok(Item(item.name, item.price, item.qty - n))
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `float`을(를) 찾을 수 없습니다
+  --> inventory.mi:20:1
+   |
+20 |     return Ok(Item(item.name, item.price, item.qty - n))
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> inventory.mi:20:1
+   |
+20 |     return Ok(Item(item.name, item.price, item.qty - n))
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0038]: `Ok`(이)라는 함수를 찾을 수 없습니다
+  --> inventory.mi:20:12
+   |
+20 |     return Ok(Item(item.name, item.price, item.qty - n))
+   |            ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0001]: 타입 `float`을(를) 찾을 수 없습니다
+  --> inventory.mi:22:1
+   |
+22 | fn total_value(item: Item) -> float:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `float`을(를) 찾을 수 없습니다
+  --> inventory.mi:23:1
+   |
+23 |     return item.price * float(item.qty)
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> inventory.mi:23:1
+   |
+23 |     return item.price * float(item.qty)
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `str`을(를) 찾을 수 없습니다
+  --> inventory.mi:25:1
+   |
+25 | fn label(c: Category) -> str:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `str`을(를) 찾을 수 없습니다
+  --> inventory.mi:36:1
+   |
+36 |         Item("apple", 0.5, 100),
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `float`을(를) 찾을 수 없습니다
+  --> inventory.mi:36:1
+   |
+36 |         Item("apple", 0.5, 100),
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> inventory.mi:36:1
+   |
+36 |         Item("apple", 0.5, 100),
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `str`을(를) 찾을 수 없습니다
+  --> inventory.mi:37:1
+   |
+37 |         Item("hammer", 12.99, 5),
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `float`을(를) 찾을 수 없습니다
+  --> inventory.mi:37:1
+   |
+37 |         Item("hammer", 12.99, 5),
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> inventory.mi:37:1
+   |
+37 |         Item("hammer", 12.99, 5),
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `str`을(를) 찾을 수 없습니다
+  --> inventory.mi:38:1
+   |
+38 |         Item("yoyo", 3.25, 20),
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `float`을(를) 찾을 수 없습니다
+  --> inventory.mi:38:1
+   |
+38 |         Item("yoyo", 3.25, 20),
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> inventory.mi:38:1
+   |
+38 |         Item("yoyo", 3.25, 20),
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `str`을(를) 찾을 수 없습니다
+  --> inventory.mi:39:1
+   |
+39 |         Item("bread", 2.75, 30),
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `float`을(를) 찾을 수 없습니다
+  --> inventory.mi:39:1
+   |
+39 |         Item("bread", 2.75, 30),
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> inventory.mi:39:1
+   |
+39 |         Item("bread", 2.75, 30),
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `str`을(를) 찾을 수 없습니다
+  --> inventory.mi:40:1
+   |
+40 |         Item("wrench", 8.0, 7),
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `float`을(를) 찾을 수 없습니다
+  --> inventory.mi:40:1
+   |
+40 |         Item("wrench", 8.0, 7),
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> inventory.mi:40:1
+   |
+40 |         Item("wrench", 8.0, 7),
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0014]: `items`을(를) 찾을 수 없습니다
+  --> inventory.mi:35:5
+   |
+35 |     items = [
+   |     ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `items`을(를) 찾을 수 없습니다
+  --> inventory.mi:43:17
+   |
+43 |     for item in items:
+   |                 ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `items`을(를) 찾을 수 없습니다
+  --> inventory.mi:46:21
+   |
+46 |     match find_item(items, "hammer"):
+   |                     ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `it`을(를) 찾을 수 없습니다
+  --> inventory.mi:48:19
+   |
+48 |             print(f"found {it.name}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `items`을(를) 찾을 수 없습니다
+  --> inventory.mi:52:16
+   |
+52 |     match sell(items[1], 10):
+   |                ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `it`을(를) 찾을 수 없습니다
+  --> inventory.mi:54:19
+   |
+54 |             print(f"sold, now {it.qty}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `e`을(를) 찾을 수 없습니다
+  --> inventory.mi:56:19
+   |
+56 |             print(f"error: {e}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `items`을(를) 찾을 수 없습니다
+  --> inventory.mi:58:16
+   |
+58 |     match sell(items[1], 2):
+   |                ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `it`을(를) 찾을 수 없습니다
+  --> inventory.mi:60:19
+   |
+60 |             print(f"sold, now {it.qty}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `e`을(를) 찾을 수 없습니다
+  --> inventory.mi:62:19
+   |
+62 |             print(f"error: {e}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `items`을(를) 찾을 수 없습니다
+  --> inventory.mi:64:27
+   |
+64 |     sorted_items = sorted(items, total_value)
+   |                           ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0038]: `sorted`(이)라는 함수를 찾을 수 없습니다
+  --> inventory.mi:64:20
+   |
+64 |     sorted_items = sorted(items, total_value)
+   |                    ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0014]: `sorted_items`을(를) 찾을 수 없습니다
+  --> inventory.mi:64:5
+   |
+64 |     sorted_items = sorted(items, total_value)
+   |     ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `sorted_items`을(를) 찾을 수 없습니다
+  --> inventory.mi:65:17
+   |
+65 |     for item in sorted_items:
+   |                 ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `Category`을(를) 찾을 수 없습니다
+  --> inventory.mi:68:17
+   |
+68 |     print(label(Category.Tool) + "\n")
+   |                 ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류 59개
+--- exit 1
+=== 00:13:02 mica check inventory.mi
+오류[E0100]: `:`을(를) 기대했는데 `?`이(가) 왔습니다
+  --> inventory.mi:11:51
+   |
+11 | fn find_item(items: List[Item], name: Str) -> Item?:
+   |                                                   ^
+  도움말: 여기에 `:`을(를) 넣으세요
+--- exit 1
+=== 00:13:05 mica check inventory.mi
+오류[T0001]: 타입 `List`을(를) 찾을 수 없습니다
+  --> inventory.mi:11:1
+   |
+11 | fn find_item(items: List[Item], name: Str) -> Maybe[Item]:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `Maybe`을(를) 찾을 수 없습니다
+  --> inventory.mi:11:1
+   |
+11 | fn find_item(items: List[Item], name: Str) -> Maybe[Item]:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `result`을(를) 찾을 수 없습니다
+  --> inventory.mi:17:1
+   |
+17 | fn sell(item: Item, n: Int) -> Result[Item, Str]:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `List`을(를) 찾을 수 없습니다
+  --> inventory.mi:11:1
+   |
+11 | fn find_item(items: List[Item], name: Str) -> Maybe[Item]:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `Maybe`을(를) 찾을 수 없습니다
+  --> inventory.mi:11:1
+   |
+11 | fn find_item(items: List[Item], name: Str) -> Maybe[Item]:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0038]: `Some`(이)라는 함수를 찾을 수 없습니다
+  --> inventory.mi:14:20
+   |
+14 |             return Some(item)
+   |                    ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0014]: `None`을(를) 찾을 수 없습니다
+  --> inventory.mi:15:12
+   |
+15 |     return None
+   |            ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0001]: 타입 `result`을(를) 찾을 수 없습니다
+  --> inventory.mi:17:1
+   |
+17 | fn sell(item: Item, n: Int) -> Result[Item, Str]:
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0038]: `Err`(이)라는 함수를 찾을 수 없습니다
+  --> inventory.mi:19:16
+   |
+19 |         return Err(f"not enough stock for {item.name}: have {item.qty}, want {n}")
+   |                ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0038]: `Ok`(이)라는 함수를 찾을 수 없습니다
+  --> inventory.mi:20:12
+   |
+20 |     return Ok(Item(item.name, item.price, item.qty - n))
+   |            ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0014]: `it`을(를) 찾을 수 없습니다
+  --> inventory.mi:48:19
+   |
+48 |             print(f"found {it.name}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `it`을(를) 찾을 수 없습니다
+  --> inventory.mi:54:19
+   |
+54 |             print(f"sold, now {it.qty}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `e`을(를) 찾을 수 없습니다
+  --> inventory.mi:56:19
+   |
+56 |             print(f"error: {e}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `it`을(를) 찾을 수 없습니다
+  --> inventory.mi:60:19
+   |
+60 |             print(f"sold, now {it.qty}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `e`을(를) 찾을 수 없습니다
+  --> inventory.mi:62:19
+   |
+62 |             print(f"error: {e}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0038]: `sorted`(이)라는 함수를 찾을 수 없습니다
+  --> inventory.mi:64:24
+   |
+64 |     let sorted_items = sorted(items, total_value)
+   |                        ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0014]: `Category`을(를) 찾을 수 없습니다
+  --> inventory.mi:68:17
+   |
+68 |     print(label(Category.Tool) + "\n")
+   |                 ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류 17개
+--- exit 1
+=== 00:13:15 mica tokens probe.mi
+   1:1   이름 `Result`
+   1:8   이름 `Option`
+   1:15  이름 `Maybe`
+   1:21  이름 `Some`
+   1:26  이름 `None`
+   1:31  이름 `Ok`
+   1:34  이름 `Err`
+   1:38  이름 `List`
+   1:43  이름 `Map`
+   1:47  이름 `Dict`
+   1:52  키워드 `none`
+   1:57  이름 `nil`
+   1:61  이름 `null`
+   1:66  이름 `opt`
+   1:70  이름 `maybe`
+   1:76  이름 `result`
+   1:83  이름 `option`
+   1:90  이름 `ok`
+   1:93  이름 `err`
+   1:97  이름 `some`
+   1:102 이름 `Array`
+   1:108 이름 `Vec`
+   1:112 이름 `Seq`
+   1:116 이름 `Error`
+   1:1   줄바꿈
+   2:1   파일 끝
+--- exit 0
+=== 00:13:19 mica tokens probe.mi
+오류[E0004]: 알 수 없는 문자 `|`
+  --> probe.mi:2:33
+  |
+2 | x: ?Int y: Int? z: [Int] w: Int | none v: Int ! Str -> => :: ?? ?. ! .. ..= @ |> $ #
+  |                                 ^
+--- exit 1
+=== 00:13:22 mica tokens probe.mi
+오류[E0004]: 알 수 없는 문자 `@`
+  --> probe.mi:2:63
+  |
+2 | x: ?Int y: Int? z: [Int] v: Int ! Str -> => :: ?? ?. ! .. ..= @ 
+  |                                                               ^
+--- exit 1
+=== 00:13:25 mica tokens probe.mi
+   1:1   키워드 `let`
+   1:5   키워드 `var`
+   1:9   이름 `mut`
+   1:13  이름 `const`
+   1:19  이름 `val`
+   1:23  키워드 `fn`
+   1:26  이름 `def`
+   1:30  키워드 `return`
+   1:37  키워드 `if`
+   1:40  키워드 `elif`
+   1:45  키워드 `else`
+   1:50  키워드 `while`
+   1:56  키워드 `for`
+   1:60  키워드 `in`
+   1:63  키워드 `match`
+   1:69  키워드 `case`
+   1:74  키워드 `struct`
+   1:81  키워드 `enum`
+   1:86  이름 `type`
+   1:91  이름 `trait`
+   1:97  이름 `impl`
+   1:102 키워드 `interface`
+   1:112 이름 `class`
+   1:118 키워드 `import`
+   1:125 키워드 `from`
+   1:130 키워드 `as`
+   1:133 키워드 `and`
+   1:137 키워드 `or`
+   1:140 키워드 `not`
+   1:144 이름 `is`
+   1:147 키워드 `true`
+   1:152 키워드 `false`
+   1:158 이름 `True`
+   1:163 이름 `False`
+   1:169 키워드 `none`
+   1:174 키워드 `try`
+   1:178 키워드 `catch`
+   1:184 이름 `throw`
+   1:190 이름 `raise`
+   1:196 이름 `fail`
+   1:201 이름 `error`
+   1:207 이름 `ok`
+   1:210 이름 `some`
+   1:215 이름 `pass`
+   1:220 키워드 `break`
+   1:226 키워드 `continue`
+   1:235 키워드 `with`
+   1:240 이름 `yield`
+   1:246 이름 `async`
+   1:252 이름 `await`
+   1:258 키워드 `pub`
+   1:262 이름 `self`
+   1:267 이름 `Self`
+   1:272 이름 `where`
+   1:278 이름 `use`
+   1:282 이름 `mod`
+   1:286 이름 `test`
+   1:291 이름 `assert`
+   1:298 이름 `defer`
+   1:304 이름 `guard`
+   1:310 이름 `unless`
+   1:317 이름 `loop`
+   1:322 이름 `do`
+   1:325 이름 `then`
+   1:330 이름 `end`
+   1:334 이름 `new`
+   1:338 이름 `ensure`
+   1:345 이름 `require`
+   1:353 이름 `fallible`
+   1:362 이름 `throws`
+   1:1   줄바꿈
+   2:1   이름 `x`
+   2:2   `:`
+   2:4   `?`
+   2:5   이름 `Int`
+   2:9   이름 `y`
+   2:10  `:`
+   2:12  이름 `Int`
+   2:15  `?`
+   2:17  이름 `z`
+   2:18  `:`
+   2:20  `[`
+   2:21  이름 `Int`
+   2:24  `]`
+   2:26  이름 `v`
+   2:27  `:`
+   2:29  이름 `Int`
+   2:33  `!`
+   2:35  이름 `Str`
+   2:39  `->`
+   2:42  `=`
+   2:43  `>`
+   2:45  `:`
+   2:46  `:`
+   2:48  `?`
+   2:49  `?`
+   2:51  `?`
+   2:52  `.`
+   2:54  `!`
+   2:56  `.`
+   2:57  `.`
+   2:59  `.`
+   2:60  `.`
+   2:61  `=`
+   2:1   줄바꿈
+   3:1   파일 끝
+--- exit 0
+=== 00:13:30 mica check inventory.mi
+오류[E0100]: `:`을(를) 기대했는데 `!`이(가) 왔습니다
+  --> inventory.mi:17:37
+   |
+17 | fn sell(item: Item, n: Int) -> Item ! Str:
+   |                                     ^
+  도움말: 여기에 `:`을(를) 넣으세요
+--- exit 1
+=== 00:13:34 mica check inventory.mi
+오류[T0038]: `Err`(이)라는 함수를 찾을 수 없습니다
+  --> inventory.mi:19:16
+   |
+19 |         return Err(f"not enough stock for {item.name}: have {item.qty}, want {n}")
+   |                ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0014]: `it`을(를) 찾을 수 없습니다
+  --> inventory.mi:48:19
+   |
+48 |             print(f"found {it.name}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `it`을(를) 찾을 수 없습니다
+  --> inventory.mi:54:19
+   |
+54 |             print(f"sold, now {it.qty}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `e`을(를) 찾을 수 없습니다
+  --> inventory.mi:56:19
+   |
+56 |             print(f"error: {e}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `it`을(를) 찾을 수 없습니다
+  --> inventory.mi:60:19
+   |
+60 |             print(f"sold, now {it.qty}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `e`을(를) 찾을 수 없습니다
+  --> inventory.mi:62:19
+   |
+62 |             print(f"error: {e}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0038]: `sorted`(이)라는 함수를 찾을 수 없습니다
+  --> inventory.mi:64:24
+   |
+64 |     let sorted_items = sorted(items, total_value)
+   |                        ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0014]: `Category`을(를) 찾을 수 없습니다
+  --> inventory.mi:68:17
+   |
+68 |     print(label(Category.Tool) + "\n")
+   |                 ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류 8개
+--- exit 1
+=== 00:13:41 mica check inventory.mi
+오류[T0014]: `it`을(를) 찾을 수 없습니다
+  --> inventory.mi:48:19
+   |
+48 |             print(f"found {it.name}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `it`을(를) 찾을 수 없습니다
+  --> inventory.mi:54:19
+   |
+54 |             print(f"sold, now {it.qty}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `e`을(를) 찾을 수 없습니다
+  --> inventory.mi:56:19
+   |
+56 |             print(f"error: {e}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `it`을(를) 찾을 수 없습니다
+  --> inventory.mi:60:19
+   |
+60 |             print(f"sold, now {it.qty}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `e`을(를) 찾을 수 없습니다
+  --> inventory.mi:62:19
+   |
+62 |             print(f"error: {e}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0036]: [Item]에 `sorted` 메서드가 없습니다
+  --> inventory.mi:64:29
+   |
+64 |     let sorted_items = items.sorted(total_value)
+   |                             ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류 6개
+--- exit 1
+=== 00:13:50 mica check inventory.mi
+오류[T0025]: ?Item 값에서 바로 `name`을(를) 꺼낼 수 없습니다
+  --> inventory.mi:50:19
+   |
+50 |             print(f"found {it.name}\n")
+   |                   ^
+  도움말: 값이 없을 수 있습니다. `if x != none:` 안에서 쓰면 Item로 좁혀집니다
+오류[T0014]: `e`을(를) 찾을 수 없습니다
+  --> inventory.mi:54:19
+   |
+54 |             print(f"error: {e}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0026]: !Item 값에서 `qty`을(를) 꺼낼 수 없습니다
+  --> inventory.mi:56:19
+   |
+56 |             print(f"sold, now {it.qty}\n")
+   |                   ^
+오류[T0014]: `e`을(를) 찾을 수 없습니다
+  --> inventory.mi:60:19
+   |
+60 |             print(f"error: {e}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0026]: !Item 값에서 `qty`을(를) 꺼낼 수 없습니다
+  --> inventory.mi:62:19
+   |
+62 |             print(f"sold, now {it.qty}\n")
+   |                   ^
+오류[T0045]: `items`은(는) 읽기 전용이라 `sort_by`(으)로 바꿀 수 없습니다
+  --> inventory.mi:64:29
+   |
+64 |     let sorted_items = items.sort_by(total_value)
+   |                             ^
+  도움말: `items`을(를) `var`로 선언하거나, 함수 인자라면 `inout`으로 받으세요
+오류[T0009]: () 값은 반복할 수 없습니다
+  --> inventory.mi:65:1
+   |
+65 |     for item in sorted_items:
+   | ^
+  도움말: 리스트나 문자열, `range(n)`, 또는 사전은 `for k, v in d:`
+오류 7개
+--- exit 1
+=== 00:13:57 mica check inventory.mi
+오류[E0141]: 표현식을 기대했는데 `:`이(가) 왔습니다
+  --> inventory.mi:52:8
+   |
+52 |     try:
+   |        ^
+--- exit 1
+=== 00:14:05 mica check inventory.mi
+검사 통과: 최상위 선언 7개
+--- exit 0
+=== 00:14:07 mica run inventory.mi
+apple: 100 x 0.5 = 50.0
+hammer: 5 x 12.99 = 64.95
+yoyo: 20 x 3.25 = 65.0
+bread: 30 x 2.75 = 82.5
+wrench: 7 x 8.0 = 56.0
+found hammer
+error: not enough stock for hammer: have 5, want 10
+now 5
+now 3
+apple 50.0
+wrench 56.0
+hammer 64.95
+yoyo 65.0
+bread 82.5
+tool
+--- exit 0
+=== 00:14:17 mica run inventory.mi
+apple: 100 x 0.5 = 50.0
+hammer: 5 x 12.99 = 64.95
+yoyo: 20 x 3.25 = 65.0
+bread: 30 x 2.75 = 82.5
+wrench: 7 x 8.0 = 56.0
+found hammer at 12.99
+saw: not found
+error: not enough stock for hammer: have 5, want 10
+now 5
+now 3
+apple 50.0
+wrench 56.0
+hammer 64.95
+yoyo 65.0
+bread 82.5
+category: food
+category: tool
+category: toy
+--- exit 0
+=== 00:14:22 mica run inventory.mi
+apple: 100 x 0.5 = 50.0
+hammer: 5 x 12.99 = 64.95
+yoyo: 20 x 3.25 = 65.0
+bread: 30 x 2.75 = 82.5
+wrench: 7 x 8.0 = 56.0
+found hammer at 12.99
+saw: not found
+error: not enough stock for hammer: have 5, want 10
+hammer stock now 5
+hammer stock now 3
+hammer 38.97
+apple 50.0
+wrench 56.0
+yoyo 65.0
+bread 82.5
+category: food
+category: tool
+category: toy
+--- exit 0
+=== 00:14:25 mica build inventory.mi -o prog
+컴파일 완료: ./prog
+--- exit 0
+=== 00:14:26 mica fmt --stdout inventory.mi
+struct Item:
+    name: Str
+    price: Float
+    qty: Int
+
+enum Category:
+    Food
+    Tool
+    Toy
+
+fn find_item(items: [Item], name: Str) -> ?Item:
+    for item in items:
+        if item.name == name:
+            return item
+    return none
+
+fn sell(item: Item, n: Int) -> !Item:
+    if item.qty < n:
+        return error(f"not enough stock for {item.name}: have {item.qty}, want {n}")
+    return Item(item.name, item.price, item.qty - n)
+
+fn total_value(item: Item) -> Float:
+    return item.price * float(item.qty)
+
+fn print_label(c: Category):
+    match c:
+        case Food:
+            print("category: food\n")
+        case Tool:
+            print("category: tool\n")
+        case Toy:
+            print("category: toy\n")
+
+fn main():
+    var items = [
+        Item("apple", 0.5, 100),
+        Item("hammer", 12.99, 5),
+        Item("yoyo", 3.25, 20),
+        Item("bread", 2.75, 30),
+        Item("wrench", 8.0, 7),
+    ]
+
+    for item in items:
+        print(f"{item.name}: {item.qty} x {item.price} = {total_value(item)}\n")
+
+    for wanted in ["hammer", "saw"]:
+        let found = find_item(items, wanted)
+        if found != none:
+            print(f"found {found.name} at {found.price}\n")
+        else:
+            print(f"{wanted}: not found\n")
+
+    for n in [10, 2]:
+        items[1] = sell(items[1], n) catch e:
+            print(f"error: {e}\n")
+            items[1]
+        print(f"{items[1].name} stock now {items[1].qty}\n")
+
+    items.sort_by(total_value)
+    for item in items:
+        print(f"{item.name} {total_value(item)}\n")
+
+    for c in [Food, Tool, Toy]:
+        print_label(c)
+--- exit 0
+=== 00:14:34 mica run probe.mi
+오류[T0011]: `Category`에 `Fod` 변형이 없습니다
+  --> probe.mi:8:1
+  |
+8 |         case Fod:
+  | ^
+  도움말: 있는 변형: Food, Tool, Toy
+오류[T0012]: match가 Food, Toy을(를) 빠뜨렸습니다
+  --> probe.mi:7:1
+  |
+7 |     match c:
+  | ^
+  도움말: `case Food(...):` 를 추가하거나 `case _:` 로 나머지를 받으세요
+오류 2개
+--- exit 1
+=== 00:14:38 mica run probe.mi
+오류[T0014]: `v`을(를) 찾을 수 없습니다
+  --> probe.mi:11:19
+   |
+11 |             print(f"{v}\n")
+   |                   ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류 1개
+--- exit 1
+=== 00:14:42 mica run probe.mi
+plain {x}
+2
+--- exit 0

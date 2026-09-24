@@ -1,0 +1,126 @@
+# Classic manual-memory mistakes, one per run. Pick with MISTAKE=<name>.
+# The debug build (`siskin build` without --release) is supposed to catch these at run time.
+from std.process import env
+
+fn use_after_free():
+    unsafe:
+        let p = alloc[Int](4)
+        p[0] = 42
+        free(p)
+        print(str(p[0]) + "\n")
+
+fn write_after_free():
+    unsafe:
+        let p = alloc[Int](4)
+        free(p)
+        p[1] = 7
+        print("wrote into freed memory\n")
+
+fn double_free():
+    unsafe:
+        let p = alloc[Int](4)
+        free(p)
+        free(p)
+        print("freed twice\n")
+
+fn oob_read():
+    unsafe:
+        let p = alloc[Int](4)
+        p[0] = 1
+        print(str(p[4]) + "\n")
+        free(p)
+
+fn oob_write_negative():
+    unsafe:
+        let p = alloc[Int](4)
+        p[-1] = 99
+        print("wrote p[-1]\n")
+        free(p)
+
+fn oob_pointer_arith():
+    unsafe:
+        let p = alloc[Int](4)
+        let q = p + 3
+        q[1] = 5
+        print("wrote (p+3)[1]\n")
+        free(p)
+
+fn free_interior():
+    unsafe:
+        let p = alloc[Int](4)
+        let q = p + 1
+        free(q)
+        print("freed an interior pointer\n")
+
+fn free_arena_memory():
+    with arena a:
+        unsafe:
+            let p = a.alloc[Int](4)
+            free(p)
+            print("freed arena memory by hand\n")
+
+struct Holder:
+    ptr: *Int
+
+fn arena_pointer_escape():
+    # The pointer is smuggled out of the arena block inside a struct field.
+    unsafe:
+        var h = Holder(ptr: alloc[Int](1))
+        free(h.ptr)
+        with arena a:
+            let p = a.alloc[Int](4)
+            p[0] = 123
+            h = Holder(ptr: p)
+        print(str(h.ptr[0]) + "\n")
+
+fn struct_uaf():
+    # Use-after-free through a struct pool, like the tree's RNode pool.
+    unsafe:
+        let pool = alloc[Holder](2)
+        pool[0] = Holder(ptr: alloc[Int](1))
+        pool[0].ptr[0] = 5
+        free(pool[0].ptr)
+        print(str(pool[0].ptr[0]) + "\n")
+        free(pool)
+
+fn leak():
+    unsafe:
+        let p = alloc[Int](1000)
+        p[0] = 1
+    print("returned without free\n")
+
+fn list_oob():
+    # Level 0 for comparison.
+    let xs = [1, 2, 3]
+    print(str(xs[3]) + "\n")
+
+fn main():
+    let which = env("MISTAKE")
+    if which == none:
+        print("set MISTAKE=uaf|waf|double|oob|oobneg|arith|interior|arenafree|escape|structuaf|leak|listoob\n")
+        return
+    if which == "uaf":
+        use_after_free()
+    elif which == "waf":
+        write_after_free()
+    elif which == "double":
+        double_free()
+    elif which == "oob":
+        oob_read()
+    elif which == "oobneg":
+        oob_write_negative()
+    elif which == "arith":
+        oob_pointer_arith()
+    elif which == "interior":
+        free_interior()
+    elif which == "arenafree":
+        free_arena_memory()
+    elif which == "escape":
+        arena_pointer_escape()
+    elif which == "structuaf":
+        struct_uaf()
+    elif which == "leak":
+        leak()
+    elif which == "listoob":
+        list_oob()
+    print("end of main\n")

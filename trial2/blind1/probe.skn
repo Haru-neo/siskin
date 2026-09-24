@@ -1,0 +1,14 @@
+fn half(x: Int) -> !Int:
+    if x % 2 != 0:
+        return error("odd")
+    return x / 2
+
+fn quarter(x: Int) -> !Int:
+    let h = try half(x)
+    return try half(h)
+
+fn main():
+    let q = quarter(6) catch e:
+        print(f"err: {e}\n")
+        return
+    print(f"q={q}\n")

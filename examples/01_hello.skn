@@ -1,0 +1,8 @@
+# 가장 작은 Siskin 프로그램.
+# print는 받은 것만 그대로 출력합니다. 줄바꿈은 \n 으로 직접 씁니다.
+
+fn main():
+    print("안녕, Siskin!\n")
+    print("a", "b", "c\n")
+    print("줄바꿈 없음 -> ")
+    print("이어서 출력\n")

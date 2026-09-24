@@ -1,0 +1,6 @@
+fn g(x: Int) -> Int:
+    if x > 0:
+        return 1
+
+fn main():
+    print(f"{g(-5)}\n")

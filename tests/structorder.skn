@@ -1,0 +1,10 @@
+struct Box:
+    task: Task
+    pair: (Task, Int)
+
+struct Task:
+    n: Int
+
+fn main():
+    let b = Box(task: Task(n: 1), pair: (Task(n: 2), 3))
+    print(f"{b.task.n} {b.pair.0.n}\n")

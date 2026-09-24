@@ -1,0 +1,35 @@
+# Mistakes that should be stopped at compile time.
+
+# 1. Arena list returned out of its block (the documented T0040 case).
+fn escape_list() -> [Int]:
+    with arena a:
+        var xs = a.list[Int]()
+        xs.push(1)
+        return xs
+    return []
+
+# 2. Raw arena pointer returned out of its block.
+fn escape_pointer() -> *Int:
+    with arena a:
+        unsafe:
+            let p = a.alloc[Int](4)
+            return p
+
+# 3. Arena list assigned to an outer variable.
+fn escape_by_assign() -> Int:
+    var outer: [Int] = []
+    with arena a:
+        var xs = a.list[Int]()
+        xs.push(5)
+        outer = xs
+    return len(outer)
+
+# 4. Raw pointer used outside `unsafe:`.
+fn no_unsafe():
+    let p = alloc[Int](4)
+    p[0] = 1
+
+fn main():
+    print(str(escape_list()) + "\n")
+    print(str(escape_by_assign()) + "\n")
+    no_unsafe()

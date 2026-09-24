@@ -1,0 +1,4 @@
+fn sq(x: Float) -> Float:
+    return x * x
+struct Point:
+    name: Str

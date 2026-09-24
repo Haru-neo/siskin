@@ -1,0 +1,161 @@
+# 에이전트 사용성 시험(2026-09-23)에서 나온 문제들: run 과 build 가 같아야 합니다.
+from std.math import sqrt
+
+struct Account:
+    owner: Str
+    balance: Int
+
+    fn deposit(inout self, amount: Int):
+        self.balance += amount
+
+    fn withdraw(inout self, amount: Int) -> !Unit:
+        if amount > self.balance:
+            return error("잔액 부족: " + str(self.balance))
+        self.balance -= amount
+        return
+
+struct Wallet:
+    balance: Int
+
+    fn withdraw(inout self, amount: Int):
+        requires amount > 0
+        requires amount <= self.balance
+        ensures self.balance >= 0
+        self.balance -= amount
+
+struct Person:
+    name: Str
+    score: Int
+
+fn kind(s: Str) -> Str:
+    match s:
+        case "a":
+            return "에이"
+        case _:
+            return "기타"
+
+struct Vec2:
+    x: Float
+    y: Float
+
+enum Tree:
+    Leaf
+    Node(left: Tree, key: Int, right: Tree)
+
+fn size(t: Tree) -> Int:
+    match t:
+        case Leaf:
+            return 0
+        case Node(l, k, r):
+            return 1 + size(l) + size(r)
+
+fn grade(score: Int) -> Str:
+    match score:
+        case 100:
+            return "만점"
+        case _:
+            return "그 밖"
+
+fn min_max(xs: [Int]) -> (Int, Int):
+    var lo = xs[0]
+    var hi = xs[0]
+    for x in xs:
+        lo = min(lo, x)
+        hi = max(hi, x)
+    return (lo, hi)
+
+fn first[T](xs: [T]) -> ?T:
+    if xs.len() == 0:
+        return none
+    return xs[0]
+
+fn top_n[T](xs: [T], n: Int, key: (T) -> Int) -> [T]:
+    var ys = xs
+    ys.sort_by(fn(x): -key(x))
+    return ys.slice(0, n)
+
+fn bump(inout n: Int) -> Int:
+    n += 1
+    return n
+
+fn main() -> !Unit:
+    print(f"{3.14159:.2f}\n")
+    print(f"[{"사과":<6}]\n")
+    print(f"[{42:>5}]\n")
+    print(f"[{7:03d}]\n")
+    print(f"{255:x} {255:X} [{"ab":^6}]\n")
+    let n = 3
+    let label = "짝수" if n % 2 == 0 else "홀수"
+    var k = 10
+    k += 1
+    k %= 4
+    if [1, 2] == [1, 2]:
+        pass
+    print(f"{label} {k}\n")
+    var acc = Account(owner: "하루", balance: 0)
+    acc.deposit(100)
+    print(f"{acc.balance}\n")
+    var accs = [Account(owner: "a", balance: 1)]
+    accs[0].deposit(50)
+    print(f"{accs[0].balance}\n")
+    let v = Vec2(3.0, 4.0)
+    print(f"{v.x}\n")
+    acc.withdraw(500) catch e:
+        if e.starts_with("잔액 부족"):
+            print("돈이 모자랍니다\n")
+        else:
+            print(f"실패: {e}\n")
+    let t = Node(left: Leaf, key: 3, right: Node(left: Leaf, key: 4, right: Leaf))
+    print(f"{size(t)} {grade(100)} {grade(3)}\n")
+    let (lo, hi) = min_max([3, 9, 1])
+    let pair = min_max([3, 9, 1])
+    let (a0, a1) = pair
+    print(f"{lo} {hi} {pair.0} {pair.1}\n")
+    let f = first([1, 2]) else 0
+    let g = first(["가", "나"]) else ""
+    print(f"{f} {g} {top_n([1, 5, 3], 2, fn(x): x)}\n")
+    var xs = [5, 3, 9]
+    xs.sort()
+    print(f"{xs}\n")
+    var ages = {"하루": 20, "미카": 3}
+    ages["루비"] = 7
+    print(f"{ages.get("없음", 0)}\n")
+    for k2, v2 in ages:
+        print(f"{k2}={v2} ")
+    print("\n")
+    var groups: {Str: [Str]} = {}
+    var names = groups["과일"] else []
+    names.push("사과")
+    groups["과일"] = names
+    print(f"{groups}\n")
+    let s = "가b"
+    for c in s:
+        print(f"{c >= "가" and c <= "힣"} ")
+    print(f"{s.width()} [{s.pad_left(5)}] [{s.pad_right(5)}]\n")
+    let iv = int("12") catch e:
+        0
+    let fv = float("1.5") catch e:
+        0.0
+    print(f"{iv} {fv}\n")
+    var calls = 0
+    for c in "가a é":
+        print(f"[{c}]")
+    print(f"\n{"café ß".upper()} {"ÀÉ".lower()} {str(sqrt(-1.0))}\n")
+    let m = max(bump(calls), bump(calls))
+    print(f"{m} calls={calls}\n")
+    print(f"{[[1], [2]] == [[1], [2]]} {Vec2(1.0, 2.0) == Vec2(1.0, 2.0)} {(1, "a") != (1, "b")}\n")
+    for (a, b) in [(1, "x"), (2, "y")]:
+        print(f"{a}{b}")
+    print("\n")
+    var w = Wallet(balance: 10)
+    w.withdraw(3)
+    var people = [Person(name: "b", score: 1), Person(name: "a", score: 1), Person(name: "c", score: 5)]
+    people.sort_by(fn(p): p.name)
+    people.sort_by(fn(p): -p.score)
+    var pnames: [Str] = []
+    for p in people:
+        pnames.push(p.name)
+    var rs = [1, 2, 3]
+    rs.reverse()
+    print(f"{w.balance} {pnames} {rs} {2 in rs} {"x" not in "abc"} {"a" in {"a": 1}} {kind("a")} {kind("z")}\n")
+    return

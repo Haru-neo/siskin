@@ -1,0 +1,13 @@
+struct Acc:
+    balance: Int
+
+    fn credit(inout self, amount: Int) -> Int:
+        requires amount > 0
+        ensures result == self.balance
+        self.balance += amount
+        return self.balance
+
+fn main():
+    var a = Acc(balance: 5)
+    print(f"{a.credit(3)}\n")
+    print(f"{a.credit(0)}\n")

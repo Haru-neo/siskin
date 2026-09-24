@@ -1,0 +1,27 @@
+# C++ 라이브러리를 가져옵니다.
+# C++ 은 이름이 안에서 뒤틀려 저장되고 클래스·가상 함수 같은 게 있어서
+# 그대로는 못 부릅니다. Siskin 이 가운데 다리를 자동으로 놓아 줍니다.
+#
+# `also` 를 쓰면 라이브러리를 미리 만들어 둘 필요도 없습니다.
+
+import cpp "shapes.hpp" from "cpplib" also "cpplib/shapes.cpp"
+
+fn main():
+    # 클래스를 만들 때는 <이름>_new, 지울 때는 <이름>_delete
+    let 원 = geo_Circle_new(2.0)
+
+    print("넓이     = " + str(geo_Circle_area(원)) + "\n")
+    print("반지름   = " + str(geo_Circle_radius(원)) + "   <- 헤더 안에만 있는 함수\n")
+
+    geo_Circle_grow(원, 1.0)
+    print("키운 뒤  = " + str(geo_Circle_area(원)) + "\n")
+
+    # std::string 은 Siskin 글자열로 바뀝니다.
+    print("종류     = " + geo_Circle_kind(원) + "\n")
+    # 부모 클래스로 물어봐도 자식이 답합니다 (가상 함수).
+    print("가상함수 = " + geo_Shape_kind(원) + "\n")
+
+    print(geo_greet("하루") + "\n")
+    print("빗변     = " + str(geo_hypot2(3.0, 4.0)) + "\n")
+
+    geo_Circle_delete(원)

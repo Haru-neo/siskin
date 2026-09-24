@@ -1,0 +1,27 @@
+# 함수, 반복문, 리스트, f-string
+
+fn sum(xs: [Int]) -> Int:
+    var total = 0
+    for x in xs:
+        total += x
+    return total
+
+fn fib(n: Int) -> Int:
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+fn main():
+    let xs = [1, 2, 3, 4, 5]
+    print(f"합계: {sum(xs)}\n")
+    print(f"길이: {len(xs)}\n")
+
+    var i = 0
+    while i < 10:
+        print(f"{fib(i)} ")
+        i += 1
+    print("\n")
+
+    let words = "the quick brown fox".split(" ")
+    print(f"단어 {len(words)}개: {words}\n")
+    print(f"대문자: {"siskin".upper()}\n")

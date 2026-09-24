@@ -1,0 +1,107 @@
+# 할 일 목록 — JSON 파일을 읽어 정리하고 다시 저장한다
+from std.fs import read_text, write_text
+from std.json import parse, stringify, jdict, jlist, jstr, jint, jbool
+
+struct Task:
+    id: Int
+    title: Str
+    done: Bool
+    pri: Int
+    tags: [Str]
+
+# JSON 값에 이름을 붙일 수 없어서(Json 타입을 못 씀)
+# 읽는 일을 함수로 나누지 못하고 전부 한 함수에 밀어 넣었다.
+fn load(path: Str) -> ![Task]:
+    let text = try read_text(path)
+    let doc = try parse(text)
+    var out: [Task] = []
+    let arr = doc.get("tasks")
+    if arr != none:
+        var i = 0
+        while i < arr.len():
+            let item = arr.at(i)
+            if item != none:
+                let id = item.get("id")
+                if id != none:
+                    let idv = id.as_int()
+                    if idv != none:
+                        let title = item.get("title")
+                        if title != none:
+                            let tv = title.as_str()
+                            if tv != none:
+                                let done = item.get("done")
+                                if done != none:
+                                    let dv = done.as_bool()
+                                    if dv != none:
+                                        let pri = item.get("pri")
+                                        if pri != none:
+                                            let pv = pri.as_int()
+                                            if pv != none:
+                                                var tags: [Str] = []
+                                                let tg = item.get("tags")
+                                                if tg != none:
+                                                    var j = 0
+                                                    while j < tg.len():
+                                                        let one = tg.at(j)
+                                                        if one != none:
+                                                            let s = one.as_str()
+                                                            if s != none:
+                                                                tags.push(s)
+                                                        j += 1
+                                                out.push(Task(id: idv, title: tv, done: dv, pri: pv, tags: tags))
+            i += 1
+    return out
+
+fn save(path: Str, tasks: [Task]) -> !Unit:
+    let arr = jlist()
+    for t in tasks:
+        let o = jdict()
+        o.set("id", jint(t.id))
+        o.set("title", jstr(t.title))
+        o.set("done", jbool(t.done))
+        o.set("pri", jint(t.pri))
+        let tg = jlist()
+        for s in t.tags:
+            tg.push(jstr(s))
+        o.set("tags", tg)
+        arr.push(o)
+    let root = jdict()
+    root.set("tasks", arr)
+    try write_text(path, stringify(root))
+    return
+
+fn main() -> !Unit:
+    var tasks = try load("tasks.json")
+    print("불러온 할 일 " + str(tasks.len()) + "개\n\n")
+
+    print("== 남은 일 (급한 순) ==\n")
+    var pri = 1
+    while pri <= 3:
+        for t in tasks:
+            if t.done == false and t.pri == pri:
+                print("  [" + str(t.pri) + "] " + t.title + "  #" + t.tags.join(" #") + "\n")
+        pri += 1
+
+    var open_count = 0
+    var by_tag: {Str: Int} = {}
+    for t in tasks:
+        if t.done == false:
+            open_count += 1
+        for g in t.tags:
+            let cur = by_tag[g]
+            if cur != none:
+                by_tag[g] = cur + 1
+            else:
+                by_tag[g] = 1
+
+    print("\n태그별: ")
+    for k in by_tag.keys():
+        let n = by_tag[k]
+        if n != none:
+            print(k + "=" + str(n) + " ")
+    print("\n남은 일 " + str(open_count) + "개 / 전체 " + str(tasks.len()) + "개\n")
+
+    tasks.push(Task(id: 5, title: "부족한 점 보고", done: false, pri: 1, tags: ["siskin"]))
+    try save("tasks.out.json", tasks)
+    print("tasks.out.json 에 저장했습니다\n")
+    return

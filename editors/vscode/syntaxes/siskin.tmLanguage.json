@@ -1,0 +1,100 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Siskin",
+  "scopeName": "source.siskin",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#fn-def" },
+    { "include": "#type-def" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#calls" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comment": {
+      "match": "#.*$",
+      "name": "comment.line.number-sign.siskin"
+    },
+    "fn-def": {
+      "match": "\\b(fn)\\s+([\\p{L}_][\\p{L}\\p{N}_]*)",
+      "captures": {
+        "1": { "name": "storage.type.function.siskin" },
+        "2": { "name": "entity.name.function.siskin" }
+      }
+    },
+    "type-def": {
+      "match": "\\b(struct|enum|interface)\\s+([\\p{L}_][\\p{L}\\p{N}_]*)",
+      "captures": {
+        "1": { "name": "storage.type.siskin" },
+        "2": { "name": "entity.name.type.siskin" }
+      }
+    },
+    "strings": {
+      "patterns": [
+        { "begin": "\"\"\"", "end": "\"\"\"", "name": "string.quoted.triple.siskin",
+          "patterns": [{ "include": "#escape" }] },
+        { "begin": "\\b(r)\"", "end": "\"", "beginCaptures": { "1": { "name": "storage.type.string.siskin" } },
+          "name": "string.regexp.siskin" },
+        { "begin": "\\b(r)'", "end": "'", "beginCaptures": { "1": { "name": "storage.type.string.siskin" } },
+          "name": "string.regexp.siskin" },
+        { "begin": "\\b(f)\"", "end": "\"", "beginCaptures": { "1": { "name": "storage.type.string.siskin" } },
+          "name": "string.interpolated.siskin",
+          "patterns": [{ "include": "#escape" }, { "include": "#interp" }] },
+        { "begin": "\\b(f)'", "end": "'", "beginCaptures": { "1": { "name": "storage.type.string.siskin" } },
+          "name": "string.interpolated.siskin",
+          "patterns": [{ "include": "#escape" }, { "include": "#interp" }] },
+        { "begin": "\"", "end": "\"", "name": "string.quoted.double.siskin",
+          "patterns": [{ "include": "#escape" }] },
+        { "begin": "'", "end": "'", "name": "string.quoted.single.siskin",
+          "patterns": [{ "include": "#escape" }] }
+      ]
+    },
+    "escape": {
+      "match": "\\\\[ntr0\\\\\"'{}]",
+      "name": "constant.character.escape.siskin"
+    },
+    "interp": {
+      "begin": "\\{(?!\\{)",
+      "end": "\\}",
+      "beginCaptures": { "0": { "name": "punctuation.section.embedded.begin.siskin" } },
+      "endCaptures": { "0": { "name": "punctuation.section.embedded.end.siskin" } },
+      "contentName": "meta.embedded.expression.siskin",
+      "patterns": [
+        { "include": "#numbers" },
+        { "include": "#keywords" },
+        { "include": "#calls" },
+        { "include": "#operators" }
+      ]
+    },
+    "numbers": {
+      "match": "\\b\\d[\\d_]*(\\.\\d+)?([eE][+-]?\\d+)?\\b",
+      "name": "constant.numeric.siskin"
+    },
+    "keywords": {
+      "patterns": [
+        { "match": "\\b(if|elif|else|for|while|in|break|continue|return|match|case|try|catch|with|unsafe|spawn)\\b",
+          "name": "keyword.control.siskin" },
+        { "match": "\\b(fn|let|var|struct|enum|interface|import|from|as|pub|extern|owned|inout|comptime|link|requires|ensures)\\b",
+          "name": "storage.type.siskin" },
+        { "match": "\\b(and|or|not)\\b", "name": "keyword.operator.logical.siskin" },
+        { "match": "\\b(true|false|none)\\b", "name": "constant.language.siskin" },
+        { "match": "\\b(self|result)\\b", "name": "variable.language.siskin" }
+      ]
+    },
+    "types": {
+      "match": "\\b(Int|Float|Bool|Str|Json|Unit|[A-Z][\\p{L}\\p{N}_]*)\\b",
+      "name": "entity.name.type.siskin"
+    },
+    "calls": {
+      "match": "\\b([\\p{L}_][\\p{L}\\p{N}_]*)\\s*(?=\\()",
+      "captures": { "1": { "name": "entity.name.function.call.siskin" } }
+    },
+    "operators": {
+      "match": "->|==|!=|<=|>=|\\+=|-=|\\*=|/=|[-+*/%=<>!?]",
+      "name": "keyword.operator.siskin"
+    }
+  }
+}

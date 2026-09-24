@@ -1,0 +1,40 @@
+# 구조체, 인터페이스, 열거형, 패턴 매칭
+
+from std.math import sqrt
+
+interface Printable:
+    fn to_str(self) -> Str
+
+struct Vec2(Printable):
+    x: Float
+    y: Float
+
+    fn len(self) -> Float:
+        return sqrt(self.x * self.x + self.y * self.y)
+
+    fn to_str(self) -> Str:
+        return f"({self.x}, {self.y})"
+
+enum Shape:
+    Circle(r: Float)
+    Rect(w: Float, h: Float)
+
+fn area(s: Shape) -> Float:
+    match s:
+        case Circle(r):
+            return 3.14159 * r * r
+        case Rect(w, h):
+            return w * h
+
+fn main():
+    let v = Vec2(x: 3.0, y: 4.0)
+    print(f"{v.to_str()} 길이 {v.len()}\n")
+
+    let shapes = [Circle(r: 2.0), Rect(w: 3.0, h: 4.0)]
+    for s in shapes:
+        print(f"넓이 {area(s)}\n")
+
+    # 값 의미론: 복사본을 고쳐도 원본은 그대로입니다
+    var copy = v
+    copy.x = 99.0
+    print(f"원본 {v.to_str()}, 복사본 {copy.to_str()}\n")

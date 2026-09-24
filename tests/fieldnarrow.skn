@@ -1,0 +1,38 @@
+struct Task:
+    title: Str
+    due: ?Int
+    note: ?Str
+
+struct Box:
+    task: Task
+
+fn show(t: Task):
+    if t.due != none:
+        print(f"{t.title} due {t.due + 1}\n")
+    else:
+        print(f"{t.title} no due\n")
+    if t.note == none:
+        print("no note\n")
+    else:
+        print("note: " + t.note.upper() + "\n")
+
+fn days(t: Task) -> Int:
+    if t.due == none:
+        return -1
+    return t.due * 2
+
+fn main():
+    let a = Task(title: "a", due: 3, note: none)
+    let b = Task(title: "b", due: none, note: "hi")
+    show(a)
+    show(b)
+    print(f"{days(a)} {days(b)}\n")
+    let bx = Box(task: a)
+    if bx.task.due != none and bx.task.due > 2:
+        print(f"deep {bx.task.due}\n")
+    var t = a
+    if t.due != none:
+        t.due = t.due + 10
+        print(f"now {t.due}\n")
+        t.due += 1
+        print(f"now {t.due}\n")

@@ -1,0 +1,11 @@
+fn half(n: Int) -> ?Int:
+    if n % 2 == 0:
+        return n / 2
+    return none
+
+fn main():
+    let x = 3
+    print("plain {x}\n")
+    let h = half(4)
+    if h != none:
+        print(f"{h}\n")

@@ -1,0 +1,27 @@
+import geo.shapes
+import geo.util as u
+
+struct Point:
+    a: Int
+
+fn describe(s: shapes.Shape) -> Str:
+    match s:
+        case shapes.Circle(r):
+            return f"circle {r}"
+        case Rect(w, h):
+            return f"rect {w}x{h}"
+
+fn main():
+    let p: shapes.Point = shapes.origin().moved(3)
+    print(f"{p}\n")
+    let q = Point(a: 1)
+    print(f"{q}\n")
+    let n = u.Point(name: "n")
+    print(f"{n}\n")
+    let xs = [shapes.Circle(r: 1.0), shapes.Rect(w: 2.0, h: 5.0)]
+    for s in xs:
+        print(describe(s) + "\n")
+    print(f"{shapes.biggest(xs)} {u.sq(3.0)}\n")
+    let t = spawn shapes.origin()
+    print(f"{t.wait()}\n")
+    print(f"{xs[0]}\n")

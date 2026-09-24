@@ -1,0 +1,6 @@
+from std.math import sqrt
+
+fn main():
+    let x = sqrt(-1.0)
+    print(str(x) + "\n")
+    print(f"{x}\n")

@@ -1,0 +1,30 @@
+import util
+
+enum Shape:
+    Circle(r: Float)
+    Rect(w: Float, h: Float)
+
+    fn area(self) -> Float:
+        match self:
+            case Circle(r):
+                return util.sq(r) * 3.0
+            case Rect(w, h):
+                return w * h
+
+struct Point:
+    x: Int
+    y: Int
+
+    fn moved(self, dx: Int) -> Point:
+        return Point(x: self.x + dx, y: self.y)
+
+fn _secret() -> Int:
+    return 42
+
+fn origin() -> Point:
+    return Point(x: _secret() - 42, y: 0)
+
+fn biggest(xs: [Shape]) -> Float:
+    var a = xs.map(fn(s: Shape): s.area())
+    a.sort_by(fn(v: Float): 0.0 - v)
+    return a[0]

@@ -1,0 +1,69 @@
+struct Item:
+    name: Str
+    price: Float
+    qty: Int
+
+enum Category:
+    Food
+    Tool
+    Toy
+
+fn find_item(items: [Item], name: Str) -> ?Item:
+    for item in items:
+        if item.name == name:
+            return item
+    return none
+
+fn sell(item: Item, n: Int) -> !Item:
+    if n > item.qty:
+        return error(f"insufficient stock for {item.name}: have {item.qty}, want {n}")
+    return Item(name: item.name, price: item.price, qty: item.qty - n)
+
+fn total_value(item: Item) -> Float:
+    return item.price * float(item.qty)
+
+fn label(c: Category) -> Str:
+    match c:
+        case Food:
+            return "food"
+        case Tool:
+            return "tool"
+        case Toy:
+            return "toy"
+
+fn report_sale(item: Item, n: Int):
+    let after = sell(item, n) catch e:
+        print(f"error: {e}\n")
+        return
+    print(f"sold {n} {item.name}, {after.qty} left\n")
+
+fn main():
+    var items = [
+        Item(name: "apple", price: 0.5, qty: 100),
+        Item(name: "hammer", price: 12.99, qty: 5),
+        Item(name: "yoyo", price: 3.25, qty: 20),
+        Item(name: "bread", price: 2.0, qty: 30),
+        Item(name: "wrench", price: 8.5, qty: 12),
+    ]
+
+    for item in items:
+        print(f"{item.name}: {total_value(item)}\n")
+
+    let found = find_item(items, "hammer")
+    if found != none:
+        print(f"found {found.name}\n")
+    else:
+        print("not found\n")
+    if find_item(items, "laptop") == none:
+        print("laptop not found\n")
+
+    report_sale(items[1], 10)
+
+    report_sale(items[1], 3)
+
+    items.sort_by(fn(x): total_value(x))
+    for item in items:
+        print(f"{item.name} {total_value(item)}\n")
+
+    let c = Tool
+    print(f"category: {label(c)}\n")

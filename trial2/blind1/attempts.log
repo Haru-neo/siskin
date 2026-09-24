@@ -1,0 +1,335 @@
+=== 01:32:19 mica check inventory.mi
+오류[E0100]: `:`을(를) 기대했는데 `?`이(가) 왔습니다
+  --> inventory.mi:11:51
+   |
+11 | fn find_item(items: list[Item], name: str) -> Item?:
+   |                                                   ^
+  도움말: 여기에 `:`을(를) 넣으세요
+--- exit 1
+=== 01:32:24 mica check inventory.mi
+오류[E0113]: `case`을(를) 기대했는데 이름 `Category`이(가) 왔습니다
+  --> inventory.mi:27:9
+   |
+27 |         Category.Food => "food"
+   |         ^
+  도움말: match 블록 안에는 `case` 만 올 수 있습니다
+--- exit 1
+=== 01:32:30 mica check inventory.mi
+오류[E0100]: `case Category.Food` 처럼 enum 이름을 붙이지 않습니다
+  --> inventory.mi:27:23
+   |
+27 |         case Category.Food:
+   |                       ^
+  도움말: `case Food:` 처럼 변형 이름만 쓰세요
+--- exit 1
+=== 01:32:33 mica check inventory.mi
+오류[E0141]: 표현식을 기대했는데 키워드 `case`가 왔습니다
+  --> inventory.mi:64:5
+   |
+64 |     case let sorted = items.sort_by(fn(a, b):
+   |     ^
+--- exit 1
+=== 01:32:40 mica check inventory.mi
+오류[T0001]: 타입 `list`을(를) 찾을 수 없습니다
+  --> inventory.mi:11:1
+   |
+11 | fn find_item(items: list[Item], name: str) -> Option[Item]:
+   | ^
+  도움말: 리스트는 `[원소타입]` 으로 씁니다. 예: `[Int]`
+오류[T0001]: 타입 `str`을(를) 찾을 수 없습니다
+  --> inventory.mi:11:1
+   |
+11 | fn find_item(items: list[Item], name: str) -> Option[Item]:
+   | ^
+  도움말: 글자는 `Str` 입니다
+오류[T0001]: 타입 `Option`을(를) 찾을 수 없습니다
+  --> inventory.mi:11:1
+   |
+11 | fn find_item(items: list[Item], name: str) -> Option[Item]:
+   | ^
+  도움말: 값이 없을 수 있으면 앞에 `?` 를 붙입니다. 예: `?Int` (없음은 `none`)
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> inventory.mi:17:1
+   |
+17 | fn sell(item: Item, n: int) -> Result[Item, str]:
+   | ^
+  도움말: 정수는 `Int` 입니다
+오류[T0001]: 타입 `Result`을(를) 찾을 수 없습니다
+  --> inventory.mi:17:1
+   |
+17 | fn sell(item: Item, n: int) -> Result[Item, str]:
+   | ^
+  도움말: 실패할 수 있으면 앞에 `!` 를 붙입니다. 예: `!Int` (실패는 `return error("이유")`)
+오류[T0001]: 타입 `float`을(를) 찾을 수 없습니다
+  --> inventory.mi:22:1
+   |
+22 | fn total_value(item: Item) -> float:
+   | ^
+  도움말: 실수는 `Float` 입니다
+오류[T0038]: `Some`(이)라는 함수를 찾을 수 없습니다
+  --> inventory.mi:14:20
+   |
+14 |             return Some(item)
+   |                    ^
+  도움말: `?T` 에는 Some 이 없습니다. 값을 그냥 돌려주면 됩니다 (`return x`), 없음은 `none`
+오류[T0014]: `None`을(를) 찾을 수 없습니다
+  --> inventory.mi:15:12
+   |
+15 |     return None
+   |            ^
+  도움말: 없음은 소문자 `none` 입니다
+오류[T0038]: `Err`(이)라는 함수를 찾을 수 없습니다
+  --> inventory.mi:19:16
+   |
+19 |         return Err("insufficient stock for {item.name}: have {item.qty}, want {n}")
+   |                ^
+  도움말: 실패는 `return error("이유")` 로 알립니다
+오류[T0038]: `Ok`(이)라는 함수를 찾을 수 없습니다
+  --> inventory.mi:20:12
+   |
+20 |     return Ok(Item(name: item.name, price: item.price, qty: item.qty - n))
+   |            ^
+  도움말: `!T` 에는 Ok 가 없습니다. 성공 값은 그냥 돌려줍니다 (`return x`)
+오류[T0045]: `items`은(는) 읽기 전용이라 `sort_by`(으)로 바꿀 수 없습니다
+  --> inventory.mi:64:23
+   |
+64 |     let sorted = items.sort_by(fn(a: Item, b: Item) -> bool: total_value(a) < total_value(b))
+   |                       ^
+  도움말: `items`을(를) `var`로 선언하거나, 함수 인자라면 `inout`으로 받으세요
+오류[T0056]: `sort_by`에는 원소 하나(Item)를 받는 함수 하나를 넘깁니다
+  --> inventory.mi:64:23
+   |
+64 |     let sorted = items.sort_by(fn(a: Item, b: Item) -> bool: total_value(a) < total_value(b))
+   |                       ^
+  도움말: `xs.sort_by(fn(x): ...)` 처럼 씁니다
+오류[T0014]: `Category`을(를) 찾을 수 없습니다
+  --> inventory.mi:68:13
+   |
+68 |     let c = Category.Tool
+   |             ^
+  도움말: enum 변형은 `Category.` 없이 이름만 씁니다: Food, Tool, Toy
+오류 13개
+--- exit 1
+=== 01:32:49 mica check inventory.mi
+오류[T0066]: ?Item 값에 `Some(...)` 패턴을 쓸 수 없습니다
+  --> inventory.mi:47:1
+   |
+47 |         case Some(it):
+   | ^
+  도움말: `?Item` 는 match 로 풀지 않습니다. `if x != none:` 안에서 x 를 Item 로 씁니다 (Some/None 은 없습니다)
+오류[T0066]: ?Item 값에 `None(...)` 패턴을 쓸 수 없습니다
+  --> inventory.mi:49:1
+   |
+49 |         case None:
+   | ^
+  도움말: `?Item` 는 match 로 풀지 않습니다. `if x != none:` 안에서 x 를 Item 로 씁니다 (Some/None 은 없습니다)
+오류[T0066]: !Item 값에 `Ok(...)` 패턴을 쓸 수 없습니다
+  --> inventory.mi:53:1
+   |
+53 |         case Ok(it):
+   | ^
+  도움말: `!T` 는 `try` 나 `x = f() catch e:` 로 풉니다 (Ok/Err 는 없습니다)
+오류[T0066]: !Item 값에 `Err(...)` 패턴을 쓸 수 없습니다
+  --> inventory.mi:55:1
+   |
+55 |         case Err(e):
+   | ^
+  도움말: `!T` 는 `try` 나 `x = f() catch e:` 로 풉니다 (Ok/Err 는 없습니다)
+오류[T0066]: !Item 값에 `Ok(...)` 패턴을 쓸 수 없습니다
+  --> inventory.mi:59:1
+   |
+59 |         case Ok(it):
+   | ^
+  도움말: `!T` 는 `try` 나 `x = f() catch e:` 로 풉니다 (Ok/Err 는 없습니다)
+오류[T0066]: !Item 값에 `Err(...)` 패턴을 쓸 수 없습니다
+  --> inventory.mi:61:1
+   |
+61 |         case Err(e):
+   | ^
+  도움말: `!T` 는 `try` 나 `x = f() catch e:` 로 풉니다 (Ok/Err 는 없습니다)
+오류 6개
+--- exit 1
+=== 01:32:59 mica check inventory.mi
+검사 통과: 최상위 선언 8개
+--- exit 0
+=== 01:33:02 mica run inventory.mi
+{item.name}: {total_value(item)}
+{item.name}: {total_value(item)}
+{item.name}: {total_value(item)}
+{item.name}: {total_value(item)}
+{item.name}: {total_value(item)}
+found {found.name}
+laptop not found
+error: {e}
+sold {n} {item.name}, {after.qty} left
+{item.name} {total_value(item)}
+{item.name} {total_value(item)}
+{item.name} {total_value(item)}
+{item.name} {total_value(item)}
+{item.name} {total_value(item)}
+category: {label(c)}
+--- exit 0
+=== 01:33:07 mica run inventory.mi
+apple: 50.0
+hammer: 64.95
+yoyo: 65.0
+bread: 60.0
+wrench: 102.0
+found hammer
+laptop not found
+error: insufficient stock for hammer: have 5, want 10
+sold 3 hammer, 2 left
+apple 50.0
+bread 60.0
+hammer 64.95
+yoyo 65.0
+wrench 102.0
+category: tool
+--- exit 0
+=== 01:33:12 mica run inventory.mi
+apple: 50.0
+hammer: 64.95
+yoyo: 65.0
+bread: 60.0
+wrench: 102.0
+found hammer
+laptop not found
+error: insufficient stock for hammer: have 5, want 10
+sold 3 hammer, 2 left
+apple 50.0
+bread 60.0
+hammer 64.95
+yoyo 65.0
+wrench 102.0
+category: tool
+--- exit 0
+=== 01:33:12 mica build inventory.mi -o prog
+컴파일 완료: ./prog
+--- exit 0
+=== 01:33:17 mica fmt --stdout inventory.mi
+struct Item:
+    name: Str
+    price: Float
+    qty: Int
+
+enum Category:
+    Food
+    Tool
+    Toy
+
+fn find_item(items: [Item], name: Str) -> ?Item:
+    for item in items:
+        if item.name == name:
+            return item
+    return none
+
+fn sell(item: Item, n: Int) -> !Item:
+    if n > item.qty:
+        return error(f"insufficient stock for {item.name}: have {item.qty}, want {n}")
+    return Item(name: item.name, price: item.price, qty: item.qty - n)
+
+fn total_value(item: Item) -> Float:
+    return item.price * float(item.qty)
+
+fn label(c: Category) -> Str:
+    match c:
+        case Food:
+            return "food"
+        case Tool:
+            return "tool"
+        case Toy:
+            return "toy"
+
+fn report_sale(item: Item, n: Int):
+    let after = sell(item, n) catch e:
+        print(f"error: {e}\n")
+        return
+    print(f"sold {n} {item.name}, {after.qty} left\n")
+
+fn main():
+    var items = [
+        Item(name: "apple", price: 0.5, qty: 100),
+        Item(name: "hammer", price: 12.99, qty: 5),
+        Item(name: "yoyo", price: 3.25, qty: 20),
+        Item(name: "bread", price: 2.0, qty: 30),
+        Item(name: "wrench", price: 8.5, qty: 12),
+    ]
+
+    for item in items:
+        print(f"{item.name}: {total_value(item)}\n")
+
+    let found = find_item(items, "hammer")
+    if found != none:
+        print(f"found {found.name}\n")
+    else:
+        print("not found\n")
+    if find_item(items, "laptop") == none:
+        print("laptop not found\n")
+
+    report_sale(items[1], 10)
+
+    report_sale(items[1], 3)
+
+    items.sort_by(fn(x): total_value(x))
+    for item in items:
+        print(f"{item.name} {total_value(item)}\n")
+
+    let c = Tool
+    print(f"category: {label(c)}\n")
+--- exit 0
+=== 01:33:17 mica check --json probe.mi
+{"file":"probe.mi","diagnostics":[],"decls":1}
+--- exit 0
+=== 01:33:17 mica run probe.mi
+x is {x}
+1.5 1
+--- exit 0
+=== 01:33:22 mica check --json probe.mi
+{"file":"probe.mi","diagnostics":[{"code":"T0006","severity":"error","file":"probe.mi","line":15,"col":5,"message":"`y`의 타입은 Int인데 none 값을 담았습니다","fix":"타입 표기를 고치거나 값을 바꾸세요"}]}
+--- exit 1
+=== 01:33:26 mica run probe.mi
+err: odd
+--- exit 0
+=== 01:33:32 mica --help
+Mica P1 인터프리터
+
+사용법:
+  mica run <파일.mi>        프로그램을 실행합니다
+  mica check <파일.mi>      실행하지 않고 문법과 타입을 검사합니다
+  mica check --json <파일>  기계가 읽는 진단을 냅니다 (설계 문서 §9.2)
+  mica build <파일.mi>      네이티브 실행 파일로 컴파일합니다
+      -o <이름>             출력 파일 이름 (기본: 소스 이름)
+      --emit-c              C 코드만 내보내고 멈춥니다
+      --release             계약 검사를 빼고 최적화합니다
+      --debug               gdb 로 .mi 줄을 따라갈 수 있게 만듭니다
+  mica test <파일.mi>       docstring 안의 >>> 예제를 실행합니다 (§9.6)
+  mica tokens <파일.mi>     토큰을 출력합니다 (디버그용)
+  mica ffi <헤더.h>        그 라이브러리에서 뭘 쓸 수 있는지 봅니다
+      --cpp                 C++ 헤더로 읽습니다
+      --from <폴더>         헤더를 찾을 폴더
+      --all                 가져온 함수 이름을 전부 보여줍니다
+  mica fmt <파일|폴더>...    코드 모양을 정리합니다 (들여쓰기, 띄어쓰기)
+      --check               고칠 곳이 있으면 알려만 주고 실패로 끝납니다
+      --stdout              파일은 그대로 두고 결과를 화면에 냅니다
+  mica debug <파일.mi>      한 줄씩 따라가며 값을 봅니다 (디버거)
+      -b <줄>               그 줄에서 멈춥니다 (여러 번 써도 됩니다)
+  mica new <이름>           새 프로젝트 폴더를 만듭니다
+  mica add <이름> <주소>    패키지를 씁니다 (git 주소나 폴더, --rev 태그)
+  mica install              mica.toml 의 패키지를 받아 옵니다 (mica.lock 의 판 그대로)
+  mica update               패키지를 새 판으로 올립니다
+  mica remove <이름>        패키지를 뺍니다
+  mica lsp                  에디터용 언어 서버 (VS Code, Neovim 등이 띄웁니다)
+  mica version
+--- exit 2
+=== 01:33:32 mica check --json probe.mi
+{"file":"probe.mi","diagnostics":[],"decls":3}
+--- exit 0
+=== 01:33:32 mica check probe2.mi
+오류[T0006]: `y`의 타입은 Int인데 none 값을 담았습니다
+  --> probe2.mi:2:5
+  |
+2 |     let y: Int = none
+  |     ^
+  도움말: 타입 표기를 고치거나 값을 바꾸세요
+오류 1개
+--- exit 1

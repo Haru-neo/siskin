@@ -1,0 +1,6 @@
+fn main():
+    var sum = 0.0
+    for i in range(0, 50000000):
+        let x = float(i) * 0.0000001
+        sum += x * x - x
+    print(f"{sum}\n")

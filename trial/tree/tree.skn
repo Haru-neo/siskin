@@ -1,0 +1,272 @@
+# Binary search tree of Int keys, written twice:
+#   (a) Level 0: recursive enum, value semantics, no manual memory
+#   (b) Level 1+2: node pool of raw pointers (*RNode), taken from an arena
+#       and, separately, from alloc/free
+from std.random import seed, rand_int
+from std.time import clock
+from std.process import env
+
+# ---------------------------------------------------------------- (a) safe
+
+enum Tree:
+    Leaf
+    Node(left: Tree, key: Int, right: Tree)
+
+fn insert(t: Tree, k: Int) -> Tree:
+    match t:
+        case Leaf:
+            return Node(left: Leaf, key: k, right: Leaf)
+        case Node(l, key, r):
+            if k < key:
+                return Node(left: insert(l, k), key: key, right: r)
+            elif k > key:
+                return Node(left: l, key: key, right: insert(r, k))
+            return t
+
+fn contains(t: Tree, k: Int) -> Bool:
+    match t:
+        case Leaf:
+            return false
+        case Node(l, key, r):
+            if k < key:
+                return contains(l, k)
+            elif k > key:
+                return contains(r, k)
+            return true
+
+# Iterative in-order walk. (The recursive accumulator version
+# `acc = inorder_into(l, out); acc.push(key)` copied the list at every node:
+# O(n^2) in both `siskin run` and `siskin build`.)
+fn inorder(t: Tree) -> [Int]:
+    var out: [Int] = []
+    var stack: [Tree] = []
+    var cur = t
+    while true:
+        match cur:
+            case Node(l, key, r):
+                stack.push(cur)
+                cur = l
+            case Leaf:
+                if len(stack) == 0:
+                    return out
+                let top = stack.pop()
+                if top == none:
+                    return out
+                match top:
+                    case Node(pl, pkey, pr):
+                        out.push(pkey)
+                        cur = pr
+                    case Leaf:
+                        return out
+    return out
+
+fn height(t: Tree) -> Int:
+    match t:
+        case Leaf:
+            return 0
+        case Node(l, key, r):
+            # hl/hr in locals: `max(height(l), height(r))` evaluates each
+            # argument twice in `siskin build` (exponential blow-up).
+            let hl = height(l)
+            let hr = height(r)
+            return 1 + max(hl, hr)
+
+# ---------------------------------------------------------------- (b) manual
+# Nodes live in one block of RNode; links are indices into it (-1 = none).
+
+struct RNode:
+    key: Int
+    left: Int
+    right: Int
+
+struct RawTree:
+    pool: *RNode
+    cap: Int
+    count: Int
+    root: Int
+
+    fn insert(inout self, k: Int):
+        unsafe:
+            if self.root < 0:
+                self.pool[0] = RNode(key: k, left: -1, right: -1)
+                self.root = 0
+                self.count = 1
+                return
+            var cur = self.root
+            while true:
+                let node = self.pool + cur
+                if k < node[0].key:
+                    if node[0].left < 0:
+                        self.pool[self.count] = RNode(key: k, left: -1, right: -1)
+                        node[0].left = self.count
+                        self.count += 1
+                        return
+                    cur = node[0].left
+                elif k > node[0].key:
+                    if node[0].right < 0:
+                        self.pool[self.count] = RNode(key: k, left: -1, right: -1)
+                        node[0].right = self.count
+                        self.count += 1
+                        return
+                    cur = node[0].right
+                else:
+                    return
+
+    fn contains(self, k: Int) -> Bool:
+        unsafe:
+            var cur = self.root
+            while cur >= 0:
+                let key = self.pool[cur].key
+                if k < key:
+                    cur = self.pool[cur].left
+                elif k > key:
+                    cur = self.pool[cur].right
+                else:
+                    return true
+            return false
+
+    fn inorder(self) -> [Int]:
+        var out: [Int] = []
+        unsafe:
+            let stack = alloc[Int](self.count + 1)
+            var sp = 0
+            var cur = self.root
+            while cur >= 0 or sp > 0:
+                while cur >= 0:
+                    stack[sp] = cur
+                    sp += 1
+                    cur = self.pool[cur].left
+                sp -= 1
+                cur = stack[sp]
+                out.push(self.pool[cur].key)
+                cur = self.pool[cur].right
+            free(stack)
+        return out
+
+    fn height_at(self, i: Int) -> Int:
+        if i < 0:
+            return 0
+        var l = -1
+        var r = -1
+        unsafe:
+            l = self.pool[i].left
+            r = self.pool[i].right
+        let hl = self.height_at(l)
+        let hr = self.height_at(r)
+        return 1 + max(hl, hr)
+
+    fn height(self) -> Int:
+        return self.height_at(self.root)
+
+# ---------------------------------------------------------------- driver
+
+fn make_keys(n: Int) -> [Int]:
+    var keys: [Int] = []
+    for i in range(n):
+        keys.push(rand_int(0, 1000000000))
+    return keys
+
+fn make_probes(keys: [Int], n: Int) -> [Int]:
+    var probes: [Int] = []
+    for i in range(n):
+        if i % 2 == 0:
+            probes.push(keys[rand_int(0, len(keys))])
+        else:
+            probes.push(rand_int(0, 1000000000))
+    return probes
+
+# `a == b` on lists works in `siskin run` but not in `siskin build` (C error), so compare by hand.
+fn same_ints(a: [Int], b: [Int]) -> Bool:
+    if len(a) != len(b):
+        return false
+    for i in range(len(a)):
+        if a[i] != b[i]:
+            return false
+    return true
+
+fn same_bools(a: [Bool], b: [Bool]) -> Bool:
+    if len(a) != len(b):
+        return false
+    for i in range(len(a)):
+        if a[i] != b[i]:
+            return false
+    return true
+
+fn report(name: Str, sorted: [Int], h: Int, hits: Int, t_build: Float, t_query: Float):
+    print(f"{name}: size={len(sorted)} height={h} probe_hits={hits}\n")
+    print(f"time {name}: insert={t_build}s queries+walk={t_query}s\n")
+
+fn main():
+    var n = 200000
+    let n_env = env("TREE_N")
+    if n_env != none:
+        n = int(n_env) catch e:
+            200000
+    seed(2026)
+    let keys = make_keys(n)
+    let probes = make_probes(keys, 1000)
+
+    # ---- (a) safe
+    var t0 = clock()
+    var safe = Leaf
+    # TREE_SKIP_SAFE=1: leave the safe tree empty (it is far too slow under `siskin run`)
+    if env("TREE_SKIP_SAFE") == none:
+        for k in keys:
+            safe = insert(safe, k)
+    var t1 = clock()
+    let safe_sorted = inorder(safe)
+    let safe_h = height(safe)
+    var safe_hits: [Bool] = []
+    for p in probes:
+        safe_hits.push(contains(safe, p))
+    var t2 = clock()
+    report("safe", safe_sorted, safe_h, safe_hits.filter(fn(b): b).len(), t1 - t0, t2 - t1)
+
+    # ---- (b1) arena-backed pool
+    var arena_sorted: [Int] = []
+    var arena_h = 0
+    var arena_hits: [Bool] = []
+    t0 = clock()
+    with arena a:
+        unsafe:
+            var rt = RawTree(pool: a.alloc[RNode](n), cap: n, count: 0, root: -1)
+            for k in keys:
+                rt.insert(k)
+            t1 = clock()
+            arena_sorted = rt.inorder()
+            arena_h = rt.height()
+            for p in probes:
+                arena_hits.push(rt.contains(p))
+    t2 = clock()
+    report("arena", arena_sorted, arena_h, arena_hits.filter(fn(b): b).len(), t1 - t0, t2 - t1)
+
+    # ---- (b2) alloc/free pool
+    var heap_sorted: [Int] = []
+    var heap_h = 0
+    var heap_hits: [Bool] = []
+    t0 = clock()
+    unsafe:
+        var ht = RawTree(pool: alloc[RNode](n), cap: n, count: 0, root: -1)
+        for k in keys:
+            ht.insert(k)
+        t1 = clock()
+        heap_sorted = ht.inorder()
+        heap_h = ht.height()
+        for p in probes:
+            heap_hits.push(ht.contains(p))
+        free(ht.pool)
+    t2 = clock()
+    report("heap", heap_sorted, heap_h, heap_hits.filter(fn(b): b).len(), t1 - t0, t2 - t1)
+
+    # ---- agreement
+    let same_sorted = same_ints(safe_sorted, arena_sorted) and same_ints(safe_sorted, heap_sorted)
+    let same_h = safe_h == arena_h and safe_h == heap_h
+    let same_hits = same_bools(safe_hits, arena_hits) and same_bools(safe_hits, heap_hits)
+    print(f"agree: sorted={same_sorted} height={same_h} contains={same_hits}\n")
+    let raw_agree = same_ints(arena_sorted, heap_sorted) and arena_h == heap_h and same_bools(arena_hits, heap_hits)
+    print(f"arena/heap agree: {raw_agree}\n")
+    var ascending = true
+    for i in range(1, len(safe_sorted)):
+        if safe_sorted[i - 1] >= safe_sorted[i]:
+            ascending = false
+    print(f"strictly ascending: {ascending}\n")

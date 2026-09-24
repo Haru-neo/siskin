@@ -1,0 +1,32 @@
+# 맨 위 주석
+
+
+import std.time
+
+fn add(a: Int, b: Int) -> Int:
+    return a + b  # 더하기
+
+struct P:
+    x: ?Int
+    y: [!Str]
+
+fn main():
+    let xs = [1, -2, 3]
+    var t = xs.map(fn(x): x * -1)
+    if t[0] >= -1 and not (t[1] == 2):
+        print(f"{t}  {add( 1,2 )}\n")     # 출력
+    # 블록 안 주석
+    elif t.len() != 0:
+        print("a,b", "c:d")
+    let d = {"a": 1, "b": 2}
+    let big = [
+        1, 2,
+        3,
+    ]
+    let n = -xs[0] * (2 - -1)
+    let e = add(1, 2) catch e:
+        0
+    return
+
+
+# 끝 주석

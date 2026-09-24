@@ -1,0 +1,56 @@
+{
+  "name": "siskin",
+  "displayName": "Siskin",
+  "description": "Siskin 언어 지원: 색칠, 오류 밑줄, 코드 정리, 정의로 이동, 실행 버튼",
+  "version": "0.1.0",
+  "publisher": "siskin-lang",
+  "license": "MIT",
+  "engines": { "vscode": "^1.82.0" },
+  "categories": ["Programming Languages", "Formatters", "Linters"],
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "languages": [
+      {
+        "id": "siskin",
+        "aliases": ["Siskin", "siskin"],
+        "extensions": [".skn"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      { "language": "siskin", "scopeName": "source.siskin", "path": "./syntaxes/siskin.tmLanguage.json" }
+    ],
+    "configuration": {
+      "title": "Siskin",
+      "properties": {
+        "siskin.path": {
+          "type": "string",
+          "default": "siskin",
+          "description": "siskin 프로그램의 경로. PATH 에 있으면 그대로 두세요."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[siskin]": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "editor.detectIndentation": false
+      }
+    },
+    "commands": [
+      { "command": "siskin.run", "title": "Siskin: 이 파일 실행", "icon": "$(play)" },
+      { "command": "siskin.build", "title": "Siskin: 실행 파일 만들기" },
+      { "command": "siskin.debug", "title": "Siskin: 디버거로 실행" },
+      { "command": "siskin.restart", "title": "Siskin: 언어 서버 다시 시작" }
+    ],
+    "menus": {
+      "editor/title/run": [
+        { "command": "siskin.run", "when": "editorLangId == siskin", "group": "navigation" }
+      ]
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "9.0.1"
+  }
+}

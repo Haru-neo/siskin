@@ -1,0 +1,668 @@
+=== 00:12:45 mica check stats.mi
+오류[E0100]: `:`을(를) 기대했는데 키워드 `in`이(가) 왔습니다
+  --> stats.mi:34:17
+   |
+34 |         if name in students:
+   |                 ^
+  도움말: 여기에 `:`을(를) 넣으세요
+--- exit 1
+=== 00:12:49 mica check stats.mi
+오류[E0116]: `)`을(를) 기대했는데 `=`이(가) 왔습니다
+  --> stats.mi:38:42
+   |
+38 |             students[name] = Student(name=name, total=score, count=1)
+   |                                          ^
+  도움말: 여기에 `)`을(를) 넣으세요
+--- exit 1
+=== 00:12:52 mica check stats.mi
+오류[E0101]: 줄바꿈을(를) 기대했는데 `{`이(가) 왔습니다
+  --> stats.mi:38:37
+   |
+38 |             students[name] = Student{name: name, total: score, count: 1}
+   |                                     ^
+  도움말: 여기에 줄바꿈을(를) 넣으세요
+--- exit 1
+=== 00:12:55 mica check stats.mi
+오류[E0118]: `strings` 을(를) 찾을 수 없습니다. 같은 폴더에 `strings.mi` 이(가) 없고, 패키지도 아닙니다
+  --> stats.mi:2:1
+  |
+2 | import strings
+  | ^
+  도움말: 파일 이름을 확인하세요. 남이 만든 패키지면 `mica add strings <git 주소>` 로 넣습니다
+--- exit 1
+=== 00:13:00 mica check stats.mi
+오류[E0118]: `string` 을(를) 찾을 수 없습니다. 같은 폴더에 `string.mi` 이(가) 없고, 패키지도 아닙니다
+  --> stats.mi:2:1
+  |
+2 | import string
+  | ^
+  도움말: 파일 이름을 확인하세요. 남이 만든 패키지면 `mica add string <git 주소>` 로 넣습니다
+--- exit 1
+=== 00:13:03 mica check stats.mi
+오류[T0001]: 타입 `float`을(를) 찾을 수 없습니다
+  --> stats.mi:8:1
+  |
+8 | fn average(s: Student) -> float:
+  | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `float`을(를) 찾을 수 없습니다
+  --> stats.mi:8:1
+  |
+8 | fn average(s: Student) -> float:
+  | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> stats.mi:9:1
+  |
+9 |     return float(s.total) / float(s.count)
+  | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> stats.mi:9:1
+  |
+9 |     return float(s.total) / float(s.count)
+  | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0038]: `read_file`(이)라는 함수를 찾을 수 없습니다
+  --> stats.mi:12:18
+   |
+12 |     let text = fs.read_file("scores.csv")
+   |                  ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0001]: 타입 `map`을(를) 찾을 수 없습니다
+  --> stats.mi:14:1
+   |
+14 |     let students: map[str, Student] = {}
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0045]: `first`은(는) 바꿀 수 없습니다(읽기 전용)
+  --> stats.mi:19:13
+   |
+19 |             first = false
+   |             ^
+  도움말: `first`을(를) `var`로 선언하거나, 함수 인자라면 `inout`으로 받으세요
+오류[T0038]: `parse_int`(이)라는 함수를 찾을 수 없습니다
+  --> stats.mi:28:21
+   |
+28 |         let score = parse_int(parts[2])
+   |                     ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0045]: `students`은(는) 바꿀 수 없습니다(읽기 전용)
+  --> stats.mi:34:13
+   |
+34 |             students[name].total += score
+   |             ^
+  도움말: `students`을(를) `var`로 선언하거나, 함수 인자라면 `inout`으로 받으세요
+오류[T0007]: _ 값에는 `+=` 같은 연산을 쓸 수 없습니다
+  --> stats.mi:34:13
+   |
+34 |             students[name].total += score
+   |             ^
+오류[T0045]: `students`은(는) 바꿀 수 없습니다(읽기 전용)
+  --> stats.mi:35:13
+   |
+35 |             students[name].count += 1
+   |             ^
+  도움말: `students`을(를) `var`로 선언하거나, 함수 인자라면 `inout`으로 받으세요
+오류[T0007]: _ 값에는 `+=` 같은 연산을 쓸 수 없습니다
+  --> stats.mi:35:13
+   |
+35 |             students[name].count += 1
+   |             ^
+오류[T0001]: 타입 `str`을(를) 찾을 수 없습니다
+  --> stats.mi:37:1
+   |
+37 |             students[name] = Student(name, score, 1)
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> stats.mi:37:1
+   |
+37 |             students[name] = Student(name, score, 1)
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> stats.mi:37:1
+   |
+37 |             students[name] = Student(name, score, 1)
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0045]: `students`은(는) 바꿀 수 없습니다(읽기 전용)
+  --> stats.mi:37:13
+   |
+37 |             students[name] = Student(name, score, 1)
+   |             ^
+  도움말: `students`을(를) `var`로 선언하거나, 함수 인자라면 `inout`으로 받으세요
+오류[T0045]: `max_score`은(는) 바꿀 수 없습니다(읽기 전용)
+  --> stats.mi:39:13
+   |
+39 |             max_score = score
+   |             ^
+  도움말: `max_score`을(를) `var`로 선언하거나, 함수 인자라면 `inout`으로 받으세요
+오류[T0054]: 익명 함수의 인자 `a`의 타입을 알 수 없습니다
+  --> stats.mi:41:15
+   |
+41 |     list.sort(fn(a, b): average(b) < average(a))
+   |               ^
+  도움말: `fn(a: Int): ...` 처럼 타입을 적어 주세요
+오류[T0054]: 익명 함수의 인자 `b`의 타입을 알 수 없습니다
+  --> stats.mi:41:15
+   |
+41 |     list.sort(fn(a, b): average(b) < average(a))
+   |               ^
+  도움말: `fn(b: Int): ...` 처럼 타입을 적어 주세요
+오류[T0038]: `format`(이)라는 함수를 찾을 수 없습니다
+  --> stats.mi:43:31
+   |
+43 |         print(s.name + ": " + format("{:.1f}", average(s)) + "\n")
+   |                               ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류 20개
+--- exit 1
+=== 00:13:16 mica check stats.mi
+오류[T0001]: 타입 `float`을(를) 찾을 수 없습니다
+  --> stats.mi:8:1
+  |
+8 | fn average(s: Student) -> float:
+  | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `float`을(를) 찾을 수 없습니다
+  --> stats.mi:8:1
+  |
+8 | fn average(s: Student) -> float:
+  | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> stats.mi:9:1
+  |
+9 |     return float(s.total) / float(s.count)
+  | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> stats.mi:9:1
+  |
+9 |     return float(s.total) / float(s.count)
+  | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0038]: `read_file`(이)라는 함수를 찾을 수 없습니다
+  --> stats.mi:12:18
+   |
+12 |     let text = fs.read_file("scores.csv")
+   |                  ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0001]: 타입 `map`을(를) 찾을 수 없습니다
+  --> stats.mi:14:1
+   |
+14 |     let students: map[str, Student] = {}
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0045]: `first`은(는) 바꿀 수 없습니다(읽기 전용)
+  --> stats.mi:19:13
+   |
+19 |             first = false
+   |             ^
+  도움말: `first`을(를) `var`로 선언하거나, 함수 인자라면 `inout`으로 받으세요
+오류[T0038]: `parse_int`(이)라는 함수를 찾을 수 없습니다
+  --> stats.mi:28:21
+   |
+28 |         let score = parse_int(parts[2])
+   |                     ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0045]: `students`은(는) 바꿀 수 없습니다(읽기 전용)
+  --> stats.mi:34:13
+   |
+34 |             students[name].total += score
+   |             ^
+  도움말: `students`을(를) `var`로 선언하거나, 함수 인자라면 `inout`으로 받으세요
+오류[T0007]: _ 값에는 `+=` 같은 연산을 쓸 수 없습니다
+  --> stats.mi:34:13
+   |
+34 |             students[name].total += score
+   |             ^
+오류[T0045]: `students`은(는) 바꿀 수 없습니다(읽기 전용)
+  --> stats.mi:35:13
+   |
+35 |             students[name].count += 1
+   |             ^
+  도움말: `students`을(를) `var`로 선언하거나, 함수 인자라면 `inout`으로 받으세요
+오류[T0007]: _ 값에는 `+=` 같은 연산을 쓸 수 없습니다
+  --> stats.mi:35:13
+   |
+35 |             students[name].count += 1
+   |             ^
+오류[T0001]: 타입 `str`을(를) 찾을 수 없습니다
+  --> stats.mi:37:1
+   |
+37 |             students[name] = Student(name, score, 1)
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> stats.mi:37:1
+   |
+37 |             students[name] = Student(name, score, 1)
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0001]: 타입 `int`을(를) 찾을 수 없습니다
+  --> stats.mi:37:1
+   |
+37 |             students[name] = Student(name, score, 1)
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0045]: `students`은(는) 바꿀 수 없습니다(읽기 전용)
+  --> stats.mi:37:13
+   |
+37 |             students[name] = Student(name, score, 1)
+   |             ^
+  도움말: `students`을(를) `var`로 선언하거나, 함수 인자라면 `inout`으로 받으세요
+오류[T0045]: `max_score`은(는) 바꿀 수 없습니다(읽기 전용)
+  --> stats.mi:39:13
+   |
+39 |             max_score = score
+   |             ^
+  도움말: `max_score`을(를) `var`로 선언하거나, 함수 인자라면 `inout`으로 받으세요
+오류[T0054]: 익명 함수의 인자 `a`의 타입을 알 수 없습니다
+  --> stats.mi:41:15
+   |
+41 |     list.sort(fn(a, b): average(b) < average(a))
+   |               ^
+  도움말: `fn(a: Int): ...` 처럼 타입을 적어 주세요
+오류[T0054]: 익명 함수의 인자 `b`의 타입을 알 수 없습니다
+  --> stats.mi:41:15
+   |
+41 |     list.sort(fn(a, b): average(b) < average(a))
+   |               ^
+  도움말: `fn(b: Int): ...` 처럼 타입을 적어 주세요
+오류[T0038]: `format`(이)라는 함수를 찾을 수 없습니다
+  --> stats.mi:43:31
+   |
+43 |         print(s.name + ": " + format("{:.1f}", average(s)) + "\n")
+   |                               ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류 20개
+--- exit 1
+=== 00:13:22 mica check stats.mi
+오류[T0038]: `Float`(이)라는 함수를 찾을 수 없습니다
+  --> stats.mi:9:12
+  |
+9 |     return Float(s.total) / Float(s.count)
+  |            ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0038]: `Float`(이)라는 함수를 찾을 수 없습니다
+  --> stats.mi:9:29
+  |
+9 |     return Float(s.total) / Float(s.count)
+  |                             ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0038]: `read`(이)라는 함수를 찾을 수 없습니다
+  --> stats.mi:12:18
+   |
+12 |     let text = fs.read("scores.csv")
+   |                  ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0001]: 타입 `map`을(를) 찾을 수 없습니다
+  --> stats.mi:14:1
+   |
+14 |     var students: Map[Str, Student] = {}
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0007]: _ 값에는 `+=` 같은 연산을 쓸 수 없습니다
+  --> stats.mi:34:13
+   |
+34 |             students[name].total += score
+   |             ^
+오류[T0007]: _ 값에는 `+=` 같은 연산을 쓸 수 없습니다
+  --> stats.mi:35:13
+   |
+35 |             students[name].count += 1
+   |             ^
+오류[T0038]: `format`(이)라는 함수를 찾을 수 없습니다
+  --> stats.mi:43:31
+   |
+43 |         print(s.name + ": " + format("{:.1f}", average(s)) + "\n")
+   |                               ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0038]: `Str`(이)라는 함수를 찾을 수 없습니다
+  --> stats.mi:44:27
+   |
+44 |     print("max score: " + Str(max_score) + "\n")
+   |                           ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류 8개
+--- exit 1
+=== 00:13:26 mica check --json stats.mi
+{"file":"stats.mi","diagnostics":[{"code":"T0038","severity":"error","file":"stats.mi","line":9,"col":12,"message":"`Float`(이)라는 함수를 찾을 수 없습니다","fix":"이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요"},{"code":"T0038","severity":"error","file":"stats.mi","line":9,"col":29,"message":"`Float`(이)라는 함수를 찾을 수 없습니다","fix":"이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요"},{"code":"T0038","severity":"error","file":"stats.mi","line":12,"col":18,"message":"`read`(이)라는 함수를 찾을 수 없습니다","fix":"이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요"},{"code":"T0001","severity":"error","file":"stats.mi","line":14,"col":1,"message":"타입 `map`을(를) 찾을 수 없습니다","fix":"기본 타입은 Int, Float, Bool, Str 입니다"},{"code":"T0007","severity":"error","file":"stats.mi","line":34,"col":13,"message":"_ 값에는 `+=` 같은 연산을 쓸 수 없습니다","fix":null},{"code":"T0007","severity":"error","file":"stats.mi","line":35,"col":13,"message":"_ 값에는 `+=` 같은 연산을 쓸 수 없습니다","fix":null},{"code":"T0038","severity":"error","file":"stats.mi","line":43,"col":31,"message":"`format`(이)라는 함수를 찾을 수 없습니다","fix":"이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요"},{"code":"T0038","severity":"error","file":"stats.mi","line":44,"col":27,"message":"`Str`(이)라는 함수를 찾을 수 없습니다","fix":"이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요"}]}
+--- exit 1
+=== 00:13:32 mica check stats.mi
+오류[T0036]: Int에 `to_float` 메서드가 없습니다
+  --> stats.mi:9:19
+  |
+9 |     return s.total.to_float() / s.count.to_float()
+  |                   ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류[T0036]: Int에 `to_float` 메서드가 없습니다
+  --> stats.mi:9:40
+  |
+9 |     return s.total.to_float() / s.count.to_float()
+  |                                        ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류[T0041]: `read_text`은(는) `std.fs`에서 가져와야 합니다
+  --> stats.mi:12:18
+   |
+12 |     let text = fs.read_text("scores.csv")
+   |                  ^
+  도움말: 파일 위에 `from std.fs import read_text` 를 추가하세요
+오류[T0005]: `text`에 실패할 수 있는 값(!Str)을 그냥 담을 수 없습니다
+  --> stats.mi:12:5
+   |
+12 |     let text = fs.read_text("scores.csv")
+   |     ^
+  도움말: `try`로 전파하거나 `catch e:` 로 받으세요
+오류[T0036]: !Str에 `split` 메서드가 없습니다
+  --> stats.mi:13:21
+   |
+13 |     let lines = text.split("\n")
+   |                     ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류[T0001]: 타입 `Dict`을(를) 찾을 수 없습니다
+  --> stats.mi:14:1
+   |
+14 |     var students: Dict[Str, Student] = {}
+   | ^
+  도움말: 기본 타입은 Int, Float, Bool, Str 입니다
+오류[T0007]: _ 값에는 `+=` 같은 연산을 쓸 수 없습니다
+  --> stats.mi:34:13
+   |
+34 |             students[name].total += score
+   |             ^
+오류[T0007]: _ 값에는 `+=` 같은 연산을 쓸 수 없습니다
+  --> stats.mi:35:13
+   |
+35 |             students[name].count += 1
+   |             ^
+오류[T0036]: Float에 `to_fixed` 메서드가 없습니다
+  --> stats.mi:43:41
+   |
+43 |         print(s.name + ": " + average(s).to_fixed(1) + "\n")
+   |                                         ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류[T0036]: Int에 `to_str` 메서드가 없습니다
+  --> stats.mi:44:36
+   |
+44 |     print("max score: " + max_score.to_str() + "\n")
+   |                                    ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류 10개
+--- exit 1
+=== 00:13:47 mica check stats.mi
+오류[T0036]: Str에 `trim` 메서드가 없습니다
+  --> stats.mi:23:27
+   |
+23 |         let trimmed = line.trim()
+   |                           ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류[T0036]: {Str: Student}에 `contains` 메서드가 없습니다
+  --> stats.mi:35:20
+   |
+35 |         if students.contains(name):
+   |                    ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류[T0025]: ?Student 값에서 바로 `total`을(를) 꺼낼 수 없습니다
+  --> stats.mi:36:27
+   |
+36 |             students[name].total += score
+   |                           ^
+  도움말: 값이 없을 수 있습니다. `if x != none:` 안에서 쓰면 Student로 좁혀집니다
+오류[T0007]: _ 값에는 `+=` 같은 연산을 쓸 수 없습니다
+  --> stats.mi:36:13
+   |
+36 |             students[name].total += score
+   |             ^
+오류[T0025]: ?Student 값에서 바로 `count`을(를) 꺼낼 수 없습니다
+  --> stats.mi:37:27
+   |
+37 |             students[name].count += 1
+   |                           ^
+  도움말: 값이 없을 수 있습니다. `if x != none:` 안에서 쓰면 Student로 좁혀집니다
+오류[T0007]: _ 값에는 `+=` 같은 연산을 쓸 수 없습니다
+  --> stats.mi:37:13
+   |
+37 |             students[name].count += 1
+   |             ^
+오류[T0036]: {Str: Student}에 `values` 메서드가 없습니다
+  --> stats.mi:42:24
+   |
+42 |     var list = students.values()
+   |                        ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류[T0036]: Float에 `round` 메서드가 없습니다
+  --> stats.mi:45:45
+   |
+45 |         print(s.name + ": " + str(average(s).round(1)) + "\n")
+   |                                             ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류 8개
+--- exit 1
+=== 00:13:55 mica check stats.mi
+오류[T0036]: Str에 `to_int` 메서드가 없습니다
+  --> stats.mi:30:29
+   |
+30 |         let score = parts[2].to_int()
+   |                             ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류[T0036]: [Student]에 `append` 메서드가 없습니다
+  --> stats.mi:44:13
+   |
+44 |         list.append(st)
+   |             ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류[T0041]: `round`은(는) `std.math`에서 가져와야 합니다
+  --> stats.mi:47:35
+   |
+47 |         print(s.name + ": " + str(round(average(s), 1)) + "\n")
+   |                                   ^
+  도움말: 파일 위에 `from std.math import round` 를 추가하세요
+오류 3개
+--- exit 1
+=== 00:14:00 mica check stats.mi
+오류[T0005]: `score`에 실패할 수 있는 값(!Int)을 그냥 담을 수 없습니다
+  --> stats.mi:31:9
+   |
+31 |         let score = int(parts[2])
+   |         ^
+  도움말: `try`로 전파하거나 `catch e:` 로 받으세요
+오류[T0018]: Int와(과) !Int에 `+`을(를) 쓸 수 없습니다
+  --> stats.mi:38:59
+   |
+38 |             students[name] = Student(name, existing.total + score, existing.count + 1)
+   |                                                           ^
+  도움말: Mica에는 암묵적 형변환이 없습니다. `float(x)` 또는 `int(x)`로 맞추세요
+오류[T0033]: `Student`의 필드에 Int이(가) 와야 하는데 !Int입니다
+  --> stats.mi:40:30
+   |
+40 |             students[name] = Student(name, score, 1)
+   |                              ^
+  도움말: Mica에는 암묵적 형변환이 없습니다
+오류[T0017]: !Int와(과) Int을(를) 비교할 수 없습니다
+  --> stats.mi:41:18
+   |
+41 |         if score > max_score:
+   |                  ^
+  도움말: Mica에는 암묵적 형변환이 없습니다. `float(x)`로 맞추세요
+오류[T0008]: Int 자리에 !Int 값을 넣을 수 없습니다
+  --> stats.mi:42:13
+   |
+42 |             max_score = score
+   |             ^
+  도움말: Mica에는 암묵적 형변환이 없습니다
+오류 5개
+--- exit 1
+=== 00:14:05 mica check stats.mi
+검사 통과: 최상위 선언 5개
+--- exit 0
+=== 00:14:08 mica run stats.mi
+warning: bad score in row: Kim,history,abc
+오류[E0245]: Student 리스트는 정렬할 수 없습니다
+  --> stats.mi:45:9
+   |
+45 |     list.sort(fn(a: Student, b: Student): average(b) < average(a))
+   |         ^
+  도움말: Int, Float, Str, Bool 리스트만 정렬됩니다
+--- exit 1
+=== 00:14:13 mica run stats.mi
+warning: bad score in row: Kim,history,abc
+Lim: 74
+Jung: 71
+Park: 70
+Kim: 70
+Jang: 67
+Lee: 63
+Choi: 62
+Cho: 59
+Yoon: 58
+Kang: 47
+max score: 100
+--- exit 0
+=== 00:14:21 mica run probe.mi
+74.33333333333333
+74
+74
+70.0
+--- exit 0
+=== 00:14:30 mica check probe.mi
+오류[T0038]: `fmt`(이)라는 함수를 찾을 수 없습니다
+  --> probe.mi:3:11
+  |
+3 |     print(fmt(x, 1))
+  |           ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0038]: `format_float`(이)라는 함수를 찾을 수 없습니다
+  --> probe.mi:4:11
+  |
+4 |     print(format_float(x, 1))
+  |           ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0038]: `fixed`(이)라는 함수를 찾을 수 없습니다
+  --> probe.mi:5:11
+  |
+5 |     print(fixed(x, 1))
+  |           ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0038]: `to_fixed`(이)라는 함수를 찾을 수 없습니다
+  --> probe.mi:6:11
+  |
+6 |     print(to_fixed(x, 1))
+  |           ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0038]: `sprintf`(이)라는 함수를 찾을 수 없습니다
+  --> probe.mi:7:11
+  |
+7 |     print(sprintf("%.1f", x))
+  |           ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0038]: `format`(이)라는 함수를 찾을 수 없습니다
+  --> probe.mi:8:11
+  |
+8 |     print(format("{:.1}", x))
+  |           ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0038]: `str_fixed`(이)라는 함수를 찾을 수 없습니다
+  --> probe.mi:9:11
+  |
+9 |     print(str_fixed(x, 1))
+  |           ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류[T0038]: `pad_left`(이)라는 함수를 찾을 수 없습니다
+  --> probe.mi:10:11
+   |
+10 |     print(pad_left("a", 3))
+   |           ^
+  도움말: 이름의 철자를 확인하거나, 필요한 모듈을 import 했는지 보세요
+오류 8개
+--- exit 1
+=== 00:14:34 mica check probe.mi
+오류[T0036]: Float에 `format` 메서드가 없습니다
+  --> probe.mi:3:12
+  |
+3 |     print(x.format(1))
+  |            ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류[T0036]: Float에 `fmt` 메서드가 없습니다
+  --> probe.mi:4:12
+  |
+4 |     print(x.fmt(1))
+  |            ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류[T0036]: Float에 `fixed` 메서드가 없습니다
+  --> probe.mi:5:12
+  |
+5 |     print(x.fixed(1))
+  |            ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류[T0036]: Float에 `to_string` 메서드가 없습니다
+  --> probe.mi:6:12
+  |
+6 |     print(x.to_string(1))
+  |            ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류[T0036]: Float에 `str` 메서드가 없습니다
+  --> probe.mi:7:12
+  |
+7 |     print(x.str(1))
+  |            ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류[T0036]: Float에 `precision` 메서드가 없습니다
+  --> probe.mi:8:12
+  |
+8 |     print(x.precision(1))
+  |            ^
+  도움말: `mica check`로 쓸 수 있는 메서드를 확인하세요
+오류 6개
+--- exit 1
+=== 00:14:38 mica run probe.mi
+{x:.1}
+{x}
+74.3
+--- exit 0
+=== 00:14:44 mica run stats.mi
+warning: bad score in row: Kim,history,abc
+Lim: 74.3
+Jung: 71.0
+Park: 70.0
+Kim: 69.7
+Jang: 67.3
+Lee: 63.0
+Choi: 62.0
+Cho: 59.0
+Yoon: 58.3
+Kang: 46.7
+max score: 100
+--- exit 0
+=== 00:14:48 mica run stats.mi
+warning: bad score in row: Kim,history,abc
+Lim: 74.3
+Jung: 71.0
+Park: 70.0
+Kim: 69.7
+Jang: 67.3
+Lee: 63.0
+Choi: 62.0
+Cho: 59.0
+Yoon: 58.3
+Kang: 46.7
+max score: 100
+--- exit 0
+=== 00:14:48 mica build stats.mi -o prog
+컴파일 완료: ./prog
+--- exit 0
+=== 00:14:53 mica check probe.mi
+검사 통과: 최상위 선언 3개
+--- exit 0
+=== 00:14:53 mica run probe.mi
+74
+오류[E0245]: P 리스트는 정렬할 수 없습니다
+  --> probe.mi:9:7
+  |
+9 |     xs.sort(fn(a: P, b: P): a.v < b.v)
+  |       ^
+  도움말: Int, Float, Str, Bool 리스트만 정렬됩니다
+--- exit 1

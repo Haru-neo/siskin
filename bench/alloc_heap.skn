@@ -1,0 +1,18 @@
+# 같은 일을 힙에서. 블록마다 받아 오고 돌려줍니다.
+fn main():
+    let reqs = 2000
+    let per = 1000
+    let total = 0
+    let r = 0
+    while r < reqs:
+        unsafe:
+            let i = 0
+            while i < per:
+                let p = alloc[Int](8)
+                p[0] = i
+                p[7] = i + 1
+                total = total + p[0] + p[7]
+                free(p)
+                i = i + 1
+        r = r + 1
+    print(str(total) + "\n")

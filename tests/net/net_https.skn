@@ -1,0 +1,25 @@
+# std.net: 진짜 인터넷 HTTPS 확인 (인터넷이 되어야 함)
+import std.net
+
+fn main():
+    let g = http_get("https://static.rust-lang.org/dist/channel-rust-stable.toml.sha256") catch e:
+        print("실패: " + e + "\n")
+        return
+    print(f"{g.status} {g.body.contains('channel-rust-stable.toml')}\n")
+    let p = http_get("https://pypi.org/pypi/requests/json") catch e:
+        print("실패: " + e + "\n")
+        return
+    print(f"{p.status} {p.body.contains('\"name\":\"requests\"')}\n")
+    let n = http_get("https://pypi.org/pypi/" + url_encode("없는 패키지") + "/json") catch e:
+        print("실패: " + e + "\n")
+        return
+    print(f"{n.status} {n.ok()}\n")
+    let c = connect_tls("pypi.org", 443) catch e:
+        print("실패: " + e + "\n")
+        return
+    c.send("HEAD / HTTP/1.1\r\nHost: pypi.org\r\nUser-Agent: siskin\r\nConnection: close\r\n\r\n") catch e:
+        print(e + "\n")
+    let first = c.recv_line() catch e:
+        "?"
+    print(first)
+    c.close()

@@ -1,0 +1,6 @@
+from std.random import seed, rand_int
+
+fn main():
+    seed(1)
+    let m = max(rand_int(0, 1000), rand_int(0, 1000))
+    print(f"{m} next={rand_int(0, 1000)}\n")

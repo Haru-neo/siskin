@@ -1,0 +1,105 @@
+# 웹 서버 액세스 로그 분석기
+from std.fs import read_text
+from std.re import groups
+from std.math import round
+
+struct Stat:
+    path: Str
+    hits: Int
+    errors: Int
+    bytes: Int
+    total_ms: Float
+
+# 소수점 둘째 자리까지 — 언어에 서식 기능이 없어서 직접 만듦
+fn fixed2(x: Float) -> Str:
+    let scaled = round(x * 100.0)
+    let whole = scaled / 100
+    var frac = scaled % 100
+    if frac < 0:
+        frac = -frac
+    var fs = str(frac)
+    if fs.len() < 2:
+        fs = "0" + fs
+    return str(whole) + "." + fs
+
+# 오른쪽에 공백을 채워 표 칸을 맞춤 — 언어에 자리 맞춤 기능이 없어서 직접 만듦
+fn padr(s: Str, n: Int) -> Str:
+    if s.len() >= n:
+        return s
+    return s + " ".repeat(n - s.len())
+
+fn padl(s: Str, n: Int) -> Str:
+    if s.len() >= n:
+        return s
+    return " ".repeat(n - s.len()) + s
+
+# hits가 많은 순으로 정렬 — 정렬 기준을 넘길 수 없어서 직접 만듦
+fn sort_by_hits(rows: [Stat]) -> [Stat]:
+    var out = rows
+    var i = 0
+    while i < out.len():
+        var best = i
+        var j = i + 1
+        while j < out.len():
+            if out[j].hits > out[best].hits:
+                best = j
+            j += 1
+        let tmp = out[i]
+        out[i] = out[best]
+        out[best] = tmp
+        i += 1
+    return out
+
+fn main() -> !Unit:
+    let Q = "\""
+    let pat = Q + r"(\w+) (\S+) HTTP/1\.1" + Q + r" (\d+) (\d+) ([\d.]+)"
+
+    let text = try read_text("access.log")
+    let lines = text.split("\n")
+
+    var stats: {Str: Stat} = {}
+    var bad = 0
+
+    for line in lines:
+        if line.len() == 0:
+            continue
+        let g = groups(pat, line)
+        if g.len() == 0:
+            bad += 1
+            continue
+        let path = g[2]
+        let status = try int(g[3])
+        let bytes = try int(g[4])
+        let secs = try float(g[5])
+
+        var s = Stat(path: path, hits: 0, errors: 0, bytes: 0, total_ms: 0.0)
+        let found = stats[path]
+        if found != none:
+            s = found
+        s.hits += 1
+        s.bytes += bytes
+        s.total_ms += secs * 1000.0
+        if status >= 500:
+            s.errors += 1
+        stats[path] = s
+
+    # 사전을 리스트로 옮김 — key로 얻은 값도 다시 none 검사를 해야 함
+    var rows: [Stat] = []
+    for key in stats.keys():
+        let s = stats[key]
+        if s != none:
+            rows.push(s)
+
+    let sorted = sort_by_hits(rows)
+
+    print(padr("경로", 18) + padl("요청", 6) + padl("에러", 6) + padl("평균ms", 10) + padl("MB", 8) + "\n")
+    print("-".repeat(48) + "\n")
+    var total = 0
+    for s in sorted:
+        total += s.hits
+        print(padr(s.path, 18) + padl(str(s.hits), 6) + padl(str(s.errors), 6)
+              + padl(fixed2(s.total_ms / float(s.hits)), 10)
+              + padl(fixed2(float(s.bytes) / 1048576.0), 8) + "\n")
+    print("-".repeat(48) + "\n")
+    print(f"전체 {total}건, 해석 못한 줄 {bad}건\n")
+    return

@@ -1,0 +1,178 @@
+# 단어 빈도 세기: 파일을 읽어 가장 많이 나온 단어 10개를 표로 냅니다.
+from std.fs import read_text
+from std.process import run, pid
+
+struct Entry:
+    word: Str
+    count: Int
+
+fn is_hangul(c: Str) -> Bool:
+    """
+    >>> is_hangul("여")
+    true
+    >>> is_hangul("a")
+    false
+    """
+    return c >= "가" and c <= "힣"
+
+fn is_letter(c: Str) -> Bool:
+    """
+    대소문자가 있는 글자(영문 등)이거나 한글 음절이면 글자입니다.
+
+    >>> is_letter("q")
+    true
+    >>> is_letter("개")
+    true
+    >>> is_letter(",")
+    false
+    >>> is_letter("7")
+    false
+    """
+    return c.lower() != c.upper() or is_hangul(c)
+
+fn words_of(text: Str) -> [Str]:
+    """
+    소문자로 바꾸고 글자만 이어진 덩어리를 단어로 뽑습니다. 문장부호는 버립니다.
+
+    >>> words_of("The dog, the FOX!")
+    ["the", "dog", "the", "fox"]
+    >>> words_of("여우와 개는 친구가 아니다.")
+    ["여우와", "개는", "친구가", "아니다"]
+    """
+    let lower = text.lower()
+    var words: [Str] = []
+    var current = ""
+    # `for c in lower:` 가 더 자연스럽지만 네이티브 빌드에서 한글이 섞이면 범위를 넘습니다(버그).
+    var i = 0
+    while i < lower.len():
+        let c = lower[i]
+        i += 1
+        if is_letter(c):
+            current += c
+        elif current != "":
+            words.push(current)
+            current = ""
+    if current != "":
+        words.push(current)
+    return words
+
+fn display_width(s: Str) -> Int:
+    """
+    화면에서 차지하는 칸 수. 한글은 한 글자가 두 칸입니다.
+
+    >>> display_width("fox")
+    3
+    >>> display_width("여우와")
+    6
+    """
+    var width = 0
+    var i = 0
+    while i < s.len():
+        let c = s[i]
+        i += 1
+        if is_hangul(c):
+            width += 2
+        else:
+            width += 1
+    return width
+
+fn pad_right(s: Str, width: Int) -> Str:
+    """
+    >>> pad_right("여우", 6) + "|"
+    "여우  |"
+    """
+    return s + " ".repeat(max(0, width - display_width(s)))
+
+fn pad_left(s: Str, width: Int) -> Str:
+    """
+    >>> pad_left("42", 5)
+    "   42"
+    """
+    return " ".repeat(max(0, width - display_width(s))) + s
+
+fn count_words(words: [Str]) -> [Entry]:
+    """
+    많이 나온 순서로, 같으면 알파벳 순서로 정렬해 돌려줍니다.
+
+    >>> count_words(["b", "a", "b", "c", "a", "d"]).map(fn(e): e.word)
+    ["a", "b", "c", "d"]
+    """
+    var counts: {Str: Int} = {}
+    for w in words:
+        let c = counts[w]
+        if c == none:
+            counts[w] = 1
+        else:
+            counts[w] = c + 1
+
+    var entries: [Entry] = []
+    for w in counts.keys():
+        let c = counts[w]
+        if c != none:
+            entries.push(Entry(word: w, count: c))
+    # sort_by 는 안정 정렬이므로 먼저 단어순, 다음에 개수순으로 정렬합니다.
+    entries.sort_by(fn(e): e.word)
+    entries.sort_by(fn(e): -e.count)
+    return entries
+
+fn user_args(argv: [Str]) -> [Str]:
+    """
+    프로그램 자신의 이름(과 `siskin run 파일.skn`)을 떼고 사용자가 준 인자만 남깁니다.
+
+    >>> user_args(["./prog", "a.txt"])
+    ["a.txt"]
+    >>> user_args(["/usr/bin/siskin", "run", "wordfreq.skn", "a.txt"])
+    ["a.txt"]
+    >>> user_args(["./prog"])
+    []
+    """
+    if argv.len() == 0:
+        return []
+    var start = 1
+    if argv[0].ends_with("siskin"):
+        var i = 1
+        while i < argv.len():
+            if argv[i].ends_with(".skn"):
+                start = i + 1
+                break
+            i += 1
+    return argv.slice(start, argv.len())
+
+fn command_line() -> [Str]:
+    # Siskin 에는 명령줄 인자를 읽는 방법이 없어서(문서에도, std.process 에도 없음)
+    # 리눅스의 /proc/<pid>/cmdline 을 읽습니다. 인자는 NUL 로 나뉘어 있으므로 tr 로 줄바꿈으로 바꿉니다.
+    # (std.fs.read_text 로 직접 읽으면 네이티브 빌드에서 빈 문자열이 나옵니다.)
+    let r = run(f"tr '\\000' '\\n' < /proc/{pid()}/cmdline")
+    if not r.ok():
+        return []
+    return r.out.split("\n").filter(fn(a): a != "")
+
+fn main() -> !Unit:
+    let argv = user_args(command_line())
+    var path = "input.txt"
+    if argv.len() > 0:
+        path = argv[0]
+
+    let text = read_text(path) catch e:
+        print(e + "\n")
+        return error(e)
+    let words = words_of(text)
+    let entries = count_words(words)
+    let top = entries.slice(0, min(10, entries.len()))
+
+    var word_w = display_width("word")
+    var count_w = "count".len()
+    for e in top:
+        word_w = max(word_w, display_width(e.word))
+        count_w = max(count_w, str(e.count).len())
+
+    print(pad_left("rank", 4) + "  " + pad_right("word", word_w) + "  " + pad_left("count", count_w) + "\n")
+    print("-".repeat(4 + 2 + word_w + 2 + count_w) + "\n")
+    var rank = 1
+    for e in top:
+        print(pad_left(str(rank), 4) + "  " + pad_right(e.word, word_w) + "  " + pad_left(str(e.count), count_w) + "\n")
+        rank += 1
+    print("\n")
+    print(f"total words:    {words.len()}\n")
+    print(f"distinct words: {entries.len()}\n")
+    return

@@ -1,0 +1,91 @@
+# grades — read scores.csv, report averages, subject toppers, all-pass students, top 3.
+from csvutil import parse_line, group_by, top_n
+from std.fs import read_text, write_text
+
+struct Row:
+    name: Str
+    subject: Str
+    score: Int
+
+struct Student:
+    name: Str
+    scores: [Int]
+    avg: Float
+
+# Turn the fields of one data line into a Row, or explain why not.
+fn to_row(fields: [Str]) -> !Row:
+    if fields.len() != 3:
+        return error(f"expected 3 fields, got {fields.len()}")
+    let score = int(fields[2]) catch e:
+        return error(f"score '{fields[2]}' is not a number")
+    if score < 0 or score > 100:
+        return error(f"score {score} is out of range 0..100")
+    return Row(name: fields[0], subject: fields[1], score: score)
+
+fn main() -> !Unit:
+    let text = try read_text("scores.csv")
+    let lines = text.split("\n")
+
+    var rows: [Row] = []
+    var bad: [(Int, Str)] = []          # (line number, reason)
+    var i = 1                           # line 0 is the header
+    while i < lines.len():
+        let line = lines[i].strip()
+        if line != "":
+            let row = to_row(parse_line(line)) catch e:
+                bad.push((i + 1, e))
+                i += 1
+                continue
+            rows.push(row)
+        i += 1
+
+    var report = ""
+    if bad.len() > 0:
+        report += "Skipped rows:\n"
+        for b in bad:
+            let (ln, why) = b
+            report += f"  line {ln}: {why}\n"
+        report += "\n"
+
+    # ---- per-student averages ----
+    let by_name = group_by(rows, fn(r): r.name)
+    var students: [Student] = []
+    for name in by_name.keys():
+        let g = by_name[name]
+        if g != none:
+            let scores = g.map(fn(r): r.score)
+            let avg = float(sum(scores)) / float(scores.len())
+            students.push(Student(name: name, scores: scores, avg: avg))
+
+    report += "Averages:\n"
+    for s in students:
+        report += f"  {s.name}: {s.avg:.1f}\n"
+
+    # ---- top scorer per subject ----
+    report += "\nTop scorer per subject:\n"
+    let by_subject = group_by(rows, fn(r): r.subject)
+    for subject in by_subject.keys():
+        let g = by_subject[subject]
+        if g != none:
+            let best = top_n(g, 1, fn(r): float(r.score))[0].score
+            let who = g.filter(fn(r): r.score == best).map(fn(r): r.name)
+            report += f"  {subject}: {who.join(", ")} ({best})\n"
+
+    # ---- every score >= 60 ----
+    report += "\nPassed every subject (all scores >= 60):\n"
+    let passed = students.filter(fn(s): s.scores.all(fn(x): x >= 60))
+    if passed.len() == 0:
+        report += "  (none)\n"
+    for s in passed:
+        report += f"  {s.name}\n"
+
+    # ---- top 3 by average ----
+    report += "\nTop 3 by average:\n"
+    var rank = 1
+    for s in top_n(students, 3, fn(s): s.avg):
+        report += f"  {rank}. {s.name} {s.avg:.1f}\n"
+        rank += 1
+
+    print(report)
+    try write_text("report.txt", report)
+    return

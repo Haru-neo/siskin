@@ -1,0 +1,21 @@
+import std.process
+from std.process import cwd, set_cwd
+from std.fs import read_text, remove, make_dir, write_text
+
+fn main():
+    let t = read_text("/tmp/없는파일.txt") catch e:
+        print("읽기: " + e + "\n")
+        ""
+    remove("/tmp/없는파일.txt") catch e:
+        print("지우기: " + e + "\n")
+    write_text("/tmp/siskin_proc_test/f", "x") catch e:
+        print(e + "\n")
+    make_dir("/tmp/siskin_proc_test/f") catch e:
+        print("폴더: " + e + "\n")
+    set_cwd("/tmp/siskin_proc_test") catch e:
+        print(e + "\n")
+    print(cwd() + "\n")
+    set_cwd("/없는/곳") catch e:
+        print("cd: " + e + "\n")
+    let r = process.run("pwd")
+    print(r.out)

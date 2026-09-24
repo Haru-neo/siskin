@@ -1,0 +1,287 @@
+=== 00:13:18 mica check tree.mi
+오류[E0128]: 인자 `mut`에 타입 표기가 없습니다
+  --> tree.mi:69:19
+   |
+69 |     fn insert(mut self, k: Int):
+   |                   ^
+  도움말: 함수 시그니처는 타입 표기가 필수입니다. 지역 변수만 추론됩니다
+--- exit 1
+=== 00:13:21 mica check tree.mi
+오류[E0127]: 인자 이름이(가) 필요한데 키워드 `var`가 왔습니다
+  --> tree.mi:69:15
+   |
+69 |     fn insert(var self, k: Int):
+   |               ^
+  도움말: 키워드는 이름으로 쓸 수 없습니다. 다른 이름을 고르세요
+--- exit 1
+=== 00:13:26 mica check tree.mi
+검사 통과: 최상위 선언 24개
+--- exit 0
+=== 00:13:29 mica run tree.mi
+=== 00:23:34 mica run tree.mi
+safe: size=5000 height=30 probe_hits=500
+time safe: insert=48.691422285s queries+walk=0.21597888600000203s
+arena: size=5000 height=30 probe_hits=500
+time arena: insert=0.09947928599999756s queries+walk=0.04511160500000244s
+heap: size=5000 height=30 probe_hits=500
+time heap: insert=0.09698448299999995s queries+walk=0.0454163180000009s
+agree: sorted=true height=true contains=true
+strictly ascending: true
+--- exit 0
+=== 00:24:27 mica build tree.mi -o prog
+tree.mi: In function 'mu_main':
+tree.mi:214:42: error: invalid operands to binary == (have 'MiList' and 'MiList')
+  214 |     let same_sorted = safe_sorted == arena_sorted and safe_sorted == heap_sorted
+      |                                          ^~
+tree.mi:214:79: error: invalid operands to binary == (have 'MiList' and 'MiList')
+  214 |     let same_sorted = safe_sorted == arena_sorted and safe_sorted == heap_sorted
+      |                                                                               ^~
+tree.mi:216:38: error: invalid operands to binary == (have 'MiList' and 'MiList')
+  216 |     let same_hits = safe_hits == arena_hits and safe_hits == heap_hits
+      |                                      ^~
+tree.mi:216:71: error: invalid operands to binary == (have 'MiList' and 'MiList')
+  216 |     let same_hits = safe_hits == arena_hits and safe_hits == heap_hits
+      |                                                                       ^ 
+라이브러리를 이어 붙이지 못했습니다.
+라이브러리가 깔려 있는지, `link "이름"` 이 맞는지 확인하세요.
+(예: zlib 이면 `link "z"`, 그리고 `apt install zlib1g-dev`)
+생성된 C 코드는 prog.c에 남겨둡니다
+--- exit 1
+=== 00:24:34 mica build tree.mi -o prog
+컴파일 완료: ./prog
+--- exit 0
+=== 00:26:25 mica build --release tree.mi -o prog_rel
+컴파일 완료: ./prog_rel
+--- exit 0
+=== 00:27:06 mica build --release --emit-c tree.mi -o prog_rel.c
+C 코드를 prog_rel.c.c에 썼습니다 (2769줄)
+--- exit 0
+=== 00:27:37 mica check tree.mi
+오류[T0014]: `key`을(를) 찾을 수 없습니다
+  --> tree.mi:55:34
+   |
+55 |                         out.push(key)
+   |                                  ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `r`을(를) 찾을 수 없습니다
+  --> tree.mi:56:31
+   |
+56 |                         cur = r
+   |                               ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류 2개
+--- exit 1
+=== 00:27:43 mica check tree.mi
+오류[T0014]: `pkey`을(를) 찾을 수 없습니다
+  --> tree.mi:55:34
+   |
+55 |                         out.push(pkey)
+   |                                  ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류[T0014]: `pr`을(를) 찾을 수 없습니다
+  --> tree.mi:56:31
+   |
+56 |                         cur = pr
+   |                               ^
+  도움말: 선언했는지, 임포트했는지 확인하세요
+오류 2개
+--- exit 1
+=== 00:27:48 mica check tree.mi
+검사 통과: 최상위 선언 29개
+--- exit 0
+=== 00:27:54 mica run tree.mi
+safe: size=5000 height=30 probe_hits=500
+time safe: insert=46.392784377s queries+walk=0.24233320600000496s
+arena: size=5000 height=30 probe_hits=500
+time arena: insert=0.09825995499999607s queries+walk=0.053627617000003625s
+heap: size=5000 height=30 probe_hits=500
+time heap: insert=0.09810822400000063s queries+walk=0.0541012619999961s
+agree: sorted=true height=true contains=true
+strictly ascending: true
+--- exit 0
+=== 00:28:41 mica build tree.mi -o prog
+컴파일 완료: ./prog
+--- exit 0
+=== 00:28:41 mica build --release tree.mi -o prog_rel
+컴파일 완료: ./prog_rel
+--- exit 0
+=== 00:29:10 mica run tree.mi
+safe: size=2500 height=27 probe_hits=500
+time safe: insert=8.547595699s queries+walk=0.101157155000001s
+arena: size=2500 height=27 probe_hits=500
+time arena: insert=0.04472849699999948s queries+walk=0.03410004000000022s
+heap: size=2500 height=27 probe_hits=500
+time heap: insert=0.04301795599999991s queries+walk=0.031088156999999228s
+agree: sorted=true height=true contains=true
+strictly ascending: true
+--- exit 0
+=== 00:29:18 mica run tree.mi
+safe: size=10000 height=33 probe_hits=500
+time safe: insert=286.66738556s queries+walk=0.5156383930000175s
+arena: size=10000 height=33 probe_hits=500
+time arena: insert=0.2145431480000184s queries+walk=0.08775208100001919s
+heap: size=10000 height=33 probe_hits=500
+time heap: insert=0.2108256519999827s queries+walk=0.09009877700003699s
+agree: sorted=true height=true contains=true
+strictly ascending: true
+--- exit 0
+=== 00:34:18 mica run tree.mi
+safe: size=0 height=0 probe_hits=0
+time safe: insert=0.000010885s queries+walk=0.0010056400000000001s
+arena: size=199981 height=45 probe_hits=500
+time arena: insert=6.293317789s queries+walk=1.4636891600000004s
+heap: size=199981 height=45 probe_hits=500
+time heap: insert=5.970307431999999s queries+walk=1.4966098900000002s
+agree: sorted=false height=false contains=false
+arena/heap agree: true
+strictly ascending: true
+--- exit 0
+=== 00:34:42 mica build tree.mi -o prog
+컴파일 완료: ./prog
+--- exit 0
+=== 00:34:43 mica build --release tree.mi -o prog_rel
+컴파일 완료: ./prog_rel
+--- exit 0
+=== 00:34:43 mica run tree.mi
+safe: size=5000 height=30 probe_hits=500
+time safe: insert=44.882213348s queries+walk=0.22944533900000152s
+arena: size=5000 height=30 probe_hits=500
+time arena: insert=0.1003851519999941s queries+walk=0.05221005100000298s
+heap: size=5000 height=30 probe_hits=500
+time heap: insert=0.09652591100000052s queries+walk=0.05126956700000562s
+agree: sorted=true height=true contains=true
+arena/heap agree: true
+strictly ascending: true
+--- exit 0
+=== 00:35:29 mica run tree.mi
+safe: size=0 height=0 probe_hits=0
+time safe: insert=0.000014592s queries+walk=0.001000301s
+arena: size=199981 height=45 probe_hits=500
+time arena: insert=6.426171702s queries+walk=1.4851346799999998s
+heap: size=199981 height=45 probe_hits=500
+time heap: insert=6.667831520000001s queries+walk=1.3741160239999992s
+agree: sorted=false height=false contains=false
+arena/heap agree: true
+strictly ascending: true
+--- exit 0
+=== 00:36:16 mica check mistakes_compile.mi
+오류[T0045]: `xs`은(는) 읽기 전용이라 `push`(으)로 바꿀 수 없습니다
+  --> mistakes_compile.mi:7:11
+  |
+7 |         xs.push(1)
+  |           ^
+  도움말: `xs`을(를) `var`로 선언하거나, 함수 인자라면 `inout`으로 받으세요
+오류[T0040]: `xs`은(는) 아레나에서 나온 값이라 블록 밖으로 내보낼 수 없습니다
+  --> mistakes_compile.mi:8:9
+  |
+8 |         return xs
+  |         ^
+  도움말: 아레나 메모리는 블록 끝에서 전부 해제됩니다. 필요한 값은 복사해서 내보내세요
+오류[T0040]: `p`은(는) 아레나에서 나온 값이라 블록 밖으로 내보낼 수 없습니다
+  --> mistakes_compile.mi:16:13
+   |
+16 |             return p
+   |             ^
+  도움말: 아레나 메모리는 블록 끝에서 전부 해제됩니다. 필요한 값은 복사해서 내보내세요
+오류[T0045]: `xs`은(는) 읽기 전용이라 `push`(으)로 바꿀 수 없습니다
+  --> mistakes_compile.mi:23:11
+   |
+23 |         xs.push(5)
+   |           ^
+  도움말: `xs`을(를) `var`로 선언하거나, 함수 인자라면 `inout`으로 받으세요
+오류[T0041]: `alloc`은(는) `unsafe:` 안에서만 쓸 수 있습니다
+  --> mistakes_compile.mi:29:13
+   |
+29 |     let p = alloc[Int](4)
+   |             ^
+  도움말: 이 줄을 `unsafe:` 블록 안으로 옮기세요
+오류[T0041]: 원시 포인터(*Int)는 `unsafe:` 안에서만 쓸 수 있습니다
+  --> mistakes_compile.mi:30:6
+   |
+30 |     p[0] = 1
+   |      ^
+  도움말: 이 줄을 `unsafe:` 블록 안으로 옮기세요
+오류 6개
+--- exit 1
+=== 00:36:16 mica check mistakes.mi
+검사 통과: 최상위 선언 18개
+--- exit 0
+=== 00:36:22 mica check mistakes_compile.mi
+오류[T0040]: `xs`은(는) 아레나에서 나온 값이라 블록 밖으로 내보낼 수 없습니다
+  --> mistakes_compile.mi:8:9
+  |
+8 |         return xs
+  |         ^
+  도움말: 아레나 메모리는 블록 끝에서 전부 해제됩니다. 필요한 값은 복사해서 내보내세요
+오류[T0040]: `p`은(는) 아레나에서 나온 값이라 블록 밖으로 내보낼 수 없습니다
+  --> mistakes_compile.mi:16:13
+   |
+16 |             return p
+   |             ^
+  도움말: 아레나 메모리는 블록 끝에서 전부 해제됩니다. 필요한 값은 복사해서 내보내세요
+오류[T0041]: `alloc`은(는) `unsafe:` 안에서만 쓸 수 있습니다
+  --> mistakes_compile.mi:29:13
+   |
+29 |     let p = alloc[Int](4)
+   |             ^
+  도움말: 이 줄을 `unsafe:` 블록 안으로 옮기세요
+오류[T0041]: 원시 포인터(*Int)는 `unsafe:` 안에서만 쓸 수 있습니다
+  --> mistakes_compile.mi:30:6
+   |
+30 |     p[0] = 1
+   |      ^
+  도움말: 이 줄을 `unsafe:` 블록 안으로 옮기세요
+오류 4개
+--- exit 1
+=== 00:36:28 mica build mistakes.mi -o mis_dbg
+컴파일 완료: ./mis_dbg
+--- exit 0
+=== 00:36:28 mica build --release mistakes.mi -o mis_rel
+컴파일 완료: ./mis_rel
+--- exit 0
+=== 00:36:36 mica run mistakes.mi
+오류[E0236]: 이미 해제된 메모리에 접근했습니다
+  --> mistakes.mi:10:20
+   |
+10 |         print(str(p[0]) + "\n")
+   |                    ^
+  도움말: `free` 뒤에는, 또 `with arena` 블록을 벗어난 뒤에는 그 포인터를 쓸 수 없습니다
+--- exit 1
+=== 00:36:36 mica run mistakes.mi
+오류[E0234]: 이미 해제한 메모리를 또 해제했습니다
+  --> mistakes.mi:23:9
+   |
+23 |         free(p)
+   |         ^
+  도움말: `free`는 한 번만 부릅니다
+--- exit 1
+=== 00:36:36 mica run mistakes.mi
+오류[E0237]: 포인터 접근 4이(가) 범위를 벗어납니다 (크기 4)
+  --> mistakes.mi:30:20
+   |
+30 |         print(str(p[4]) + "\n")
+   |                    ^
+  도움말: `alloc`에 넘긴 개수보다 작은 위치만 읽고 쓸 수 있습니다
+--- exit 1
+=== 00:36:36 mica run mistakes.mi
+오류[E0233]: 아레나 메모리는 따로 해제하지 않습니다
+  --> mistakes.mi:59:13
+   |
+59 |             free(p)
+   |             ^
+  도움말: `with arena` 블록이 끝날 때 한 번에 해제됩니다
+--- exit 1
+=== 00:36:36 mica run mistakes.mi
+오류[E0236]: 이미 해제된 메모리에 접근했습니다
+  --> mistakes.mi:74:24
+   |
+74 |         print(str(h.ptr[0]) + "\n")
+   |                        ^
+  도움말: `free` 뒤에는, 또 `with arena` 블록을 벗어난 뒤에는 그 포인터를 쓸 수 없습니다
+--- exit 1
+=== 00:36:50 mica run maxbug.mi
+679 next=759
+--- exit 0
+=== 00:36:50 mica build maxbug.mi -o maxbug
+컴파일 완료: ./maxbug
+--- exit 0

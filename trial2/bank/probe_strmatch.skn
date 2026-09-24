@@ -1,0 +1,9 @@
+fn f(k: Str) -> Int:
+    match k:
+        case "a":
+            return 1
+        case "b":
+            return 2
+
+fn main():
+    print(f"{f("c")}\n")

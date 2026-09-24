@@ -1,0 +1,225 @@
+# Inventory report: read inventory.json, convert to structs, print a table,
+# write report.json and verify it round-trips.
+from std.fs import read_text, write_text, exists
+from std.json import parse, stringify, jdict, jlist, jstr, jfloat
+from std.process import env
+from std.re import test
+from std.math import round
+
+struct Item:
+    id: Int
+    name: Str
+    price: Float
+    qty: Int
+    tags: [Str]
+    discount: ?Float
+
+    fn value(self) -> Float:
+        let d = self.discount else 0.0
+        return self.price * float(self.qty) * (1.0 - d)
+
+struct Inventory:
+    store: Str
+    items: [Item]
+
+# ---- JSON -> struct helpers ----
+
+fn as_number(v: Json, what: Str) -> !Float:
+    let f = v.as_float()
+    if f != none:
+        return f
+    let i = v.as_int()
+    if i != none:
+        return float(i)
+    return error(f"{what} should be a number, got {v.kind()}")
+
+fn field(obj: Json, key: Str, ctx: Str) -> !Json:
+    let v = obj.get(key)
+    if v == none:
+        return error(f"{ctx}: missing field '{key}'")
+    return v
+
+fn to_item(j: Json, idx: Int) -> !Item:
+    let ctx = f"items[{idx}]"
+    if j.kind() != "dict":
+        return error(f"{ctx} should be an object, got {j.kind()}")
+    let id = (try field(j, "id", ctx)).as_int() else -1
+    let name = (try field(j, "name", ctx)).as_str()
+    if name == none:
+        return error(f"{ctx}: 'name' should be a string")
+    let price = try as_number(try field(j, "price", ctx), f"{ctx}.price")
+    let qty = (try field(j, "qty", ctx)).as_int()
+    if qty == none:
+        return error(f"{ctx}: 'qty' should be an integer")
+
+    var tags: [Str] = []
+    let tj = j.get("tags")
+    if tj != none:
+        var t = 0
+        while t < tj.len():
+            let tag = tj.at(t)
+            if tag != none:
+                let s = tag.as_str()
+                if s != none:
+                    tags.push(s)
+            t += 1
+
+    # discount: absent, null, or a number
+    var discount: ?Float = none
+    let dj = j.get("discount")
+    if dj != none:
+        if dj.kind() != "null":
+            discount = try as_number(dj, f"{ctx}.discount")
+
+    return Item(id: id, name: name, price: price, qty: qty, tags: tags, discount: discount)
+
+fn load(path: Str) -> !Inventory:
+    if not exists(path):
+        return error(f"file not found: {path}")
+    let text = read_text(path) catch e:
+        return error(f"cannot read {path}: {e}")
+    let doc = parse(text) catch e:
+        return error(f"{path} is not valid JSON: {e}")
+    if doc.kind() != "dict":
+        return error(f"{path}: top level should be an object")
+    let store = (try field(doc, "store", path)).as_str() else "(unnamed)"
+    let arr = try field(doc, "items", path)
+    if arr.kind() != "list":
+        return error(f"{path}: 'items' should be a list")
+    var items: [Item] = []
+    var i = 0
+    while i < arr.len():
+        let j = arr.at(i)
+        if j != none:
+            items.push(try to_item(j, i))
+        i += 1
+    return Inventory(store: store, items: items)
+
+# ---- formatting helpers ----
+
+fn width(s: Str) -> Int:
+    # Hangul syllables take two terminal columns.
+    var w = 0
+    var i = 0
+    while i < s.len():
+        if test(r"[가-힣]", s[i]):
+            w += 2
+        else:
+            w += 1
+        i += 1
+    return w
+
+fn pad_right(s: Str, n: Int) -> Str:
+    let w = width(s)
+    if w >= n:
+        return s
+    return s + " ".repeat(n - w)
+
+fn pad_left(s: Str, n: Int) -> Str:
+    let w = width(s)
+    if w >= n:
+        return s
+    return " ".repeat(n - w) + s
+
+fn money(v: Float) -> Str:
+    let cents = round(v * 100.0)
+    let whole = cents / 100
+    let frac = cents % 100
+    if frac < 10:
+        return f"{whole}.0{frac}"
+    return f"{whole}.{frac}"
+
+fn percent(d: ?Float) -> Str:
+    if d == none:
+        return "-"
+    return f"{round(d * 100.0)}%"
+
+# ---- main ----
+
+fn main():
+    # No command-line arguments in Siskin yet; the path comes from $INVENTORY.
+    let path = env("INVENTORY") else "inventory.json"
+
+    let inv = load(path) catch e:
+        print(f"error: {e}\n")
+        exit(1)
+        return
+
+    # sort by stock value, descending (sort_by is stable and ascending)
+    var items = inv.items
+    items.sort_by(fn(it): -it.value())
+
+    print(f"Store: {inv.store}\n\n")
+    let header = pad_right("ID", 4) + pad_right("Name", 10) + pad_left("Price", 10) + pad_left("Qty", 6) + pad_left("Disc", 6) + pad_left("Value", 12)
+    print(header + "\n")
+    print("-".repeat(width(header)) + "\n")
+    var total = 0.0
+    for it in items:
+        let v = it.value()
+        total += v
+        let row = pad_right(str(it.id), 4) + pad_right(it.name, 10) + pad_left(money(it.price), 10) + pad_left(str(it.qty), 6) + pad_left(percent(it.discount), 6) + pad_left(money(v), 12)
+        print(row + "\n")
+    print("-".repeat(width(header)) + "\n")
+    print(pad_right("Total", 36) + pad_left(money(total), 12) + "\n\n")
+
+    # out of stock
+    let out_of_stock = items.filter(fn(it): it.qty == 0).map(fn(it): it.name)
+    let oos_text = out_of_stock.join(", ") if out_of_stock.len() > 0 else "(none)"
+    print(f"Out of stock: {oos_text}\n\n")
+
+    # group by tag, in first-seen order (in file order, not sorted order)
+    var by_tag: {Str: [Str]} = {}
+    for it in inv.items:
+        for t in it.tags:
+            let cur = by_tag[t]
+            if cur == none:
+                by_tag[t] = [it.name]
+            else:
+                var names = cur
+                names.push(it.name)
+                by_tag[t] = names
+    print("By tag:\n")
+    for t in by_tag.keys():
+        let names = by_tag[t] else []
+        print(f"  {t}: {names.join(", ")}\n")
+
+    # ---- write report.json ----
+    let out = jdict()
+    out.set("store", jstr(inv.store))
+    out.set("total_value", jfloat(total))
+    let oos = jlist()
+    for n in out_of_stock:
+        oos.push(jstr(n))
+    out.set("out_of_stock", oos)
+    let tags = jdict()
+    for t in by_tag.keys():
+        let arr = jlist()
+        for n in by_tag[t] else []:
+            arr.push(jstr(n))
+        tags.set(t, arr)
+    out.set("by_tag", tags)
+
+    let text = stringify(out)
+    write_text("report.json", text) catch e:
+        print(f"error: cannot write report.json: {e}\n")
+        return
+    print("\nWrote report.json\n")
+
+    # ---- read it back and verify ----
+    let back_text = read_text("report.json") catch e:
+        print(f"error: cannot read back report.json: {e}\n")
+        return
+    let back = parse(back_text) catch e:
+        print(f"error: report.json is not valid JSON: {e}\n")
+        return
+    let tv = back.get("total_value")
+    if tv == none:
+        print("error: total_value missing in report.json\n")
+        return
+    let got = as_number(tv, "total_value") catch e:
+        print(f"error: {e}\n")
+        return
+    if got == total:
+        print(f"Verified: total_value round-trips exactly ({got})\n")
+    else:
+        print(f"MISMATCH: wrote {total}, read back {got}\n")

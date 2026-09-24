@@ -1,0 +1,15 @@
+# 값 의미론: 인자를 바꾸려면 `inout`으로 명시해야 합니다.
+# 그냥 넘기면 읽기 전용이라, 함수 안에서 바꾸려 하면 컴파일 오류가 납니다.
+fn bump(inout box: [Int]):
+    box[0] += 1
+
+fn add_item(inout xs: [Str]):
+    xs.push("추가됨")
+
+fn main():
+    var box = [0]
+    bump(box)
+    print("리스트 칸: " + str(box[0]) + "\n")
+    var names = ["하루"]
+    add_item(names)
+    print("이름 개수: " + str(names.len()) + "\n")

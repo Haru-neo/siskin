@@ -1,0 +1,13 @@
+struct Acc:
+    balance: Int
+
+    fn debit(inout self, amount: Int):
+        requires amount <= self.balance
+        self.balance -= amount
+
+fn main():
+    var a = Acc(balance: 10)
+    a.debit(3)
+    print(f"after ok debit: {a.balance}\n")
+    a.debit(50)
+    print(f"after bad debit: {a.balance}\n")

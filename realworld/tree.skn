@@ -1,0 +1,14 @@
+enum Tree:
+    Leaf(v: Int)
+    Node(l: Tree, r: Tree)
+
+fn total(t: Tree) -> Int:
+    match t:
+        case Leaf(v):
+            return v
+        case Node(l, r):
+            return total(l) + total(r)
+
+fn main():
+    let t = Node(l: Leaf(v: 1), r: Node(l: Leaf(v: 2), r: Leaf(v: 3)))
+    print("합계 " + str(total(t)) + "\n")

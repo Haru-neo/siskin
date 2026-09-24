@@ -1,0 +1,16 @@
+struct C:
+    n: Int
+
+    fn bump(inout self):
+        self.n += 1
+
+struct Box:
+    xs: [C]
+
+    fn bump_first(inout self):
+        self.xs[0].bump()
+
+fn main():
+    var b = Box(xs: [C(n: 1)])
+    b.bump_first()
+    print(f"{b.xs[0].n}\n")

@@ -1,0 +1,21 @@
+# std.process — 다른 프로그램 실행하기.
+# 이 파일은 컴파일러 안에 들어 있고, `import std.process` 를 쓰면 프로그램에 합쳐집니다.
+
+struct Output:
+    code: Int
+    out: Str
+    err: Str
+
+    fn ok(self) -> Bool:
+        return self.code == 0
+
+# 셸 명령 한 줄을 실행합니다. `run("ls -l | wc -l")` 처럼 파이프도 됩니다.
+# 사용자에게 받은 글자를 명령에 넣을 때는 run_args 를 쓰세요(셸이 끼어들지 않습니다).
+fn run(command: Str) -> Output:
+    let code = __run(command, [], true)
+    return Output(code: code, out: __run_out(), err: __run_err())
+
+# 프로그램 이름과 인자를 따로 넘겨 실행합니다. 셸을 거치지 않습니다.
+fn run_args(program: Str, arguments: [Str]) -> Output:
+    let code = __run(program, arguments, false)
+    return Output(code: code, out: __run_out(), err: __run_err())

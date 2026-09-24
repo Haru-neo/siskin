@@ -1,0 +1,1 @@
+{"tasks":[{"id":1,"title":"설계 문서 정리","done":false,"pri":2,"tags":["docs"]},{"id":2,"title":"로그 분석기 마무리","done":true,"pri":1,"tags":["code","siskin"]},{"id":3,"title":"벤치마크 다시 재기","done":false,"pri":3,"tags":["perf"]},{"id":4,"title":"GUIDE 예제 고치기","done":false,"pri":1,"tags":["docs","siskin"]},{"id":5,"title":"부족한 점 보고","done":false,"pri":1,"tags":["siskin"]}]}

@@ -1,0 +1,11 @@
+struct Acc:
+    balance: Int
+
+    fn bump(inout self):
+        ensures self.balance == 1
+        self.balance += 1
+
+fn main():
+    var a = Acc(balance: 0)
+    a.bump()
+    print(f"post-state ensures passed: {a.balance}\n")

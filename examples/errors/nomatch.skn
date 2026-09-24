@@ -1,0 +1,14 @@
+enum Shape:
+    Circle(r: Float)
+    Rect(w: Float, h: Float)
+    Tri(b: Float, h: Float)
+
+fn area(s: Shape) -> Float:
+    match s:
+        case Circle(r):
+            return 3.14 * r * r
+        case Rect(w, h):
+            return w * h
+
+fn main():
+    print(f"{area(Tri(b: 1.0, h: 2.0))}\n")

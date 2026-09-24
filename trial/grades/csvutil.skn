@@ -1,0 +1,58 @@
+# csvutil — small reusable helpers for CSV-ish data.
+
+# Split one CSV line into fields. Handles "quoted, fields" and "" escapes.
+fn parse_line(line: Str) -> [Str]:
+    """
+    >>> parse_line("a,b,c")
+    ["a", "b", "c"]
+    >>> parse_line("\\"x, y\\",2")
+    ["x, y", "2"]
+    """
+    var fields: [Str] = []
+    var cur = ""
+    var in_quotes = false
+    var i = 0
+    let n = line.len()
+    while i < n:
+        let ch = line[i]
+        if in_quotes:
+            if ch == "\"":
+                if i + 1 < n and line[i + 1] == "\"":
+                    cur += "\""
+                    i += 1
+                else:
+                    in_quotes = false
+            else:
+                cur += ch
+        elif ch == "\"":
+            in_quotes = true
+        elif ch == ",":
+            fields.push(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+        i += 1
+    fields.push(cur.strip())
+    return fields
+
+# Group items by a string key. Keys keep first-seen order.
+fn group_by[T](xs: [T], key: (T) -> Str) -> {Str: [T]}:
+    var groups: {Str: [T]} = {}
+    for x in xs:
+        let k = key(x)
+        let g = groups[k]
+        if g == none:
+            groups[k] = [x]
+        else:
+            var more = g
+            more.push(x)
+            groups[k] = more
+    return groups
+
+# The n items with the highest score, best first. Ties keep input order.
+fn top_n[T](xs: [T], n: Int, score: (T) -> Float) -> [T]:
+    var sorted = xs
+    sorted.sort_by(fn(x: T): -score(x))
+    if n < sorted.len():
+        return sorted.slice(0, n)
+    return sorted

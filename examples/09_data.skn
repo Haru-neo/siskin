@@ -1,0 +1,64 @@
+# 사전 · 정규식 · JSON 을 한 번에 써 보는 예제.
+# 로그를 읽어서 수준별로 세고, 결과를 JSON으로 냅니다.
+from std.re import groups, test
+from std.json import jdict, jint, jstr, jlist, stringify, parse
+
+fn main() -> !Unit:
+    let log = [
+        "2026-09-19 10:02 ERROR 연결이 끊어졌습니다",
+        "2026-09-19 10:03 INFO 다시 붙었습니다",
+        "2026-09-19 10:07 WARN 응답이 느립니다",
+        "2026-09-19 10:09 ERROR 시간이 초과됐습니다",
+        "쓸모없는 줄",
+    ]
+
+    # ---- 정규식으로 줄을 뜯습니다 ----
+    let pattern = r"^(\d+-\d+-\d+) (\d+:\d+) (\w+) (.+)$"
+
+    # ---- 사전으로 셉니다 ----
+    var counts: {Str: Int} = {}
+    var first: {Str: Str} = {}
+
+    for line in log:
+        if not test(pattern, line):
+            print("건너뜀: " + line + "\n")
+            continue
+        # groups()는 [전체, 첫 괄호, 둘째, ...] 순서로 냅니다.
+        let g = groups(pattern, line)
+        let level = g[3]
+        let message = g[4]
+
+        let c = counts[level]
+        if c == none:
+            counts[level] = 1
+            first[level] = message
+        else:
+            counts[level] = c + 1
+
+    print("센 결과: " + str(counts) + "\n")
+
+    # ---- JSON으로 냅니다 ----
+    let out = jdict()
+    let levels = jlist()
+    for level in counts.keys():
+        let one = jdict()
+        one.set("level", jstr(level))
+        let n = counts[level]
+        if n != none:
+            one.set("count", jint(n))
+        let m = first[level]
+        if m != none:
+            one.set("first", jstr(m))
+        levels.push(one)
+    out.set("total", jint(log.len()))
+    out.set("levels", levels)
+
+    let text = stringify(out)
+    print("JSON: " + text + "\n")
+
+    # ---- 다시 읽어서 확인 ----
+    let back = try parse(text)
+    let ls = back.get("levels")
+    if ls != none:
+        print("다시 읽으니 수준 " + str(ls.len()) + "종류\n")
+    return

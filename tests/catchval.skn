@@ -1,0 +1,31 @@
+fn f() -> !Str:
+    return error("나쁨")
+
+fn g(ok: Bool) -> !Int:
+    if ok:
+        return 5
+    return error("g 실패")
+
+fn main():
+    let b = f() catch e:
+        "오류: " + e
+    print(b + "\n")
+    let c = f() catch e:
+        print("블록\n")
+        "값"
+    print(c + "\n")
+    var n = g(false) catch e:
+        -1
+    print(f"{n}\n")
+    n = g(true) catch e:
+        0
+    print(f"{n}\n")
+    let o: ?Int = g(false) catch e:
+        none
+    print(f"{o}\n")
+    let xs = [1, 2]
+    for x in xs:
+        let v = g(x == 2) catch e:
+            print(e + "\n")
+            continue
+        print(f"{v}\n")

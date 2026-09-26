@@ -1,4 +1,4 @@
-// Siskin 확장: 언어 서버(`siskin lsp`)를 띄우고, 실행 버튼을 붙입니다.
+// Siskin extension: starts the language server (`siskin lsp`) and adds a run button.
 const vscode = require("vscode");
 const { LanguageClient } = require("vscode-languageclient/node");
 
@@ -20,7 +20,7 @@ async function startClient(context) {
   } catch (e) {
     client = null;
     vscode.window.showErrorMessage(
-      "siskin 프로그램을 찾지 못했습니다. 설정에서 `siskin.path` 에 siskin 의 경로를 적어 주세요. (" + e.message + ")"
+      "Could not find the siskin program. Set `siskin.path` in the settings to the path of siskin. (" + e.message + ")"
     );
   }
 }
@@ -28,7 +28,7 @@ async function startClient(context) {
 function runInTerminal(sub) {
   const ed = vscode.window.activeTextEditor;
   if (!ed || ed.document.languageId !== "siskin") {
-    vscode.window.showWarningMessage("Siskin 파일(.skn)을 열고 눌러 주세요.");
+    vscode.window.showWarningMessage("Open a Siskin file (.skn) first.");
     return;
   }
   ed.document.save().then(() => {

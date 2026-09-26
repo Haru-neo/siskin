@@ -1,27 +1,27 @@
-# C++ 라이브러리를 가져옵니다.
-# C++ 은 이름이 안에서 뒤틀려 저장되고 클래스·가상 함수 같은 게 있어서
-# 그대로는 못 부릅니다. Siskin 이 가운데 다리를 자동으로 놓아 줍니다.
+# Import a C++ library.
+# C++ mangles names internally and has things like classes and virtual functions,
+# so it cannot be called directly. Siskin builds the bridge in between automatically.
 #
-# `also` 를 쓰면 라이브러리를 미리 만들어 둘 필요도 없습니다.
+# With `also` you don't even need to build the library beforehand.
 
 import cpp "shapes.hpp" from "cpplib" also "cpplib/shapes.cpp"
 
 fn main():
-    # 클래스를 만들 때는 <이름>_new, 지울 때는 <이름>_delete
-    let 원 = geo_Circle_new(2.0)
+    # Create a class with <name>_new, destroy it with <name>_delete
+    let circle = geo_Circle_new(2.0)
 
-    print("넓이     = " + str(geo_Circle_area(원)) + "\n")
-    print("반지름   = " + str(geo_Circle_radius(원)) + "   <- 헤더 안에만 있는 함수\n")
+    print("area     = " + str(geo_Circle_area(circle)) + "\n")
+    print("radius   = " + str(geo_Circle_radius(circle)) + "   <- a function defined only in the header\n")
 
-    geo_Circle_grow(원, 1.0)
-    print("키운 뒤  = " + str(geo_Circle_area(원)) + "\n")
+    geo_Circle_grow(circle, 1.0)
+    print("grown    = " + str(geo_Circle_area(circle)) + "\n")
 
-    # std::string 은 Siskin 글자열로 바뀝니다.
-    print("종류     = " + geo_Circle_kind(원) + "\n")
-    # 부모 클래스로 물어봐도 자식이 답합니다 (가상 함수).
-    print("가상함수 = " + geo_Shape_kind(원) + "\n")
+    # std::string becomes a Siskin string.
+    print("kind     = " + geo_Circle_kind(circle) + "\n")
+    # Asking through the parent class, the child answers (virtual function).
+    print("virtual  = " + geo_Shape_kind(circle) + "\n")
 
-    print(geo_greet("하루") + "\n")
-    print("빗변     = " + str(geo_hypot2(3.0, 4.0)) + "\n")
+    print(geo_greet("Haru") + "\n")
+    print("hypot    = " + str(geo_hypot2(3.0, 4.0)) + "\n")
 
-    geo_Circle_delete(원)
+    geo_Circle_delete(circle)

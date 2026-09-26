@@ -1,4 +1,4 @@
-/* alloc_heap.skn 와 같은 일을 C로. malloc/free. */
+/* Same work as alloc_heap.skn, in C. malloc/free. */
 #include <stdio.h>
 #include <stdlib.h>
 int main(void) {

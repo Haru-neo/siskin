@@ -1,7 +1,7 @@
 {
   "name": "siskin",
   "displayName": "Siskin",
-  "description": "Siskin 언어 지원: 색칠, 오류 밑줄, 코드 정리, 정의로 이동, 실행 버튼",
+  "description": "Siskin language support: syntax highlighting, error squiggles, formatting, go to definition, run button",
   "version": "0.1.0",
   "publisher": "siskin-lang",
   "license": "MIT",
@@ -27,7 +27,7 @@
         "siskin.path": {
           "type": "string",
           "default": "siskin",
-          "description": "siskin 프로그램의 경로. PATH 에 있으면 그대로 두세요."
+          "description": "Path to the siskin program. Leave as is if it is on your PATH."
         }
       }
     },
@@ -39,10 +39,10 @@
       }
     },
     "commands": [
-      { "command": "siskin.run", "title": "Siskin: 이 파일 실행", "icon": "$(play)" },
-      { "command": "siskin.build", "title": "Siskin: 실행 파일 만들기" },
-      { "command": "siskin.debug", "title": "Siskin: 디버거로 실행" },
-      { "command": "siskin.restart", "title": "Siskin: 언어 서버 다시 시작" }
+      { "command": "siskin.run", "title": "Siskin: Run This File", "icon": "$(play)" },
+      { "command": "siskin.build", "title": "Siskin: Build Executable" },
+      { "command": "siskin.debug", "title": "Siskin: Run in Debugger" },
+      { "command": "siskin.restart", "title": "Siskin: Restart Language Server" }
     ],
     "menus": {
       "editor/title/run": [

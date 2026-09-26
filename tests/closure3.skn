@@ -1,4 +1,4 @@
-# 클로저: 반복문 안에서 만들기, inout·self 붙잡기, ?T 인자
+# Closures: created inside loops, capturing inout and self, ?T arguments
 struct Acc:
     total: Int
 
@@ -38,7 +38,7 @@ fn main():
     print(f"{or_zero(none)} {or_zero(4)}\n")
     let is_big = fn(v: Int) -> Bool: v > 10
     print(f"{is_big(3)} {is_big(30)}\n")
-    let pick = fn(b: Bool): "예" if b else "아니오"
+    let pick = fn(b: Bool): "yes" if b else "no"
     print(pick(is_big(11)) + "\n")
     let word_count = fn(s: Str): s.split(" ").len()
-    print(f"{word_count('가 나 다')}\n")
+    print(f"{word_count('one two three')}\n")

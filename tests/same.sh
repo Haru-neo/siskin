@@ -1,13 +1,13 @@
 #!/bin/bash
-# run == build 시험: 같은 프로그램을 `siskin run` 과 `siskin build` 로 돌려 출력과 끝난 코드가 같은지 봅니다.
-# 사용법: bash tests/same.sh <siskin 경로>
-# 원래부터 다른 프로그램(일부러 틀린 시험 파일, 시간을 재는 프로그램)은 tests/same-expected-diff.txt 에 있습니다.
-# zlib·sqlite 예제(08, 10)는 그 라이브러리가 깔린 곳에서만 돌립니다(SISKIN_TEST_LIBS=1).
+# run == build test: runs each program with both `siskin run` and `siskin build` and checks that the output and exit code match.
+# Usage: bash tests/same.sh <path to siskin>
+# Programs that are expected to differ (intentionally broken test files, programs that measure time) are listed in tests/same-expected-diff.txt.
+# The zlib and sqlite examples (08, 10) only run where those libraries are installed (SISKIN_TEST_LIBS=1).
 M="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d)"
 pass=0; fail=0; known=0
-# 맥에는 timeout 명령이 없습니다(Homebrew 의 gtimeout 이 있으면 그것을 씁니다).
+# macOS has no timeout command (use Homebrew's gtimeout if available).
 if ! command -v timeout > /dev/null; then
     if command -v gtimeout > /dev/null; then timeout() { gtimeout "$@"; }
     else timeout() { t="$1"; shift; perl -e 'alarm shift; exec @ARGV or exit 127' "$t" "$@"; }; fi
@@ -30,7 +30,7 @@ for f in examples/*.skn tests/*.skn tests/ns/main.skn realworld/*.skn trial/*/*.
         known=$((known+1))
     else
         fail=$((fail+1))
-        echo "다름: $f"
+        echo "differs: $f"
         diff <(echo "$a") <(echo "$b") | head -20
     fi
 done

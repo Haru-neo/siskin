@@ -1,4 +1,4 @@
-# 같은 일을 힙에서. 블록마다 받아 오고 돌려줍니다.
+# The same work on the heap. Each block is allocated and freed individually.
 fn main():
     let reqs = 2000
     let per = 1000

@@ -1,5 +1,5 @@
 import subprocess, json, sys, os, tempfile, urllib.parse
-# 윈도우에서도 한글을 그대로 쓰고 읽게 합니다.
+# Make Korean text read and write correctly on Windows too.
 sys.stdout.reconfigure(encoding="utf-8")
 p = subprocess.Popen([sys.argv[1], "lsp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 def send(m):

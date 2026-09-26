@@ -1,39 +1,39 @@
-# Siskin 읽는 법 — C++을 조금 아는 사람을 위한 안내
+# Reading Siskin — A Guide for People Who Know a Little C++
 
-이 문서는 예제 코드를 한 줄씩 읽을 수 있게 하는 것이 목적입니다.
-왼쪽이 Siskin, 오른쪽이 같은 뜻의 C++입니다.
+The goal of this document is to let you read the example code line by line.
+Siskin is shown on one side and the equivalent C++ on the other.
 
-컴파일러 오류 메시지는 영어가 기본입니다. 한국어로 보려면 `SISKIN_LANG=ko` 를 설정하세요(12.0).
-이 글에 나오는 오류 예시는 한국어 설정으로 찍은 것입니다.
+Compiler error messages are in English by default. To see them in Korean, set `SISKIN_LANG=ko` (see 12.0).
+The error samples in this guide use the default English output.
 
 ---
 
-## 1. 가장 작은 프로그램
+## 1. The smallest program
 
 ```siskin
 fn main():
-    print("안녕\n")
+    print("Hello\n")
 ```
 
 ```cpp
 int main() {
-    std::cout << "안녕\n";
+    std::cout << "Hello\n";
 }
 ```
 
-| Siskin | C++ | 설명 |
+| Siskin | C++ | Meaning |
 |---|---|---|
-| `fn` | `int`, `void` 같은 반환 타입 자리 | "여기서부터 함수다"라는 표시 |
-| `:` 와 들여쓰기 | `{ }` | 함수 몸통의 시작과 끝 |
-| `print(...)` | `std::cout << ...` | 화면에 출력 |
-| `\n` | `\n` | 줄바꿈. 똑같습니다 |
+| `fn` | where the return type (`int`, `void`) goes | Marks "a function starts here" |
+| `:` and indentation | `{ }` | Start and end of the function body |
+| `print(...)` | `std::cout << ...` | Print to the screen |
+| `\n` | `\n` | Newline. Same as C++ |
 
-**중괄호가 없습니다.** 대신 줄 끝의 `:` 가 "열고", 들여쓰기가 "몸통"이고,
-들여쓰기가 풀리면 "닫힙니다". C++에서 `{` `}` 를 쓰던 자리를 공백 4칸이 대신합니다.
+**There are no curly braces.** Instead, a `:` at the end of a line "opens" a block, the indented lines are the "body",
+and the block "closes" when the indentation ends. Four spaces take the place of C++'s `{` `}`.
 
 ---
 
-## 2. 함수
+## 2. Functions
 
 ```siskin
 fn sum(xs: [Int]) -> Int:
@@ -53,35 +53,35 @@ int sum(const std::vector<int>& xs) {
 }
 ```
 
-| Siskin | C++ | 설명 |
+| Siskin | C++ | Meaning |
 |---|---|---|
-| `xs: [Int]` | `const std::vector<int>& xs` | 이름이 먼저, 타입이 뒤 |
-| `[Int]` | `std::vector<int>` | 대괄호가 "~의 목록" |
-| `-> Int` | 함수 이름 앞의 `int` | 반환 타입. 화살표로 뒤에 씁니다 |
-| `var total = 0` | `int total = 0;` | 타입은 컴파일러가 알아서 알아냅니다 |
-| `for x in xs:` | `for (int x : xs)` | 범위 기반 for와 같습니다 |
-| 세미콜론 없음 | `;` 필수 | 줄바꿈이 문장의 끝입니다 |
+| `xs: [Int]` | `const std::vector<int>& xs` | Name first, type after |
+| `[Int]` | `std::vector<int>` | Square brackets mean "a list of" |
+| `-> Int` | the `int` before the function name | Return type, written after an arrow |
+| `var total = 0` | `int total = 0;` | The compiler figures out the type |
+| `for x in xs:` | `for (int x : xs)` | Same as a range-based for |
+| no semicolons | `;` required | A line break ends the statement |
 
-### `let` 과 `var`
+### `let` and `var`
 
 ```siskin
-let a = 10      # 못 바꿈
-var b = 10      # 바꿀 수 있음
+let a = 10      # cannot change
+var b = 10      # can change
 b = 20          # OK
-a = 20          # 오류
+a = 20          # error
 ```
 
 ```cpp
-const int a = 10;   // 못 바꿈
-int b = 10;         // 바꿀 수 있음
+const int a = 10;   // cannot change
+int b = 10;         // can change
 ```
 
-C++은 안 바뀌게 하려면 `const`를 **붙여야** 하는데,
-Siskin은 반대로 바뀌게 하려면 `var`를 붙여야 합니다. 기본이 안전한 쪽입니다.
+In C++ you have to **add** `const` to make something unchangeable;
+in Siskin it's the other way around: you add `var` to make it changeable. The default is the safe choice.
 
-함수 바깥(파일 맨 위)에 둔 `let` 은 **파일 전체에서 보이는 상수**입니다.
-어느 함수에서나 읽을 수 있고, 바꿀 수는 없습니다. 함수 바깥의 `var` 는 없습니다
-(바뀌는 값은 `main` 안에 두고 함수에 넘깁니다. 여러 작업이 동시에 돌아도 안전하게).
+A `let` outside any function (at the top of the file) is a **constant visible throughout the file**.
+Any function can read it, and nothing can change it. There is no `var` outside functions
+(keep changing values inside `main` and pass them to functions, so things stay safe even when several tasks run at once).
 
 ```siskin
 let TAX = 0.1
@@ -93,157 +93,157 @@ fn with_tax(price: Float) -> Float:
 
 ---
 
-## 2.5 기본 타입, 그리고 `fn` 은 타입이 아닙니다
+## 2.5 Basic types, and why `fn` is not a type
 
-`fn` 은 **함수를 선언한다는 표시**일 뿐, 타입이 아닙니다.
-C++의 `int` 자리에 온다고 했던 건 위치 이야기였는데 오해를 살 설명이었습니다.
+`fn` only **marks a function declaration**; it is not a type.
+Saying earlier that it sits where C++'s `int` goes was about position only, and that could be misleading.
 
-변수 타입은 따로 있습니다.
+Variable types are a separate thing.
 
-| Siskin | C++ | 설명 |
+| Siskin | C++ | Meaning |
 |---|---|---|
-| `Int` | `long long` | 정수. 64비트 |
-| `Float` | `double` | 실수. 64비트 |
-| `Bool` | `bool` | 참/거짓 |
-| `Str` | `std::string` | 문자열 |
-| `[T]` | `std::vector<T>` | 목록 |
-| `{K: V}` | `std::map<K,V>` | 사전 |
-| `Byte` | `unsigned char` | 바이트. 메모리를 직접 다룰 때만 |
+| `Int` | `long long` | Integer. 64-bit |
+| `Float` | `double` | Floating point. 64-bit |
+| `Bool` | `bool` | True/false |
+| `Str` | `std::string` | String |
+| `[T]` | `std::vector<T>` | List |
+| `{K: V}` | `std::map<K,V>` | Dictionary |
+| `Byte` | `unsigned char` | Byte. Only for working with memory directly |
 
-**`char` 는 없습니다.** 글자 하나도 그냥 `Str` 입니다.
-`"안녕"[0]` 을 하면 길이 1짜리 `Str` 인 `"안"` 이 나옵니다.
-C++의 `char` 는 1바이트라서 한글 한 글자도 담지 못하는데,
-그 문제를 물려받지 않으려고 뺐습니다.
+**There is no `char`.** A single character is just a `Str`.
+`"안녕"[0]` gives `"안"`, a `Str` of length 1.
+C++'s `char` is one byte, so it cannot even hold a single Korean character;
+Siskin left it out so as not to inherit that problem.
 
-### 변수에는 보통 타입을 안 씁니다
+### You usually don't write types on variables
 
 ```siskin
-let n = 10           # Int 로 알아서 정해짐
+let n = 10           # inferred as Int
 let pi = 3.14        # Float
-let name = "하루"    # Str
+let name = "Haru"    # Str
 let ok = true        # Bool
 ```
 
 ```cpp
 int n = 10;
 double pi = 3.14;
-std::string name = "하루";
+std::string name = "Haru";
 bool ok = true;
 ```
 
-쓰고 싶으면 이름 뒤에 `:` 를 붙여 씁니다. 필수는 아닙니다.
+If you want to, put a `:` after the name and write the type. It is optional.
 
 ```siskin
 let n: Int = 10
 ```
 
-### 타입을 반드시 써야 하는 곳은 함수 시그니처뿐입니다
+### The only place types are required is the function signature
 
 ```siskin
 fn add(a: Int, b: Int) -> Int:
-    let result = a + b      # 여기는 안 써도 됨
+    let result = a + b      # no type needed here
     return result
 ```
 
-함수 안쪽은 파이썬처럼 가볍게 쓰고, 함수의 입구와 출구에만 타입을 적습니다.
-남이(그리고 AI가) 이 함수를 쓸 때 봐야 하는 건 입구와 출구뿐이기 때문입니다.
+Inside a function you write lightly, like Python; you only write types at the function's entrance and exit.
+That's because the entrance and exit are all that others (and AI) need to look at when using the function.
 
 ---
 
-## 2.7 대소문자는 틀려도 됩니다
+## 2.7 Getting letter case wrong is OK
 
-C++은 `myValue`와 `myvalue`를 완전히 다른 것으로 봅니다. Siskin은 완화했습니다.
+C++ treats `myValue` and `myvalue` as completely different things. Siskin relaxes this.
 
-규칙은 하나입니다. **정확히 쓴 이름이 있으면 그게 이깁니다. 없을 때만, 대소문자만
-다른 이름이 딱 하나 있으면 거기에 붙여 줍니다.**
+There is one rule. **If a name is written exactly right, that one wins. Only when there is none,
+and there is exactly one name that differs only in letter case, does it attach to that name.**
 
 ```siskin
 struct UserAccount:
     displayName: Str
 
 fn main():
-    let account = useraccount(displayName: "하루")   # UserAccount 로 붙음
-    print(f"{ACCOUNT.displayname}\n")               # account.displayName 으로 붙음
+    let account = useraccount(displayName: "Haru")   # attaches to UserAccount
+    print(f"{ACCOUNT.displayname}\n")               # attaches to account.displayName
 ```
 
-`siskin check`가 무엇을 고쳤는지 알려줍니다.
+`siskin check` tells you what it fixed.
 
 ```
-참고: 5:19 `useraccount` -> `UserAccount` (대소문자를 맞춰 두었습니다)
+note: 5:19 `useraccount` -> `UserAccount` (letter case corrected)
 ```
 
-`struct User`와 `let user`처럼 대소문자만 다른 이름이 둘 다 진짜로 있으면,
-둘 다 정확한 이름이라 서로 건드리지 않습니다. 이때 `USER`라고 쓰면 후보가
-둘이라 고치지 않고 평소대로 오류를 냅니다. 애매하면 안 고칩니다.
+If two names that differ only in case really both exist, like `struct User` and `let user`,
+both are exact names, so neither is touched. If you then write `USER`, there are
+two candidates, so nothing is fixed and you get the usual error. When in doubt, it doesn't fix anything.
 
 ---
 
-## 3. 문자열 안에 값 끼워넣기
+## 3. Putting values inside strings
 
 ```siskin
-print(f"합계: {sum(xs)}\n")
+print(f"Total: {sum(xs)}\n")
 ```
 
 ```cpp
-std::cout << "합계: " << sum(xs) << "\n";
+std::cout << "Total: " << sum(xs) << "\n";
 ```
 
-따옴표 앞의 `f` 가 "이 문자열 안의 `{ }` 는 값을 넣는 자리"라는 표시입니다.
-C++의 `<<` 로 이어 붙이는 것보다 눈으로 읽기 쉽습니다.
+The `f` before the quote marks "the `{ }` inside this string are places to insert values".
+It is easier to read than chaining pieces together with C++'s `<<`.
 
-### 자릿수와 폭 맞추기
+### Digits and width
 
-`{ }` 안에서 값 뒤에 `:` 를 붙이면 모양을 정합니다. 파이썬과 같습니다.
+Inside `{ }`, put a `:` after the value to control its format. Same as Python.
 
 ```siskin
-print(f"{3.14159:.2f}\n")     # 3.14      소수 둘째 자리까지
-print(f"[{"abc":<6}]\n")      # [abc   ]  왼쪽 맞춤, 폭 6
-print(f"[{42:>5}]\n")         # [   42]  오른쪽 맞춤
-print(f"[{7:03d}]\n")         # [007]     0으로 채우기
-print(f"{255:x}\n")           # ff        16진수
+print(f"{3.14159:.2f}\n")     # 3.14      two decimal places
+print(f"[{"abc":<6}]\n")      # [abc   ]  left-aligned, width 6
+print(f"[{42:>5}]\n")         # [   42]  right-aligned
+print(f"[{7:03d}]\n")         # [007]     pad with zeros
+print(f"{255:x}\n")           # ff        hexadecimal
 ```
 
-| 모양 | 뜻 |
+| Format | Meaning |
 |---|---|
-| `.2f` | 소수 둘째 자리까지 |
-| `<6` `>6` `^6` | 폭 6에 왼쪽·오른쪽·가운데 맞춤 |
-| `05d` | 폭 5, 빈자리는 0 |
-| `x` `X` | 16진수 |
+| `.2f` | Two decimal places |
+| `<6` `>6` `^6` | Width 6, aligned left, right, or center |
+| `05d` | Width 5, pad with 0 |
+| `x` `X` | Hexadecimal |
 
-여기의 폭은 **글자 수**입니다(파이썬과 같음). 한글은 화면에서 두 칸을 차지하므로,
-한글이 섞인 표의 줄을 맞추려면 화면 칸으로 세는 `s.pad_right(10)` `s.pad_left(10)` 을 쓰세요.
+The width here is a **number of characters** (same as Python). Korean (and other wide) characters take two columns on screen,
+so to line up a table containing them, use `s.pad_right(10)` / `s.pad_left(10)`, which count screen columns.
 
-`round(x, 1)` 처럼 반올림 자릿수를 주는 함수는 없습니다. 보여 줄 때 `{x:.1f}` 를 씁니다.
+There is no rounding function that takes a number of digits, like `round(x, 1)`. Use `{x:.1f}` when displaying.
 
 ---
 
-## 3.5 자주 쓰는 식 몇 가지
+## 3.5 A few common expressions
 
 ```siskin
-let label = "짝수" if n % 2 == 0 else "홀수"    # 조건에 따라 값 고르기 (C++의 ? :)
+let label = "even" if n % 2 == 0 else "odd"    # pick a value by condition (C++'s ? :)
 var k = 10
-k += 1        # -= *= /= %= 도 있습니다
-if [1, 2] == [1, 2]:                           # 리스트·구조체·enum·튜플·사전도 == 로 비교합니다
-    pass                                       # 아무것도 안 하는 자리 (파이썬과 같음)
+k += 1        # -= *= /= %= also exist
+if [1, 2] == [1, 2]:                           # lists, structs, enums, tuples and dicts compare with == too
+    pass                                       # a do-nothing placeholder (same as Python)
 ```
 
-| Siskin | C++ | 설명 |
+| Siskin | C++ | Meaning |
 |---|---|---|
-| `a if 조건 else b` | `조건 ? a : b` | 조건이 참이면 a, 아니면 b |
-| `pass` | `;` (빈 문장) | 블록 안에 쓸 것이 없을 때 |
-| `and` `or` `not` | `&&` `\|\|` `!` | 논리 연산. 기호가 아니라 낱말입니다 |
-| `true` `false` `none` | `true` `false` `nullptr` | 모두 소문자 |
-| `x in xs` `x not in xs` | `std::find(...) != end` | 리스트에 있는지, 사전에 키가 있는지, 글자 안에 있는지 |
+| `a if cond else b` | `cond ? a : b` | a if the condition is true, otherwise b |
+| `pass` | `;` (empty statement) | When a block has nothing to do |
+| `and` `or` `not` | `&&` `\|\|` `!` | Logical operators. Words, not symbols |
+| `true` `false` `none` | `true` `false` `nullptr` | All lowercase |
+| `x in xs` `x not in xs` | `std::find(...) != end` | In a list, a key in a dict, or a substring in a string |
 
-f 를 빼먹은 `"값은 {x}"` 는 글자 그대로 찍힙니다. 컴파일러가 경고(W0001)로 알려 줍니다.
-서식의 폭은 숫자로만 씁니다(`{s:<8}`). 폭이 변수라면 `s.pad_right(w)` 를 쓰세요.
+If you forget the f, `"value is {x}"` prints literally. The compiler warns you about it (W0001).
+Format widths must be written as numbers (`{s:<8}`). If the width is a variable, use `s.pad_right(w)`.
 
-값을 돌려주는 함수는 **어느 길로 가든** `return 값` 으로 끝나야 합니다.
-`if` 만 있고 `else` 가 없으면 컴파일러가 알려 줍니다(T0069).
+A function that returns a value must end in `return value` **on every path**.
+If there is an `if` without an `else`, the compiler tells you (T0069).
 
 ---
 
-## 4. 구조체와 메서드
+## 4. Structs and methods
 
 ```siskin
 struct Vec2:
@@ -265,13 +265,13 @@ struct Vec2 {
 };
 ```
 
-| Siskin | C++ | 설명 |
+| Siskin | C++ | Meaning |
 |---|---|---|
-| `self` | `this` | 자기 자신. C++과 달리 인자로 **명시**합니다 |
-| `self.x` | `x` 또는 `this->x` | 항상 `self.` 를 붙입니다. 어디서 온 값인지 항상 보이게 |
-| `fn len(self)` | `double len() const` | `self` 앞에 아무것도 없으면 읽기 전용 |
+| `self` | `this` | The object itself. Unlike C++, it is written **explicitly** as a parameter |
+| `self.x` | `x` or `this->x` | Always write `self.`, so you can always see where a value comes from |
+| `fn len(self)` | `double len() const` | Nothing before `self` means read-only |
 
-쓸 때는 이렇게 씁니다.
+You use it like this.
 
 ```siskin
 let v = Vec2(x: 3.0, y: 4.0)
@@ -283,14 +283,14 @@ Vec2 v{3.0, 4.0};
 std::cout << v.len() << "\n";
 ```
 
-`x:` `y:` 처럼 **필드 이름을 적고 값을 줍니다.** 순서를 외울 필요가 없고,
-읽는 사람이 3.0이 뭔지 바로 압니다. 파이썬의 `x=3.0` 이 아니라 `x: 3.0` 입니다.
-필드 순서대로라면 `Vec2(3.0, 4.0)` 처럼 이름 없이 줘도 됩니다.
+**You write the field names and give the values,** as in `x:` `y:`. You don't need to remember the order,
+and a reader immediately knows what 3.0 is. It's `x: 3.0`, not Python's `x=3.0`.
+If you give them in field order, you can also omit the names: `Vec2(3.0, 4.0)`.
 
-### 값을 바꾸는 메서드 — `inout self`
+### Methods that change the value — `inout self`
 
-`self` 앞에 아무것도 없으면 읽기만 합니다. 필드를 바꾸려면 **`inout self`** 라고 씁니다.
-(`mut self` 나 `var self` 가 아닙니다.)
+With nothing before `self`, a method can only read. To change fields, write **`inout self`**.
+(Not `mut self` or `var self`.)
 
 ```siskin
 struct Account:
@@ -301,7 +301,7 @@ struct Account:
         self.balance += amount
 
 fn main():
-    var acc = Account(owner: "하루", balance: 0)   # 바꿀 것이니 var
+    var acc = Account(owner: "Haru", balance: 0)   # var, because we will change it
     acc.deposit(100)
     print(f"{acc.balance}\n")                      # 100
 ```
@@ -310,39 +310,39 @@ fn main():
 struct Account {
     std::string owner;
     long long balance;
-    void deposit(long long amount) { balance += amount; }   // const 가 없는 메서드
+    void deposit(long long amount) { balance += amount; }   // a method without const
 };
 ```
 
-| Siskin | C++ | 설명 |
+| Siskin | C++ | Meaning |
 |---|---|---|
-| `fn f(self)` | `void f() const` | 읽기만 |
-| `fn f(inout self)` | `void f()` | 필드를 바꿀 수 있음 |
-| `fn f(inout n: Int)` | `void f(int& n)` | 넘겨받은 변수를 바꿈. 부르는 쪽 변수는 `var` 여야 합니다 |
+| `fn f(self)` | `void f() const` | Read only |
+| `fn f(inout self)` | `void f()` | Can change fields |
+| `fn f(inout n: Int)` | `void f(int& n)` | Changes the variable passed in. The caller's variable must be a `var` |
 
-리스트 안에 든 구조체도 그 자리에서 바꿀 수 있습니다: `accounts[i].deposit(50)`.
+A struct inside a list can also be changed in place: `accounts[i].deposit(50)`.
 
-### 값은 복사됩니다
+### Values are copied
 
-`let b = a` 나 함수에 넘기기는 **복사본**처럼 동작합니다. `b` 를 바꿔도 `a` 는 그대로입니다.
-C++에서 참조(`&`) 없이 값으로 넘기는 것과 같습니다. 그래서 어디선가 몰래 바뀌는 일이 없습니다.
+`let b = a` and passing to a function behave like **copies**. Changing `b` leaves `a` as it was.
+It's the same as passing by value in C++, without a reference (`&`). So nothing gets changed behind your back.
 
-대신 큰 리스트를 재귀 함수가 계속 돌려주고 받으면 그때마다 복사가 생겨 느려질 수 있습니다.
-그럴 때는 결과를 모을 리스트를 `inout` 으로 넘기세요.
+On the other hand, if a recursive function keeps returning and receiving a big list, each step makes a copy, which can be slow.
+In that case, pass the list that collects the results as `inout`.
 
 ```siskin
-fn collect(t: Tree, inout out: [Int]):   # 돌려주지 않고 out 에 바로 넣습니다
+fn collect(t: Tree, inout out: [Int]):   # put results straight into out instead of returning them
     ...
 ```
 
 ---
 
-## 5. `?T` — 값이 없을 수도 있다
+## 5. `?T` — the value may be missing
 
-C++에서 "못 찾았다"를 알리는 방법은 여러 가지입니다. `nullptr`, `-1`,
-`std::optional`, 예외... 그래서 함수를 볼 때마다 어느 쪽인지 확인해야 합니다.
+C++ has many ways to say "not found": `nullptr`, `-1`,
+`std::optional`, exceptions... so every time you look at a function you have to check which one it uses.
 
-Siskin은 하나뿐입니다. 타입 앞에 `?` 를 붙입니다.
+Siskin has only one. You put `?` before the type.
 
 ```siskin
 fn find(users: [User], id: Int) -> ?User:
@@ -361,32 +361,32 @@ std::optional<User> find(const std::vector<User>& users, int id) {
 }
 ```
 
-- `?User` = "User가 있을 수도, 없을 수도"
-- `none` = C++의 `nullptr` / `std::nullopt`
-- **`null` 이라는 것이 없습니다.** 값이 없을 가능성은 타입에 적히고,
-  컴파일러가 확인을 강제합니다. C++의 널 포인터 역참조 사고가 구조적으로 안 납니다.
+- `?User` = "there may or may not be a User"
+- `none` = C++'s `nullptr` / `std::nullopt`
+- **There is no such thing as `null`.** The possibility of a missing value is written in the type,
+  and the compiler forces you to check it. The null-pointer dereference accidents of C++ structurally cannot happen.
 
-받는 쪽은 둘 중 하나로 씁니다.
+The receiving side uses one of two forms.
 
 ```siskin
 let u = find(users, 7)
 if u != none:
-    print(u.name)          # 이 안에서 u 는 그냥 User 입니다
+    print(u.name)          # in here, u is just a User
 else:
-    print("없음")
+    print("not found")
 
-let name = env("USER") else "손님"     # 없으면 뒤의 값을 씁니다 (env 는 std.process)
+let name = env("USER") else "guest"     # use the value after else if missing (env is in std.process)
 ```
 
-| Siskin | C++ | 설명 |
+| Siskin | C++ | Meaning |
 |---|---|---|
-| `if x != none:` | `if (x.has_value())` | 안쪽에서 x 는 `?` 가 벗겨진 값 |
-| `x else 기본값` | `x.value_or(기본값)` | 없으면 기본값 |
-| `if x == none: return` | | 이 줄 뒤로는 x 가 벗겨진 값 |
+| `if x != none:` | `if (x.has_value())` | Inside, x is the value with the `?` removed |
+| `x else default` | `x.value_or(default)` | The default if missing |
+| `if x == none: return` | | After this line, x is the unwrapped value |
 
-`Some(x)` `None` `Option[T]` 같은 이름은 없습니다. 있는 값은 그냥 `return u`, 없으면 `return none`.
+There are no names like `Some(x)`, `None` or `Option[T]`. A present value is just `return u`; a missing one is `return none`.
 
-**구조체 필드도 똑같이 벗겨집니다.**
+**Struct fields are unwrapped the same way.**
 
 ```siskin
 struct Todo:
@@ -395,83 +395,83 @@ struct Todo:
 
 fn show(t: Todo):
     if t.due != none:
-        print(t.title + " — 마감 " + t.due + "\n")   # 이 안에서 t.due 는 그냥 Str
+        print(t.title + " — due " + t.due + "\n")   # in here, t.due is just a Str
 ```
 
-`t.due` 에 새 값을 넣거나, `t` 를 바꿀 수 있는 함수(`inout`)에 넘기면 그 뒤로는 다시 `?Str` 입니다.
+If you assign a new value to `t.due`, or pass `t` to a function that can change it (`inout`), it becomes `?Str` again from then on.
 
-필드 타입으로 `?구조체` 와 `!구조체` 도 됩니다. 자기 자신을 가리키는 필드도 되어서
-연결 리스트나 트리를 바로 만듭니다.
+`?SomeStruct` and `!SomeStruct` also work as field types. A field can even refer to its own struct type,
+so you can build linked lists and trees directly.
 
 ```siskin
 struct Node:
     value: Int
-    next: ?Node          # 다음 칸이 없을 수도 있음
+    next: ?Node          # there may be no next node
 
 let list = Node(value: 1, next: Node(value: 2, next: none))
 ```
 
 ---
 
-## 6. `!T` — 실패할 수도 있다
+## 6. `!T` — it may fail
 
 ```siskin
 fn parse_age(text: Str) -> !Int:
     let n = try int(text)
     if n < 0:
-        return error("나이는 음수일 수 없습니다")
+        return error("age cannot be negative")
     return n
 ```
 
-C++이라면 예외를 던지거나 에러 코드를 반환했을 자리입니다.
+In C++, this is where you would throw an exception or return an error code.
 
 ```cpp
 int parse_age(const std::string& text) {
-    int n = std::stoi(text);        // 실패하면 예외를 던짐
-    if (n < 0) throw std::runtime_error("나이는 음수일 수 없습니다");
+    int n = std::stoi(text);        // throws on failure
+    if (n < 0) throw std::runtime_error("age cannot be negative");
     return n;
 }
 ```
 
-- `!Int` = "Int를 주거나, 에러를 주거나"
-- `error("...")` = 에러를 만들어 반환
-- `try` = "이게 실패하면 여기서 바로 내 함수도 실패로 끝내라"
+- `!Int` = "gives an Int, or gives an error"
+- `error("...")` = create an error and return it
+- `try` = "if this fails, end my function right here as a failure too"
 
-**예외가 없습니다.** C++의 예외는 함수 시그니처만 봐서는 던지는지 알 수 없고,
-호출한 쪽을 건너뛰고 튀어 올라갑니다. Siskin은 실패 가능성이 `!` 로 항상 적혀 있고,
-실패가 그냥 반환값이라 제어 흐름이 눈에 보입니다.
+**There are no exceptions.** In C++ you can't tell from a function's signature whether it throws,
+and an exception jumps upward past the caller. In Siskin the possibility of failure is always written with `!`,
+and a failure is just a return value, so the control flow is visible.
 
-받는 쪽은 이렇게 씁니다.
+The receiving side looks like this.
 
 ```siskin
 let age = parse_age("34") catch e:
-    print(f"실패: {e}\n")
+    print(f"failed: {e}\n")
     return
-print(f"나이 {age}\n")
+print(f"age {age}\n")
 ```
 
-C++의 `try { } catch { }` 와 목적은 같은데, 감싸는 블록이 아니라
-그 한 줄에 붙습니다. 어느 호출이 실패할 수 있는지가 한눈에 보입니다.
+It serves the same purpose as C++'s `try { } catch { }`, but it attaches to that one line
+instead of wrapping a block. You can see at a glance which call can fail.
 
-실패했을 때 멈추지 않고 **대신 쓸 값**으로 넘어가고 싶으면, `catch` 블록의
-마지막 줄에 그 값을 적습니다.
+If you want to continue with a **fallback value** instead of stopping on failure, write that value
+on the last line of the `catch` block.
 
 ```siskin
 let age = parse_age(text) catch e:
-    print(f"잘못된 나이라서 0으로 둡니다: {e}\n")
+    print(f"invalid age, using 0: {e}\n")
     0
 ```
 
-`catch` 블록은 둘 중 하나여야 합니다. `return` / `continue` / `break` 로 빠져나가거나,
-마지막 줄에 대신 쓸 값을 적거나. 둘 다 아니면 `age` 에 넣을 것이 없으므로
-컴파일이 알려 줍니다(T0059).
+A `catch` block must do one of two things: leave with `return` / `continue` / `break`,
+or put a fallback value on its last line. If it does neither, there's nothing to put in `age`,
+so the compiler tells you (T0059).
 
-`!T` 의 오류 값은 글자(`Str`)입니다. `catch e:` 의 `e` 는 `error("...")` 에 넣은 글입니다.
+The error value of `!T` is text (`Str`). The `e` in `catch e:` is the text you passed to `error("...")`.
 
-### 오류 종류를 enum 으로 — `E!T`
+### Error kinds as an enum — `E!T`
 
-실패의 종류에 따라 다르게 처리하고 싶으면 오류 종류를 enum 으로 만들고,
-`!` 앞에 그 이름을 적습니다. `BankError!Int` 는 "Int 를 주거나, 실패하면 BankError 값을 준다"는 뜻입니다.
+If you want to handle different kinds of failure differently, make the error kinds an enum
+and write its name before the `!`. `BankError!Int` means "gives an Int, or on failure gives a BankError value".
 
 ```siskin
 enum BankError:
@@ -491,12 +491,12 @@ struct Account:
 
 fn main():
     var acc = Account(balance: 100)
-    acc.withdraw(500) catch e:          # e 는 BankError
+    acc.withdraw(500) catch e:          # e is a BankError
         match e:
             case NoFunds(need):
-                print(f"{need}원 모자랍니다\n")
+                print(f"short by {need}\n")
             case BadAmount:
-                print("금액이 잘못됐습니다\n")
+                print("invalid amount\n")
 ```
 
 ```cpp
@@ -504,21 +504,21 @@ enum class BankError { NoFunds, BadAmount };
 std::expected<void, BankError> withdraw(long long amount);   // C++23
 ```
 
-- `match e:` 도 보통 enum 처럼 빠진 종류가 있으면 컴파일러가 알려 줍니다.
-- `try` 는 같은 오류 타입끼리 올립니다. `BankError!T` 를 부르는 함수가 그냥 `!T`(글자 오류)면
-  `try` 가 `NoFunds(430)` 같은 글자로 바꿔서 올립니다. 오류 타입이 서로 다른 enum 이면
-  `catch e:` 로 받아서 `return error(...)` 로 바꿔 주세요.
-- 오류 타입 자리에는 enum 만 옵니다. `!T` 는 `Str!T` 와 같습니다.
+- As with any enum, the compiler tells you if `match e:` is missing a kind.
+- `try` propagates errors of the same error type. If a function that calls `BankError!T` is a plain `!T` (text error),
+  `try` converts the error to text like `NoFunds(430)` and propagates that. If the error types are different enums,
+  receive it with `catch e:` and convert it with `return error(...)`.
+- Only an enum can go in the error-type position. `!T` is the same as `Str!T`.
 
-`Result` `Ok` `Err` 는 없습니다. 실패할 수 있으면 타입 앞에 `!`, 실패는 `error(...)`, 받는 쪽은 `try` 나 `catch`.
+There is no `Result`, `Ok` or `Err`. If something can fail, put `!` before the type; a failure is `error(...)`; the receiver uses `try` or `catch`.
 
-`main` 도 `fn main() -> !Unit:` 으로 쓸 수 있습니다. 그러면 안에서 `try` 를 바로 쓸 수 있고,
-실패하면 `error: <내용>`(한국어로 설정했으면 `오류: <내용>`)을 알리고 끝 코드 1로 끝납니다.
-`fn main() -> BankError!Unit:` 처럼 enum 오류도 됩니다.
+`main` can also be written as `fn main() -> !Unit:`. Then you can use `try` directly inside it, and
+on failure it reports `error: <message>` (`오류: <message>` if Korean is selected) and exits with code 1.
+Enum errors work too, as in `fn main() -> BankError!Unit:`.
 
 ---
 
-## 7. `enum` 과 `match`
+## 7. `enum` and `match`
 
 ```siskin
 enum Shape:
@@ -533,8 +533,8 @@ fn area(s: Shape) -> Float:
             return w * h
 ```
 
-C++의 `enum` 은 그냥 정수라서 값을 같이 담지 못합니다.
-그래서 보통 이렇게 씁니다.
+A C++ `enum` is just an integer, so it can't carry values along with it.
+So you usually write this instead.
 
 ```cpp
 struct Circle { double r; };
@@ -544,54 +544,54 @@ using Shape = std::variant<Circle, Rect>;
 double area(const Shape& s) {
     if (auto* c = std::get_if<Circle>(&s)) return 3.14159 * c->r * c->r;
     if (auto* r = std::get_if<Rect>(&s))   return r->w * r->h;
-    // 빠뜨려도 컴파일은 됨
+    // still compiles if you forget one
 }
 ```
 
-Siskin의 `enum` 은 **변형마다 자기 데이터를 가집니다.** 그리고 `match` 는
-**모든 변형을 다뤘는지 확인합니다.** `Tri` 를 추가하고 `case` 를 안 쓰면 알려줍니다.
+A Siskin `enum` **gives each variant its own data.** And `match`
+**checks that every variant is handled.** If you add `Tri` and don't write a `case` for it, you're told.
 
 ```
-오류[T0012]: match가 Tri을(를) 빠뜨렸습니다
-  도움말: `case Tri(...):` 를 추가하거나 `case _:` 로 나머지를 받으세요
+error[T0012]: non-exhaustive match: missing Tri
+  help: add `case Tri(...):` or cover the rest with `case _:`
 ```
 
-`case Circle(r):` 에서 `r` 은 그 자리에서 꺼내진 값입니다.
-C++의 `std::get_if` + `c->r` 두 단계가 한 줄로 줄어듭니다.
+In `case Circle(r):`, `r` is the value extracted right there.
+C++'s two steps, `std::get_if` + `c->r`, shrink to one line.
 
 ---
 
-### `match` 를 쓸 때 알아 둘 것
+### Things to know when using `match`
 
 ```siskin
 enum Tree:
-    Leaf                                   # 필드 없는 변형
-    Node(left: Tree, key: Int, right: Tree)   # 자기 자신을 담아도 됩니다
+    Leaf                                   # a variant with no fields
+    Node(left: Tree, key: Int, right: Tree)   # it may contain itself
 
 fn size(t: Tree) -> Int:
     match t:
-        case Leaf:                          # 필드가 없으면 괄호 없이
+        case Leaf:                          # no parentheses when there are no fields
             return 0
         case Node(l, k, r):
             return 1 + size(l) + size(r)
 
 fn grade(score: Int) -> Str:
     match score:
-        case 100:                          # 숫자·글자도 맞출 수 있습니다
-            return "만점"
-        case _:                            # 나머지 전부
-            return "그 밖"
+        case 100:                          # numbers and strings can be matched too
+            return "perfect"
+        case _:                            # everything else
+            return "other"
 ```
 
-- 변형은 **enum 이름 없이** 씁니다: `case Leaf:` (`case Tree.Leaf:` 가 아님). 만들 때도 `Leaf`, `Node(left: ..., key: 3, right: ...)`.
-- `case _:` 는 나머지 전부입니다. 이것이 있으면 빠진 변형을 알리지 않습니다.
-- 글자·수를 맞출 때는 가짓수가 끝이 없으므로 `case _:` 가 꼭 있어야 합니다(T0068).
-- `match` 는 문장입니다. 값을 돌려주는 식으로 쓰지 않습니다. 각 갈래에서 `return` 하거나 `var` 에 넣으세요.
-- `?T` 와 `!T` 는 `match` 로 풀지 않습니다. 5장·6장의 `if x != none:`, `catch` 를 씁니다.
+- Variants are written **without the enum name**: `case Leaf:` (not `case Tree.Leaf:`). Same when constructing: `Leaf`, `Node(left: ..., key: 3, right: ...)`.
+- `case _:` is everything else. If it's there, missing variants aren't reported.
+- When matching strings or numbers, the possibilities are endless, so `case _:` is required (T0068).
+- `match` is a statement. It isn't used as an expression that returns a value. `return` from each arm or assign to a `var`.
+- `?T` and `!T` are not unpacked with `match`. Use `if x != none:` and `catch` from sections 5 and 6.
 
 ---
 
-## 7.3 튜플 — 이름 없이 몇 개를 묶기
+## 7.3 Tuples — grouping a few values without names
 
 ```siskin
 fn min_max(xs: [Int]) -> (Int, Int):
@@ -602,19 +602,19 @@ fn min_max(xs: [Int]) -> (Int, Int):
         hi = max(hi, x)
     return (lo, hi)
 
-let (lo, hi) = min_max([3, 9, 1])     # 풀어서 받기
+let (lo, hi) = min_max([3, 9, 1])     # destructure
 let pair = min_max([3, 9, 1])
-print(f"{pair.0} {pair.1}\n")         # 번호로 꺼내기
+print(f"{pair.0} {pair.1}\n")         # access by position
 ```
 
-`(Int, Str)` 가 C++의 `std::pair<int, std::string>` / `std::tuple` 입니다.
-함수가 값 두세 개를 돌려줄 때 구조체를 따로 만들지 않아도 됩니다.
-튜플 리스트는 반복문에서 바로 풀 수 있습니다: `for (name, score) in pairs:`.
-튜플 안의 값 하나만 바꾸지는 못합니다. `p = (새값, p.1)` 처럼 통째로 넣으세요.
+`(Int, Str)` is C++'s `std::pair<int, std::string>` / `std::tuple`.
+When a function returns two or three values, you don't need to make a separate struct.
+A list of tuples can be destructured directly in a loop: `for (name, score) in pairs:`.
+You can't change just one value inside a tuple. Assign the whole thing, as in `p = (new_value, p.1)`.
 
 ---
 
-## 7.4 제네릭 — 어떤 타입이든 받는 함수
+## 7.4 Generics — functions that take any type
 
 ```siskin
 fn first[T](xs: [T]) -> ?T:
@@ -624,19 +624,19 @@ fn first[T](xs: [T]) -> ?T:
 
 fn top_n[T](xs: [T], n: Int, key: (T) -> Int) -> [T]:
     var ys = xs
-    ys.sort_by(fn(x): -key(x))        # 여기서 x 는 T 입니다
+    ys.sort_by(fn(x): -key(x))        # here x is a T
     return ys.slice(0, n)
 ```
 
-함수 이름 뒤 `[T]` 가 C++의 `template <typename T>` 입니다. 부를 때는 타입을 적지 않습니다:
-`first([1, 2])`, `first(["가", "나"])`. 컴파일러가 타입마다 따로 만들어 C 만큼 빠릅니다.
+The `[T]` after the function name is C++'s `template <typename T>`. You don't write the type when calling:
+`first([1, 2])`, `first(["a", "b"])`. The compiler generates a separate copy for each type, so it's as fast as C.
 
 ---
 
-## 7.5 함수를 값으로 넘기기, 그리고 클로저
+## 7.5 Passing functions as values, and closures
 
-함수도 값입니다. 변수에 담고, 다른 함수에 넘기고, 돌려받을 수 있습니다.
-함수의 타입은 `(받는 것) -> 돌려주는 것` 으로 적습니다.
+Functions are values too. You can store them in variables, pass them to other functions, and get them back.
+A function's type is written `(what it takes) -> what it returns`.
 
 ```siskin
 fn apply(f: (Int) -> Int, x: Int) -> Int:
@@ -653,63 +653,63 @@ fn main():
 int apply(std::function<int(int)> f, int x) { return f(x); }
 ```
 
-### 익명 함수 — 이름 없이 그 자리에서 만들기
+### Anonymous functions — made on the spot, without a name
 
-`fn(인자): 식` 이 이름 없는 함수입니다. C++의 람다 `[=](int x) { return x * k; }` 와 같습니다.
+`fn(args): expression` is a function without a name. It's like the C++ lambda `[=](int x) { return x * k; }`.
 
 ```siskin
 let k = 3
-let times_k = fn(x: Int): x * k      # 바깥의 k 를 붙잡았습니다
+let times_k = fn(x: Int): x * k      # captured the outer k
 print(f"{times_k(5)}\n")              # 15
 
-let big = nums.filter(fn(x): x > 10)  # 원소 타입을 알면 x 의 타입은 생략 가능
+let big = nums.filter(fn(x): x > 10)  # x's type can be omitted when the element type is known
 ```
 
-| Siskin | C++ | 설명 |
+| Siskin | C++ | Meaning |
 |---|---|---|
-| `fn(x: Int): x * k` | `[=](int x) { return x * k; }` | 본문은 `:` 뒤 식 하나 |
-| `fn(x): x * k` | (없음) | 들어갈 자리의 타입을 알면 인자 타입 생략 |
-| `fn(x: Int) -> Int: ...` | `[=](int x) -> int {...}` | 반환 타입은 보통 생략 (식에서 알아냄) |
-| `(Int) -> Int` | `std::function<int(int)>` | 함수 타입 |
+| `fn(x: Int): x * k` | `[=](int x) { return x * k; }` | The body is a single expression after `:` |
+| `fn(x): x * k` | (none) | Argument types can be omitted when the expected type is known |
+| `fn(x: Int) -> Int: ...` | `[=](int x) -> int {...}` | The return type is usually omitted (inferred from the expression) |
+| `(Int) -> Int` | `std::function<int(int)>` | Function type |
 
-인자 타입을 생략할 수 없는 곳(`let f = fn(x): ...` 처럼 들어갈 자리를 모를 때)에서는
-컴파일러가 "타입을 적어 주세요"(T0054)라고 알려 줍니다.
+Where the argument type can't be omitted (when the expected type is unknown, as in `let f = fn(x): ...`),
+the compiler tells you to write the type (T0054).
 
-### 여러 줄이 필요하면 — 함수 안에 함수
+### When you need several lines — a function inside a function
 
-익명 함수는 식 하나뿐입니다. 여러 줄이 필요하면 함수 안에 `fn` 을 선언합니다.
-이것도 바깥 값을 붙잡는 클로저이고, 자기 이름으로 자기를 부를 수 있습니다(재귀).
+An anonymous function is a single expression. If you need several lines, declare a `fn` inside the function.
+This is also a closure that captures outer values, and it can call itself by its own name (recursion).
 
 ```siskin
 fn main():
-    let prefix = "값"
+    let prefix = "value"
     fn describe(n: Int) -> Str:
         if n <= 0:
             return prefix
         return describe(n - 1) + "!"
-    print(describe(3) + "\n")     # 값!!!
+    print(describe(3) + "\n")     # value!!!
 ```
 
-### 붙잡은 값은 "만들 때의 복사본"이고, 읽기만 합니다
+### Captured values are "copies taken at creation" and are read-only
 
 ```siskin
 var base = 1
 let g = fn(x: Int): x + base
 base = 100
-print(f"{g(1)}\n")      # 2  ← 만들 때 base 는 1 이었습니다
+print(f"{g(1)}\n")      # 2  <- base was 1 when g was created
 ```
 
-C++로 치면 언제나 `[=]`(값으로 붙잡기)입니다. Siskin의 "복사한 뒤 고쳐도 원본은 그대로"
-규칙과 같은 생각입니다. 그래서 클로저 안에서 붙잡은 값을 바꾸려 하면 컴파일이 막습니다(T0053).
-바뀐 값이 필요하면 함수가 새 값을 돌려주게 만듭니다.
+In C++ terms it's always `[=]` (capture by value). It's the same idea as Siskin's rule that
+"changing a copy leaves the original alone". So if you try to change a captured value inside a closure, compilation stops you (T0053).
+If you need the changed value, make the function return the new value.
 
 ```siskin
 var n = 0
 fn inc():
-    n += 1        # 오류[T0053]: `n`은(는) 바깥에서 붙잡은 값이라 클로저 안에서 바꿀 수 없습니다
+    n += 1        # error[T0053]: `n` is captured from the enclosing scope and cannot be changed inside a closure
 ```
 
-### 구조체 필드에 함수 담기
+### Storing functions in struct fields
 
 ```siskin
 struct Button:
@@ -717,13 +717,13 @@ struct Button:
     on_click: (Str) -> Str
 
     fn click(self) -> Str:
-        return self.on_click(self.label)   # 필드에 담긴 함수를 부릅니다
+        return self.on_click(self.label)   # call the function stored in the field
 ```
 
-C 라이브러리에 콜백으로 넘길 때만은 이름 붙은 최상위 함수여야 합니다.
-C 쪽에는 "붙잡은 값" 을 함께 넘길 자리가 없기 때문입니다.
+Only when passing a callback to a C library must it be a named top-level function.
+The C side has no place to pass the "captured values" along with it.
 
-## 8. 계약 (`requires` / `ensures`)
+## 8. Contracts (`requires` / `ensures`)
 
 ```siskin
 fn div(a: Int, b: Int) -> Int:
@@ -741,16 +741,16 @@ int div(int a, int b) {
 }
 ```
 
-- `requires` = 들어오기 전에 반드시 참이어야 하는 것
-- `ensures` = 나갈 때 반드시 참이어야 하는 것 (`result` 가 반환값)
+- `requires` = what must be true on the way in
+- `ensures` = what must be true on the way out (`result` is the return value)
 
-C++의 `assert` 와 같은 일인데, 함수 **시그니처 바로 아래**에 있어서
-이 함수를 쓰려는 사람이 본문을 안 읽어도 조건을 봅니다.
-디버그 빌드에서만 검사하고 릴리스에서는 사라지는 것도 `assert` 와 같습니다.
-`siskin run` 과 그냥 `siskin build` 는 검사하고, `siskin build --release` 만 뺍니다.
+It does the same job as C++'s `assert`, but because it sits **right below the function signature**,
+anyone who wants to use the function sees the conditions without reading the body.
+Like `assert`, it is checked only in debug builds and disappears in release builds.
+`siskin run` and a plain `siskin build` check it; only `siskin build --release` leaves it out.
 
-- `requires` `ensures` 는 여러 줄 써도 됩니다. 모두 참이어야 합니다.
-- 메서드에도 씁니다. `inout self` 메서드의 `ensures` 에서 `self.필드` 는 **바뀐 뒤의** 값입니다.
+- You can write several `requires` / `ensures` lines. All of them must be true.
+- They work on methods too. In the `ensures` of an `inout self` method, `self.field` is the value **after the change**.
 
 ```siskin
 fn withdraw(inout self, amount: Int):
@@ -773,77 +773,77 @@ fn slug(s: Str) -> Str:
     return s.lower().replace(" ", "-")
 ```
 
-`"""` 로 감싼 설명 안에 `>>>` 로 예제를 적으면, `siskin test` 가 그 예제를
-**진짜로 실행해서** 결과가 맞는지 확인합니다. 문서와 테스트가 같은 자리에 있습니다.
+If you write examples with `>>>` inside a `"""`-quoted description, `siskin test`
+**actually runs** those examples and checks that the results match. The documentation and the tests live in the same place.
 
-기대값은 파이썬처럼 적습니다: 글자 `"abc"`, 수 `3` `2.5`, `true` `false`, `none`,
-리스트 `[1, 2]`, 사전 `{"a": 1}`, 튜플 `(1, "a")`.
+Expected values are written like Python: strings `"abc"`, numbers `3` `2.5`, `true` `false`, `none`,
+lists `[1, 2]`, dicts `{"a": 1}`, tuples `(1, "a")`.
 
 ---
 
-## 9.5 메모리 — 세 단계
+## 9.5 Memory — three levels
 
-C++에서 가장 신경 쓰이는 부분입니다. Siskin은 여기를 세 칸으로 나눠 놓고,
-필요한 만큼만 아래로 내려가게 합니다.
+This is the part of C++ that takes the most care. Siskin divides it into three levels
+and lets you go down only as far as you need.
 
-### 9.5.1 Level 0 — 그냥 씁니다
+### 9.5.1 Level 0 — just use it
 
 ```siskin
-let names = ["하루", "미카"]
-names.push("루비")
+let names = ["Haru", "Mika"]
+names.push("Ruby")
 ```
 
-`delete`도 `free`도 없습니다. 언제 지울지는 컴파일러가 정합니다.
-C++의 `std::vector`를 값으로 쓰는 것과 같은 감각입니다.
+There is no `delete` and no `free`. The compiler decides when to release memory.
+It feels the same as using a C++ `std::vector` by value.
 
-### 9.5.2 Level 1 — 아레나: 블록이 끝나면 통째로 버립니다
+### 9.5.2 Level 1 — arenas: throw everything away when the block ends
 
 ```siskin
-with arena a:              # 여기서부터 a가 대는 메모리
-    var xs = a.list[Int]() # a가 대는 리스트 (push 로 바꿀 것이니 var)
+with arena a:              # from here, memory is supplied by a
+    var xs = a.list[Int]() # a list backed by a (var, since push changes it)
     xs.push(1)
     xs.push(2)
     print(str(xs) + "\n")
-# 여기서 a가 잡아 둔 것 전부 한 번에 사라집니다
+# here everything a allocated disappears at once
 ```
 
-한 줄씩:
+Line by line:
 
-| 줄 | 뜻 |
+| Line | Meaning |
 |---|---|
-| `with arena a:` | 이 블록 전용 메모리 창고를 하나 엽니다. 이름은 `a` |
-| `a.list[Int]()` | 그 창고에서 대는 Int 리스트. 쓰는 법은 보통 리스트와 똑같습니다 |
-| 블록 끝 | 창고째로 버립니다. 하나씩 지우지 않습니다 |
+| `with arena a:` | Opens a memory store just for this block. Its name is `a` |
+| `a.list[Int]()` | An Int list backed by that store. You use it exactly like an ordinary list |
+| end of block | The whole store is thrown away. Nothing is freed one by one |
 
-C++로 치면 커스텀 `allocator`를 붙인 컨테이너를 스코프 안에서만 쓰고
-스코프 끝에서 풀(pool)을 통째로 비우는 것입니다. 다만 Siskin은
-`return`으로 빠져나가도 반드시 비웁니다.
+In C++ terms, it's like using a container with a custom `allocator` only inside a scope
+and emptying the whole pool at the end of the scope. The difference is that Siskin
+always empties it, even if you leave with `return`.
 
-**왜 이게 빠른가:** 보통 할당은 "빈 자리를 찾고, 표시하고, 나중에 찾아서 돌려주는"
-일입니다. 아레나는 "창고 끝 표시를 앞으로 미는" 것이 전부이고, 돌려주는 일은
-블록 끝에 한 번뿐입니다. 재 본 결과 4.1배 빨랐습니다.
+**Why it's fast:** an ordinary allocation means "find a free spot, mark it, and later find it again and give it back".
+An arena just "pushes the end-of-store marker forward", and giving memory back happens only once,
+at the end of the block. In our measurement it was 4.1 times faster.
 
-**막히는 것:** 아레나에서 만든 값을 블록 밖으로 내보내려 하면 컴파일이 막습니다.
-블록이 끝나면 그 메모리는 없어지니까요.
+**What's blocked:** if you try to send a value made in an arena out of the block, compilation stops you.
+Once the block ends, that memory is gone.
 
 ```
-오류[T0040]: `xs`은(는) 아레나에서 나온 값이라 블록 밖으로 내보낼 수 없습니다
-  도움말: 아레나 메모리는 블록 끝에서 전부 해제됩니다. 필요한 값은 복사해서 내보내세요
+error[T0040]: `xs` comes from an arena and cannot leave the block
+  help: arena memory is freed at the end of the block; return a copy of the value you need
 ```
 
-### 9.5.3 Level 2 — 원시 포인터: C와 똑같이
+### 9.5.3 Level 2 — raw pointers: exactly like C
 
 ```siskin
 unsafe:
-    let p = alloc[Int](4)   # 칸 4개짜리 메모리를 받습니다
+    let p = alloc[Int](4)   # get memory for 4 slots
     p[0] = 10
     p[1] = 20
-    let q = p + 1           # 한 칸 뒤를 가리키는 포인터
+    let q = p + 1           # a pointer to the next slot
     print(str(q[0]) + "\n") # 20
-    free(p)                 # 직접 돌려줍니다
+    free(p)                 # give it back yourself
 ```
 
-C++와 나란히:
+Side by side with C++:
 
 | Siskin | C++ |
 |---|---|
@@ -852,79 +852,79 @@ C++와 나란히:
 | `let q = p + 1` | `long long* q = p + 1;` |
 | `free(p)` | `delete[] p;` |
 
-`unsafe:` 안에서만 됩니다. 밖에서 쓰면 컴파일이 막습니다.
-"여기는 내가 책임진다"고 코드에 적어 두는 표시입니다.
+This only works inside `unsafe:`. Using it outside is a compile error.
+It's a marker in the code that says "I take responsibility here".
 
-### 9.5.4 실수하면 어떻게 되나
+### 9.5.4 What happens when you make a mistake
 
-C++에서는 조용히 넘어가서 한참 뒤에 엉뚱한 곳이 터지는 것들입니다.
-Siskin의 **디버그 빌드**(`--release` 없이 빌드하면 기본값)는 그 자리에서 잡습니다.
+In C++ these slip by silently and blow up somewhere unrelated much later.
+Siskin's **debug build** (the default when you build without `--release`) catches them on the spot.
 
 ```siskin
 unsafe:
     let p = alloc[Int](4)
     p[0] = 42
     free(p)
-    print(str(p[0]) + "\n")   # 이미 돌려준 메모리를 읽습니다
+    print(str(p[0]) + "\n")   # reads memory that was already given back
 ```
 
 ```
-실행 오류: 이미 해제된 메모리에 접근했습니다 (use-after-free)
+runtime error: access to freed memory (use-after-free)
 ```
 
-범위를 벗어난 접근, 두 번 해제, 아레나 블록을 벗어난 포인터 사용도 같은 방식으로 잡힙니다.
+Out-of-bounds access, double free, and using a pointer outside its arena block are caught the same way.
 
-**`--release`를 붙이면** 이 검사가 전부 사라집니다. 포인터가 그냥 C 포인터가 되고
-속도는 손으로 쓴 C와 같아집니다. 개발할 때는 잡아 주고, 배포할 때는 비키는 구조입니다.
+**With `--release`** all these checks disappear. Pointers become plain C pointers and
+the speed matches hand-written C. It catches things while you develop and gets out of the way when you ship.
 
-**단 하나 주의:** 디버그 빌드는 `free`한 메모리를 실제로 돌려주지 않고 붙들어 둡니다.
-"이 메모리는 죽었다"는 표시를 읽을 수 있어야 검사가 되기 때문입니다.
-그래서 디버그로 돌리면 메모리를 더 씁니다. `--release`에서는 정상입니다.
+**Just one caveat:** a debug build doesn't really give `free`d memory back; it holds on to it.
+The checks only work if the "this memory is dead" mark can still be read.
+So running in debug uses more memory. It's normal with `--release`.
 
-### 9.5.5 언제 어느 칸을 쓰나
+### 9.5.5 Which level to use when
 
-| 상황 | 칸 |
+| Situation | Level |
 |---|---|
-| 대부분의 코드 | Level 0 |
-| 한 프레임, 한 요청처럼 "끝이 분명한" 작업 안에서 할당이 많을 때 | Level 1 |
-| 메모리 배치를 직접 정해야 할 때, C 라이브러리와 맞닿을 때 | Level 2 |
+| Most code | Level 0 |
+| Many allocations inside work with a "clear end", like one frame or one request | Level 1 |
+| When you must control memory layout yourself, or interface with a C library | Level 2 |
 
-위에서부터 쓰다가 느린 곳만 내려가면 됩니다.
+Start from the top and go down only where things are slow.
 
 ---
 
-## 9.7 표준 라이브러리
+## 9.7 The standard library
 
-`import`로 가져와 씁니다. 파이썬과 비슷하지만 **와일드카드 임포트는 없습니다.**
-쓸 이름을 하나하나 적어야 하고, 그래서 이 이름이 어디서 왔는지 항상 보입니다.
+You bring things in with `import`. It's similar to Python, but **there are no wildcard imports.**
+You have to list every name you use, so you can always see where a name came from.
 
 ```
 from std.math import sqrt, pi
 ```
 
-한 줄씩:
+Line by line:
 
-| 줄 | 뜻 |
+| Line | Meaning |
 |---|---|
-| `from std.math import sqrt, pi` | `std.math`에서 `sqrt`와 `pi`만 가져옵니다 |
-| `import std.math` | 모듈째로 가져옵니다. 쓸 때 `math.sqrt(...)` (모든 표준 모듈이 됩니다) |
+| `from std.math import sqrt, pi` | Imports only `sqrt` and `pi` from `std.math` |
+| `import std.math` | Imports the whole module. Use it as `math.sqrt(...)` (works for every standard module) |
 
-### 어디에 무엇이 있나
+### What's where
 
-**따로 가져올 필요 없는 것** (항상 쓸 수 있습니다)
+**Things you don't need to import** (always available)
 
 `print` `eprint` `len` `range` `str` `int` `float` `abs` `min` `max` `sum` `assert` `error`
 `args` `input` `exit`
 
-| 이름 | 하는 일 |
+| Name | What it does |
 |---|---|
-| `args()` | 명령줄 인자 `[Str]`. `siskin run 파일.skn a b` 나 `./프로그램 a b` 의 `["a", "b"]` (프로그램 이름은 빠짐) |
-| `input()` | 한 줄 읽기 `?Str`. 입력이 끝나면 `none`, 빈 줄은 `""` |
-| `exit(n)` | 끝 코드 n 으로 바로 끝냅니다 |
-| `eprint(...)` | 오류 출력(stderr)으로 씁니다. 쓰는 법은 `print` 와 같습니다 |
-| `int(글)` `float(글)` | 글을 수로 읽습니다. 실패할 수 있어 `!Int` `!Float` |
+| `args()` | Command-line arguments `[Str]`. For `siskin run file.skn a b` or `./program a b` it's `["a", "b"]` (the program name is left out) |
+| `input()` | Reads one line, `?Str`. `none` at end of input; an empty line is `""` |
+| `exit(n)` | Exits immediately with exit code n |
+| `eprint(...)` | Writes to error output (stderr). Used just like `print` |
+| `int(text)` `float(text)` | Reads text as a number. Can fail, so `!Int` `!Float` |
 
-표준 입력을 끝까지 한 줄씩 읽는 모양:
+Reading standard input line by line to the end:
 
 ```siskin
 fn main():
@@ -932,144 +932,144 @@ fn main():
         let line = input()
         if line == none:
             break
-        print(f"읽음: {line}\n")
+        print(f"read: {line}\n")
 ```
 
 **`std.math`**
 
-| 이름 | 하는 일 |
+| Name | What it does |
 |---|---|
-| `sqrt(x)` | 제곱근 |
-| `sin(x)` `cos(x)` `tan(x)` | 삼각함수 (라디안) |
-| `log(x)` `log10(x)` `exp(x)` | 로그와 지수 |
-| `floor(x)` `ceil(x)` `round(x)` | 내림·올림·반올림 (Int를 냅니다) |
-| `pow(a, b)` | 거듭제곱 |
-| `pi()` `e()` | 원주율과 자연상수 |
+| `sqrt(x)` | Square root |
+| `sin(x)` `cos(x)` `tan(x)` | Trigonometric functions (radians) |
+| `log(x)` `log10(x)` `exp(x)` | Logarithms and exponential |
+| `floor(x)` `ceil(x)` `round(x)` | Round down, up, or to nearest (returns an Int) |
+| `pow(a, b)` | Power |
+| `pi()` `e()` | Pi and Euler's number |
 
-`pi`와 `e`는 괄호가 붙습니다. `pi()`라고 씁니다.
+`pi` and `e` take parentheses. You write `pi()`.
 
-수학 함수는 **Float만 받습니다.** `sqrt(2)`는 오류이고 `sqrt(2.0)`이라고 써야 합니다.
-Siskin에는 몰래 일어나는 형변환이 없기 때문입니다. Int를 넘기려면 `sqrt(float(n))`.
+Math functions **only take Float.** `sqrt(2)` is an error; you must write `sqrt(2.0)`.
+That's because Siskin has no hidden type conversions. To pass an Int, use `sqrt(float(n))`.
 
 **`std.random`**
 
-| 이름 | 하는 일 |
+| Name | What it does |
 |---|---|
-| `seed(n)` | 씨앗을 심습니다. 같은 씨앗이면 항상 같은 값이 나옵니다 |
-| `rand()` | 0 이상 1 미만의 Float |
-| `rand_int(a, b)` | a 이상 b 미만의 Int |
+| `seed(n)` | Sets the seed. The same seed always produces the same values |
+| `rand()` | A Float from 0 (inclusive) to 1 (exclusive) |
+| `rand_int(a, b)` | An Int from a (inclusive) to b (exclusive) |
 
-**`std.time`** — 시각과 날짜
+**`std.time`** — time and dates
 
-| 이름 | 하는 일 |
+| Name | What it does |
 |---|---|
-| `now()` | 1970년부터 지금까지의 초 (Float) |
-| `clock()` | 프로그램이 시작한 뒤 흐른 초. 속도 재기에 씁니다 |
-| `sleep(초)` | 잠깐 쉽니다. `sleep(0.5)` 처럼 Float 로 |
-| `today()` | 지금 이 컴퓨터 시간대의 날짜·시각 (`DateTime`) |
-| `date(년, 월, 일)` | 그 날 0시 (`DateTime`) |
-| `local_time(초)` `utc_time(초)` | `now()` 같은 초를 날짜로 |
-| `parse_time(글, 모양)` | `"2026-03-01"` 과 `"%Y-%m-%d"` 로 날짜 읽기 (`!DateTime`) |
+| `now()` | Seconds since 1970 (Float) |
+| `clock()` | Seconds elapsed since the program started. Used for timing |
+| `sleep(secs)` | Pauses briefly. Takes a Float, as in `sleep(0.5)` |
+| `today()` | The current date and time in this computer's time zone (`DateTime`) |
+| `date(year, month, day)` | Midnight of that day (`DateTime`) |
+| `local_time(secs)` `utc_time(secs)` | Converts seconds like `now()` into a date |
+| `parse_time(text, pattern)` | Reads a date with `"2026-03-01"` and `"%Y-%m-%d"` (`!DateTime`) |
 
-`DateTime` 에는 `year` `month` `day` `hour` `minute` `second` `weekday`(월요일=1) 가 있고,
-붙는 것은 `format(모양)` `date_str()` `time_str()` `to_str()` `weekday_name()`
-`add_days(n)` `add_seconds(n)` `days_until(다른날)` `timestamp()` 입니다.
+`DateTime` has `year` `month` `day` `hour` `minute` `second` `weekday` (Monday=1),
+and its methods are `format(pattern)` `date_str()` `time_str()` `to_str()` `weekday_name()`
+`add_days(n)` `add_seconds(n)` `days_until(other)` `timestamp()`.
 
-`format` 의 모양 글자: `%Y`(2026) `%m`(09) `%d`(05) `%H` `%M` `%S` `%y`(26)
-`%a`(Mon) `%A`(Monday) `%b`(Sep) `%K`(월) `%z`(+0900) `%%`(%)
+Pattern letters for `format`: `%Y`(2026) `%m`(09) `%d`(05) `%H` `%M` `%S` `%y`(26)
+`%a`(Mon) `%A`(Monday) `%b`(Sep) `%K`(the Korean short weekday name, e.g. `월`) `%z`(+0900) `%%`(%)
 
 ```siskin
 import std.time
 let d = date(2026, 12, 25)
-print(d.format("%Y년 %m월 %d일 (%K)"))     # 2026년 12월 25일 (금)
+print(d.format("%A, %Y-%m-%d"))            # Friday, 2026-12-25
 print(d.add_days(7).date_str())            # 2027-01-01
 ```
 
-`import std.time` 으로 모듈째 가져오면 `today()` 처럼 바로 쓰거나 `time.today()` 로 씁니다.
+If you import the whole module with `import std.time`, you can use names directly like `today()` or as `time.today()`.
 
-**`std.fs`** — 전부 실패할 수 있으므로 `!T`를 냅니다. `try`를 붙여 씁니다.
+**`std.fs`** — everything here can fail, so it returns `!T`. Use it with `try`.
 
-| 이름 | 하는 일 |
+| Name | What it does |
 |---|---|
-| `read_text(경로)` | 파일 전체를 문자열로 |
-| `write_text(경로, 내용)` | 새로 씁니다 |
-| `append_text(경로, 내용)` | 뒤에 이어 붙입니다 |
-| `remove(경로)` | 지웁니다 |
-| `exists(경로)` | 있는지만 봅니다 (`Bool`) |
-| `list_dir(폴더)` | 안에 든 이름들, 이름순 (`![Str]`) |
-| `make_dir(폴더)` | 만듭니다. 중간 폴더까지 한 번에, 이미 있으면 그냥 넘어갑니다 |
-| `is_dir(경로)` | 폴더인지 봅니다 (`Bool`) |
+| `read_text(path)` | The whole file as a string |
+| `write_text(path, content)` | Writes a new file |
+| `append_text(path, content)` | Appends to the end |
+| `remove(path)` | Deletes |
+| `exists(path)` | Only checks whether it exists (`Bool`) |
+| `list_dir(dir)` | Names inside, sorted by name (`![Str]`) |
+| `make_dir(dir)` | Creates it, including intermediate folders; does nothing if it already exists |
+| `is_dir(path)` | Checks whether it's a folder (`Bool`) |
 
-오류 글은 어느 쪽으로 돌려도 같습니다: "없는 경로입니다", "권한이 없습니다",
-"이미 있습니다", "폴더가 아닙니다" 같은 식입니다.
+Error messages are the same whichever way you run the program: things like "no such file or directory", "permission denied",
+"already exists", "not a directory".
 
-**`std.process`** — 다른 프로그램 실행, 환경 변수
+**`std.process`** — running other programs, environment variables
 
-| 이름 | 하는 일 |
+| Name | What it does |
 |---|---|
-| `run(명령)` | 셸 명령 한 줄을 실행하고 끝나기를 기다립니다. `run("ls -l \| wc -l")` |
-| `run_args(프로그램, [인자...])` | 셸을 거치지 않고 실행합니다 |
-| `env(이름)` | 환경 변수 (`?Str`, 없으면 `none`) |
-| `set_env(이름, 값)` | 환경 변수를 정합니다. 이후 실행하는 프로그램도 봅니다 |
-| `cwd()` `set_cwd(폴더)` | 지금 폴더 / 지금 폴더 바꾸기 |
-| `pid()` | 이 프로그램의 번호 |
+| `run(command)` | Runs one shell command line and waits for it to finish. `run("ls -l \| wc -l")` |
+| `run_args(program, [args...])` | Runs without going through the shell |
+| `env(name)` | Environment variable (`?Str`, `none` if unset) |
+| `set_env(name, value)` | Sets an environment variable. Programs run afterwards see it too |
+| `cwd()` `set_cwd(dir)` | Current folder / change the current folder |
+| `pid()` | This program's process ID |
 
-`run` 과 `run_args` 는 `Output` 을 줍니다. `code`(끝난 코드, 0 이면 성공), `out`(표준 출력),
-`err`(표준 오류), 그리고 `ok()`. 없는 프로그램이면 `code` 가 127 이고 `err` 에 이유가 적힙니다.
+`run` and `run_args` give an `Output`: `code` (the exit code, 0 means success), `out` (standard output),
+`err` (standard error), and `ok()`. If the program doesn't exist, `code` is 127 and `err` says why.
 
-**사용자에게 받은 글자를 명령에 넣을 때는 `run_args` 를 쓰세요.** `run` 은 셸이 글자를
-해석하므로, 파일 이름에 `; rm -rf ~` 같은 것이 섞여 오면 그대로 실행됩니다.
-`run_args` 는 인자를 셸 없이 그대로 넘깁니다.
+**Use `run_args` when you put text received from a user into a command.** With `run`, the shell interprets the text,
+so if a file name arrives containing something like `; rm -rf ~`, it gets executed as is.
+`run_args` passes the arguments as they are, without a shell.
 
-**`std.net`** — 인터넷. [9.10](#910-인터넷--stdnet) 에서 따로 설명합니다.
+**`std.net`** — the internet. Covered separately in [9.10](#910-the-internet--stdnet).
 
-### 리스트에 붙는 것
+### Things you can do with lists
 
 `push` `pop` `len` `reverse` `contains` `join` `sort` `index_of` `slice` `clear`
 
 ```
-var xs = [5, 3, 9]         # 제자리에서 바꾸는 메서드를 쓰려면 var
-xs.sort()                  # [3, 5, 9] — Int·Float·Str·Bool 리스트만. 다른 기준은 sort_by
-# 기준 두 개(점수 큰 순, 같으면 이름 순): sort_by 는 같은 값의 순서를 지키므로 두 번 정렬합니다.
+var xs = [5, 3, 9]         # var, to use methods that change it in place
+xs.sort()                  # [3, 5, 9] — only for lists of Int, Float, Str, Bool. For other keys, sort_by
+# Two keys (highest score first, then by name): sort_by keeps the order of equal values, so sort twice.
 # people.sort_by(fn(p): p.name)
 # people.sort_by(fn(p): -p.score)
-xs.index_of(9)             # 2. 없으면 -1
-xs.slice(0, 2)             # [3, 5] — 앞은 포함, 뒤는 제외
+xs.index_of(9)             # 2. -1 if not found
+xs.slice(0, 2)             # [3, 5] — start included, end excluded
 ```
 
-함수를 받는 것(7.5절의 익명 함수와 함께 씁니다):
+Methods that take a function (used with the anonymous functions from section 7.5):
 
 ```
-xs.map(fn(x): x * 2)       # [6, 10, 18] — 원소마다 바꾼 새 리스트
-xs.filter(fn(x): x > 4)    # [5, 9] — 조건에 맞는 것만
-xs.any(fn(x): x > 8)       # true — 하나라도 맞나
-xs.all(fn(x): x > 0)       # true — 모두 맞나
-people.sort_by(fn(p): p.age)   # 기준값으로 정렬(제자리). 기준이 같으면 원래 순서 유지
+xs.map(fn(x): x * 2)       # [6, 10, 18] — a new list with each element transformed
+xs.filter(fn(x): x > 4)    # [5, 9] — only the ones that match
+xs.any(fn(x): x > 8)       # true — does any match?
+xs.all(fn(x): x > 0)       # true — do all match?
+people.sort_by(fn(p): p.age)   # sort by a key (in place). Equal keys keep their original order
 ```
 
-### 문자열에 붙는 것
+### Things you can do with strings
 
 `len` `split` `upper` `lower` `strip` `replace` `contains` `starts_with` `ends_with`
 `find` `repeat` `slice` `width` `pad_left` `pad_right`
 
-한 글자씩 돌 때는 `for c in s:` 입니다. `c` 는 한 글자짜리 `Str` 이고, 한글도 한 글자씩 나옵니다.
-글자끼리는 `c >= "a" and c <= "z"`, `c >= "가" and c <= "힣"` 처럼 크기를 비교할 수 있습니다.
+To go through a string one character at a time, use `for c in s:`. `c` is a one-character `Str`, and Korean text also comes out one character at a time.
+Characters can be compared by order, as in `c >= "a" and c <= "z"` or `c >= "가" and c <= "힣"` (the Hangul syllable range).
 
 ```
-"안녕하세요".len()          # 5 — 바이트가 아니라 글자 수입니다
-"hello".find("ll")         # 2. 없으면 -1
+"안녕하세요".len()          # 5 — the number of characters, not bytes
+"hello".find("ll")         # 2. -1 if not found
 "-".repeat(10)             # "----------"
 "안녕하세요".slice(0, 2)    # "안녕"
 ```
 
-C++의 `std::string`은 `.size()`가 바이트 수라서 한글이 섞이면 어긋납니다.
-Siskin은 글자 수로 셉니다.
+In C++, `std::string`'s `.size()` is a byte count, so it goes wrong once Korean (or any non-ASCII) text is mixed in.
+Siskin counts characters.
 
 ---
 
-### 내 파일 나누기
+### Splitting your code into files
 
-같은 폴더의 다른 `.skn` 파일을 가져올 수 있습니다. 파일 이름이 곧 모듈 이름입니다.
+You can import other `.skn` files in the same folder. The file name is the module name.
 
 ```siskin
 # csvutil.skn
@@ -1085,37 +1085,37 @@ fn main():
     print(f"{csvutil.parse_line("a,b")}\n")
 ```
 
-**가져온 파일의 이름은 `모듈.이름` 으로 씁니다.** 파일마다 이름 칸이 따로라서,
-내 파일과 가져온 파일이(또는 두 패키지가) 같은 이름을 만들어도 부딪히지 않습니다.
-C++ 의 `namespace` 와 같은 일을 파일이 해 줍니다.
+**Names from an imported file are written as `module.name`.** Each file has its own namespace,
+so your file and an imported file (or two packages) can define the same name without clashing.
+Files do the same job as C++'s `namespace`.
 
-| 쓰는 법 | 뜻 |
+| Form | Meaning |
 |---|---|
-| `import csvutil` | `csvutil.parse_line(...)`, 타입은 `csvutil.Row` |
-| `from csvutil import parse_line` | `parse_line(...)` 로 바로 씁니다 |
-| `from csvutil import parse_line as parse` | 다른 이름으로 가져옵니다 |
-| `import pkg.tools as t` | 모듈에 짧은 이름을 붙입니다: `t.run(...)` |
-| `fn _helper()` | `_` 로 시작하면 그 파일 안에서만 씁니다(밖에서 부르면 오류) |
+| `import csvutil` | `csvutil.parse_line(...)`; types are `csvutil.Row` |
+| `from csvutil import parse_line` | Use it directly as `parse_line(...)` |
+| `from csvutil import parse_line as parse` | Import it under a different name |
+| `import pkg.tools as t` | Give the module a short name: `t.run(...)` |
+| `fn _helper()` | Names starting with `_` are only usable inside that file (calling them from outside is an error) |
 
-`import csvutil` 만 하고 `parse_line(...)` 처럼 모듈 이름 없이 써도 한 곳에만 있으면
-동작하지만, `csvutil.parse_line` 으로 쓰라는 경고(W0002)가 나옵니다. 두 모듈에 같은
-이름이 있으면 어느 것인지 적으라는 오류(E0147)입니다. `match` 의 `case Circle(r):` 처럼
-대상의 타입으로 이미 알 수 있는 자리는 모듈 이름을 안 붙여도 됩니다.
+If you only `import csvutil` and write `parse_line(...)` without the module name, it works as long as the name exists in only one place,
+but you get a warning (W0002) telling you to write `csvutil.parse_line`. If two modules have the same
+name, it's an error (E0147) asking you to say which one. Where the type of the target already tells which one it is,
+like `case Circle(r):` in a `match`, you don't need the module name.
 
-가져온 파일 안에 오류가 있으면 그 파일 이름과 줄로 알려 줍니다.
-가져온 파일에는 `main` 이 없어도 됩니다(그 파일만 `siskin check` 하면 main 이 없다고 나옵니다).
-예제는 `examples/16_modules.skn` 와 `examples/shapes.skn` 입니다.
+If an imported file contains an error, you're told that file's name and line.
+An imported file doesn't need a `main` (running `siskin check` on that file alone will report that main is missing).
+See the examples `examples/16_modules.skn` and `examples/shapes.skn`.
 
 ---
 
-## 9.8 C·C++ 라이브러리 쓰기
+## 9.8 Using C and C++ libraries
 
-새 언어의 가장 큰 약점은 남이 만들어 둔 것이 없다는 점입니다.
-Siskin 은 C 로 번역된 뒤 컴파일되므로, **세상에 나와 있는 C·C++ 라이브러리를
-그대로 부릅니다.** 중간에 끼는 변환 계층이 없어서 호출 비용이 0 입니다.
+The biggest weakness of a new language is that nobody has built anything for it yet.
+Siskin compiles by translating to C first, so **it calls the C and C++ libraries that already exist
+directly.** There's no conversion layer in between, so calls cost nothing extra.
 
-함수를 하나씩 손으로 옮겨 적을 필요도 없습니다. 헤더 파일(라이브러리 설명서)
-이름만 적으면 그 안의 함수를 Siskin 이 알아서 읽어 옵니다.
+You don't need to copy functions over by hand one at a time either. Just name the header file (the library's description)
+and Siskin reads in the functions it declares.
 
 ```
 import c "zlib.h" link "z"
@@ -1124,158 +1124,157 @@ fn main():
     print(str(crc32(0, "hello siskin", 10)) + "\n")
 ```
 
-한 줄씩:
+Line by line:
 
-| 줄 | 뜻 |
+| Line | Meaning |
 |---|---|
-| `import c "zlib.h"` | zlib 의 설명서를 읽어 함수를 전부 가져옵니다 |
-| `link "z"` | zlib(`-lz`)을 함께 묶으라는 표시 |
-| `crc32(0, "hello siskin", 10)` | 보통 함수처럼 부릅니다 |
+| `import c "zlib.h"` | Reads zlib's header and imports all its functions |
+| `link "z"` | Says to link zlib (`-lz`) as well |
+| `crc32(0, "hello siskin", 10)` | Called like an ordinary function |
 
-C++ 은 `import cpp "헤더.hpp"` 입니다. C++ 은 이름이 안에서 뒤틀려 저장되고
-클래스·가상 함수 같은 게 있어서 그대로는 못 부르는데, Siskin 이 가운데에 다리 놓는
-파일을 자동으로 써서 C++ 컴파일러에게 같이 넘깁니다.
+For C++ it's `import cpp "header.hpp"`. C++ can't be called as is, because names are mangled internally
+and there are things like classes and virtual functions, so Siskin automatically writes a bridging
+file in between and hands it to the C++ compiler along with everything else.
 
 ```
 import cpp "shapes.hpp" from "cpplib" also "cpplib/shapes.cpp"
 
 fn main():
-    let 원 = geo_Circle_new(2.0)
-    print(str(geo_Circle_area(원)) + "\n")
-    geo_Circle_delete(원)
+    let circle = geo_Circle_new(2.0)
+    print(str(geo_Circle_area(circle)) + "\n")
+    geo_Circle_delete(circle)
 ```
 
-### 무엇이 열렸는지 보기
+### Seeing what was opened up
 
 ```
-siskin ffi zlib.h          # 몇 개나 쓸 수 있는지
-siskin ffi zlib.h --all    # 함수 이름과 생김새를 전부
+siskin ffi zlib.h          # how many functions are usable
+siskin ffi zlib.h --all    # every function name and signature
 ```
 
-zlib 은 81개 중 80개, sqlite3 은 291개 중 283개, libpng 은 246개 전부가
-바로 열립니다.
+For zlib, 80 of 81 functions are available right away; for sqlite3, 283 of 291; for libpng, all 246.
 
-### 주고받을 수 있는 타입
+### Types that can be passed back and forth
 
-| C 쪽 | Siskin 쪽 |
+| C side | Siskin side |
 |---|---|
-| `int`, `long`, `size_t` … 정수 전부 | `Int` |
+| `int`, `long`, `size_t` … all integers | `Int` |
 | `float`, `double` | `Float` |
 | `_Bool` | `Bool` |
 | `const char *` | `Str` |
-| 그 밖의 포인터 (`FILE*`, `sqlite3*`) | `Int` — 손잡이 |
-| `T **` ("여기 결과를 넣어라") | `inout Int` — `var` 변수를 그냥 넘깁니다 |
-| 함수 포인터 (콜백) | 함수 — 이름 붙인 내 함수를 넘깁니다 |
+| other pointers (`FILE*`, `sqlite3*`) | `Int` — a handle |
+| `T **` ("put the result here") | `inout Int` — just pass a `var` variable |
+| function pointers (callbacks) | a function — pass one of your named functions |
 
 ```
 var db = 0
-sqlite3_open(":memory:", db)     # db 에 결과가 들어옵니다
+sqlite3_open(":memory:", db)     # the result lands in db
 ```
 
-### 두 가지 주의
+### Two things to note
 
-**`siskin run` 도 그대로 됩니다.** 라이브러리를 쓰는 프로그램은 조용히 컴파일해서
-돌리므로, `siskin build` 로 만든 것과 결과가 항상 같습니다.
+**`siskin run` works as well.** A program that uses a library is quietly compiled and then
+run, so the result is always the same as what `siskin build` produces.
 
-**해제한 메모리를 C 에 넘기면 잡힙니다.** 디버그 빌드에서는 C 로 넘어가기
-직전에 한 번 확인합니다.
+**Passing freed memory to C is caught.** In debug builds, it's checked once
+right before crossing over to C.
 
 ```
-실행 오류: 이미 해제된 메모리에 접근했습니다 (use-after-free)
+runtime error: access to freed memory (use-after-free)
 ```
 
-C++ 에서는 이 실수가 그대로 통과해 한참 뒤에 터집니다.
+In C++ this mistake slips through and blows up much later.
 
-### 손으로 적는 방법 (예전 방식)
+### Writing declarations by hand (the old way)
 
-헤더가 없거나 한두 개만 쓸 때는 직접 적을 수도 있습니다.
+When there's no header, or you only need one or two functions, you can write them yourself.
 
 ```
 extern "C" link "z"
 extern "C" fn crc32(crc: Int, buf: Str, len: Int) -> Int
 ```
 
-다만 이때는 C 쪽 진짜 타입을 Siskin 이 모릅니다. C 함수가 32비트 `int` 를
-돌려주는데 `Int` 로 적으면 값이 깨질 수 있습니다. **가능하면 `import c` 를
-쓰세요.** 그쪽은 C 컴파일러가 타입을 대신 검사해 줍니다.
+In this case, though, Siskin doesn't know the real C types. If a C function returns a 32-bit `int`
+and you write `Int`, the value may be corrupted. **Use `import c` when you can.**
+Then the C compiler checks the types for you.
 
-자세한 것은 [LIBS.md](LIBS.md) 에 있습니다.
+Details are in [LIBS.md](LIBS.md).
 
 ---
 
-## 9.9 사전, 정규식, JSON
+## 9.9 Dictionaries, regular expressions, JSON
 
-### 9.9.1 사전 — 이름표를 붙여 담는 상자
-
-```
-var ages = {"하루": 20, "미카": 3}
-ages["루비"] = 7              # 새로 넣기
-ages["하루"] = 21             # 이미 있으면 바꾸기
-```
-
-C++의 `std::map`이나 `unordered_map`에 해당합니다. 다만 두 가지가 다릅니다.
-
-**넣은 순서를 기억합니다.** `keys()`는 넣은 순서대로 나옵니다.
-C++의 `map`은 정렬 순서, `unordered_map`은 아무 순서입니다.
-
-**없는 이름을 물으면 `none`이 나옵니다.**
+### 9.9.1 Dictionaries — boxes with name tags
 
 ```
-let n = ages["없는사람"]
+var ages = {"Haru": 20, "Mika": 3}
+ages["Ruby"] = 7              # add a new entry
+ages["Haru"] = 21             # change it if it already exists
+```
+
+This corresponds to C++'s `std::map` or `unordered_map`. There are two differences, though.
+
+**It remembers insertion order.** `keys()` returns keys in the order they were inserted.
+C++'s `map` uses sorted order, and `unordered_map` uses no particular order.
+
+**Asking for a missing key gives `none`.**
+
+```
+let n = ages["nobody"]
 if n != none:
     print(str(n))
 ```
 
-C++의 `m["없는키"]`는 조용히 0을 만들어 넣습니다. 그래서 "왜 없는 항목이 생겼지?"
-하는 버그가 납니다. Siskin은 없으면 없다고 말합니다.
+C++'s `m["missing_key"]` silently creates and inserts a 0. That leads to "where did this entry come from?"
+bugs. Siskin tells you when something isn't there.
 
-쓸 수 있는 것: `len()` `set(키, 값)` `has(키)` `keys()` `get(키, 기본값)`
+Available: `len()` `set(key, value)` `has(key)` `keys()` `get(key, default)`
 
-키와 값을 함께 돌 때는 `for k, v in ages:` 입니다.
+To loop over keys and values together, use `for k, v in ages:`.
 
-사전 안의 리스트에 하나 더 넣을 때는 꺼내서 바꾼 뒤 다시 넣습니다(값이 복사되기 때문입니다).
+To add one more item to a list inside a dictionary, take it out, change it, and put it back (because values are copied).
 
 ```siskin
 var groups: {Str: [Str]} = {}
-var names = groups["과일"] else []
-names.push("사과")
-groups["과일"] = names
+var names = groups["fruit"] else []
+names.push("apple")
+groups["fruit"] = names
 ```
 
-### 9.9.2 정규식 — 글자 모양으로 찾기
+### 9.9.2 Regular expressions — finding text by its shape
 
 ```
 from std.re import test, find_all, groups, replace
 
-test(r"\d+", "주문 42개")            # true — 숫자가 있나?
+test(r"\d+", "order of 42")          # true — is there a number?
 find_all(r"\d+", "42, 17, 8")        # ["42", "17", "8"]
 replace(r"\d", "010-1234", "*")      # "***-****"
 ```
 
-**`r"..."` 에 주의하세요.** 정규식에는 역슬래시가 많이 나오는데, 보통 문자열에서는
-`\n`이 줄바꿈이 되어 버립니다. 앞에 `r`을 붙이면 적은 그대로 읽습니다.
-`r`을 빠뜨리면 컴파일이 이렇게 알려 줍니다.
+**Watch out for `r"..."`.** Regular expressions contain lots of backslashes, and in an ordinary string
+`\n` turns into a newline. Putting `r` in front reads the text exactly as written.
+If you forget the `r`, the compiler tells you like this.
 
 ```
-오류[E0008]: `\d` 는 모르는 표기입니다
-  도움말: 역슬래시를 그대로 쓰려면 `\\d` 또는 원시 문자열 `r"..."` 을 쓰세요
+error[E0008]: unknown escape `\d`
+  help: for a literal backslash write `\\d`, or use a raw string `r"..."`
 ```
 
-쓸 수 있는 것:
+Available:
 
-| 이름 | 하는 일 |
+| Name | What it does |
 |---|---|
-| `test(정규식, 글)` | 있나 없나만 (`Bool`) |
-| `find(정규식, 글)` | 처음 맞는 부분 (`?Str`) |
-| `find_all(정규식, 글)` | 맞는 부분 전부 (`[Str]`) |
-| `groups(정규식, 글)` | 첫 일치의 괄호 조각들. 0번은 전체입니다 |
-| `replace(정규식, 글, 바꿀것)` | 맞는 곳을 전부 바꿉니다 |
-| `split_re(정규식, 글)` | 맞는 곳에서 쪼갭니다 |
+| `test(regex, text)` | Just whether there is a match (`Bool`) |
+| `find(regex, text)` | The first matching part (`?Str`) |
+| `find_all(regex, text)` | All matching parts (`[Str]`) |
+| `groups(regex, text)` | The parenthesized groups of the first match. Group 0 is the whole match |
+| `replace(regex, text, replacement)` | Replaces every match |
+| `split_re(regex, text)` | Splits at each match |
 
-쓸 수 있는 표기: 글자 · `.` · `*` `+` `?` (뒤에 `?`를 붙이면 최소 일치) ·
-`[a-z]` `[^...]` · `\d \w \s`와 대문자 반대 · `^` `$` · `|` · `(...)` `(?:...)`
+Supported syntax: literal characters · `.` · `*` `+` `?` (add `?` after them for a lazy match) ·
+`[a-z]` `[^...]` · `\d \w \s` and their uppercase negations · `^` `$` · `|` · `(...)` `(?:...)`
 
-한글도 됩니다. `[가-힣]+` 이 그대로 통합니다.
+Korean works too. `[가-힣]+` (Hangul syllables) works as is.
 
 ### 9.9.3 JSON
 
@@ -1292,18 +1291,18 @@ fn main() -> !Unit:
     return
 ```
 
-한 줄씩:
+Line by line:
 
-| 줄 | 뜻 |
+| Line | Meaning |
 |---|---|
-| `try parse(text)` | 글을 JSON으로 읽습니다. 잘못됐으면 실패를 냅니다 |
-| `doc.get("name")` | 그 이름이 있으면 값, 없으면 `none` |
-| `name.as_str()` | 문자열이면 문자열, 아니면 `none` |
+| `try parse(text)` | Reads text as JSON. Fails if it's malformed |
+| `doc.get("name")` | The value if that name exists, otherwise `none` |
+| `name.as_str()` | The string if it's a string, otherwise `none` |
 
-`none` 확인이 두 번 나오는 게 번거로워 보이지만, 이게 JSON을 다룰 때 사고가 나는
-자리 두 곳입니다. 이름이 없거나, 있는데 기대한 종류가 아니거나. 둘 다 물어보게 합니다.
+Checking for `none` twice may look tedious, but those are exactly the two places where accidents happen when handling JSON:
+the name is missing, or it's there but not the kind you expected. You're made to ask about both.
 
-만들 때는 이렇게 합니다.
+To build JSON, do this.
 
 ```
 let out = jdict()
@@ -1312,23 +1311,23 @@ out.set("version", jint(1))
 print(stringify(out))        # {"lang":"Siskin","version":1}
 ```
 
-| 만드는 것 | |
+| Building | |
 |---|---|
-| `jnull()` `jbool(b)` `jint(n)` `jfloat(f)` `jstr(s)` | 값 하나 |
-| `jlist()` `jdict()` | 빈 배열 / 빈 객체 |
+| `jnull()` `jbool(b)` `jint(n)` `jfloat(f)` `jstr(s)` | A single value |
+| `jlist()` `jdict()` | Empty array / empty object |
 
-| 읽는 것 | |
+| Reading | |
 |---|---|
-| `kind()` | "null" "bool" "int" "float" "str" "list" "dict" 중 하나 |
-| `as_int()` `as_float()` `as_str()` `as_bool()` | 맞으면 값, 아니면 `none` |
-| `get(이름)` `at(번호)` | 있으면 값, 없으면 `none` |
-| `len()` `keys()` | 개수와 이름들 |
-| `set(이름, 값)` `push(값)` | 객체와 배열에 넣기 |
+| `kind()` | One of "null" "bool" "int" "float" "str" "list" "dict" |
+| `as_int()` `as_float()` `as_str()` `as_bool()` | The value if it's that kind, otherwise `none` |
+| `get(name)` `at(index)` | The value if present, otherwise `none` |
+| `len()` `keys()` | Count and names |
+| `set(name, value)` `push(value)` | Insert into objects and arrays |
 
-JSON 값의 타입 이름은 **`Json`** 입니다. 함수 인자로 받을 때 `fn f(item: Json)` 처럼 씁니다.
-`as_float()` 는 `3` 같은 정수도 `3.0` 으로 줍니다. 배열은 `for x in doc:` 로 돕니다(배열이 아니면 한 번도 돌지 않습니다).
+The type name for JSON values is **`Json`**. Use it for function parameters, as in `fn f(item: Json)`.
+`as_float()` also returns integers like `3` as `3.0`. Loop over an array with `for x in doc:` (if it isn't an array, the loop runs zero times).
 
-JSON 을 구조체로 옮기는 흔한 모양:
+A common pattern for turning JSON into a struct:
 
 ```siskin
 from std.json import parse
@@ -1337,21 +1336,21 @@ from std.fs import read_text
 struct Item:
     name: Str
     price: Float
-    discount: ?Float          # 없거나 null 일 수 있음
+    discount: ?Float          # may be missing or null
 
 fn to_item(j: Json) -> !Item:
     let n = j.get("name") else j
     let name = n.as_str() else ""
     if name == "":
-        return error("name 이 없습니다")
+        return error("name is missing")
     let p = j.get("price") else j
     let price = p.as_float()
     if price == none:
-        return error(f"{name}: price 가 수가 아닙니다")
+        return error(f"{name}: price is not a number")
     var discount: ?Float = none
     let d = j.get("discount")
     if d != none:
-        discount = d.as_float()           # null 이면 none
+        discount = d.as_float()           # none if null
     return Item(name: name, price: price, discount: discount)
 
 fn main() -> !Unit:
@@ -1366,50 +1365,50 @@ fn main() -> !Unit:
 
 ---
 
-## 9.10 인터넷 — `std.net`
+## 9.10 The Internet — `std.net`
 
 ```siskin
 import std.net
 
 let r = http_get("https://pypi.org/pypi/requests/json") catch e:
-    print("인터넷에 닿지 못했습니다: " + e + "\n")
+    print("could not reach the internet: " + e + "\n")
     return
 print(f"{r.status} {r.ok()}\n")          # 200 true
-print(r.body)                              # 받은 내용 (글자)
+print(r.body)                              # the content received (text)
 ```
 
 **HTTP**
 
-| 이름 | 하는 일 |
+| Name | What it does |
 |---|---|
-| `http_get(주소)` | 가져옵니다 (`!Response`) |
-| `http_post(주소, 본문)` | 보냅니다. 본문이 `{` 나 `[` 로 시작하면 JSON 으로 보냅니다 |
-| `http_request(방법, 주소, 헤더, 본문)` | 전부 정해서 보냅니다. `http_request("PUT", url, {"Authorization": "Bearer ..."}, body)` |
-| `url_encode(글)` | 주소에 넣을 수 있게 바꿉니다. `"김 밥"` → `"%EA%B9%80%20%EB%B0%A5"` |
-| `set_timeout(초)` | 기다리는 최대 시간. 처음엔 30초 |
+| `http_get(url)` | Fetches (`!Response`) |
+| `http_post(url, body)` | Sends. If the body starts with `{` or `[`, it's sent as JSON |
+| `http_request(method, url, headers, body)` | Sends with everything specified. `http_request("PUT", url, {"Authorization": "Bearer ..."}, body)` |
+| `url_encode(text)` | Converts text so it can go in a URL. `"김 밥"` → `"%EA%B9%80%20%EB%B0%A5"` |
+| `set_timeout(secs)` | Maximum time to wait. 30 seconds initially |
 
-`Response` 에는 `status`(200, 404 ...) `headers`(사전, 이름은 소문자) `body` 가 있고,
-`ok()`(200~299 인가) 와 `header(이름)`(대소문자 상관없이, `?Str`) 이 붙습니다.
+`Response` has `status` (200, 404 ...), `headers` (a dict with lowercase names) and `body`,
+plus `ok()` (is it 200–299?) and `header(name)` (case-insensitive, `?Str`).
 
-**404 나 500 은 오류가 아닙니다.** 서버가 대답은 한 것이라 `Response` 로 옵니다.
-`catch` 로 가는 것은 주소를 못 찾거나, 연결이 안 되거나, 시간이 지난 경우입니다.
-다른 주소로 넘기는 응답(301, 302 ...)은 알아서 따라갑니다.
+**404 and 500 are not errors.** The server did answer, so they arrive as a `Response`.
+What goes to `catch` is when the address can't be found, the connection fails, or it times out.
+Redirect responses (301, 302 ...) are followed automatically.
 
-`https` 는 컴퓨터에 깔린 OpenSSL 을 씁니다(리눅스에는 거의 항상 있습니다).
-인증서를 확인하므로 가짜 서버에는 "인증서를 믿을 수 없습니다" 로 멈춥니다.
-회사망처럼 `HTTPS_PROXY` 가 정해져 있으면 그걸 따릅니다.
+`https` uses the OpenSSL installed on the computer (almost always present on Linux).
+Certificates are verified, so a fake server stops with "untrusted certificate".
+If `HTTPS_PROXY` is set, as on a corporate network, it is honored.
 
-**TCP 연결과 서버**
+**TCP connections and servers**
 
-| 이름 | 하는 일 |
+| Name | What it does |
 |---|---|
-| `connect(호스트, 포트)` | 연결합니다 (`!Conn`) |
-| `connect_tls(호스트, 포트)` | 보안 연결 (`!Conn`) |
-| `listen(포트)` | 포트를 열고 기다립니다 (`!Server`). `listen_on("127.0.0.1", 포트)` 는 이 컴퓨터 안에서만 |
+| `connect(host, port)` | Connects (`!Conn`) |
+| `connect_tls(host, port)` | Secure connection (`!Conn`) |
+| `listen(port)` | Opens a port and waits (`!Server`). `listen_on("127.0.0.1", port)` accepts only from this computer |
 
-`Conn` 에는 `send(글)` `recv()` `recv_line()` `peer()` `close()`,
-`Server` 에는 `accept()`(누가 올 때까지 기다렸다가 `Conn` 을 줍니다) `port()` `close()` 가 붙습니다.
-`recv()` 와 `recv_line()` 은 상대가 연결을 끊으면 `""` 을 줍니다.
+`Conn` has `send(text)` `recv()` `recv_line()` `peer()` `close()`,
+and `Server` has `accept()` (waits until someone connects and gives a `Conn`) `port()` `close()`.
+`recv()` and `recv_line()` return `""` when the other side closes the connection.
 
 ```siskin
 let server = listen(8080) catch e:
@@ -1420,80 +1419,80 @@ while true:
         continue
     let line = c.recv_line() catch e:
         ""
-    c.send("받았습니다: " + line) catch e:
+    c.send("received: " + line) catch e:
         print(e)
     c.close()
 ```
 
-**웹 서버와 https 서버**
+**Web servers and https servers**
 
-`server.next_request()` 는 손님을 받아 HTTP 요청 하나를 읽어 `Request` 로 줍니다.
-`listen` 대신 `listen_tls` 로 열면 https 서버가 되고, 나머지 코드는 똑같습니다.
+`server.next_request()` accepts a client, reads one HTTP request, and gives it to you as a `Request`.
+If you open with `listen_tls` instead of `listen`, it becomes an https server; the rest of the code is the same.
 
 ```siskin
 import std.net
 
 fn main():
-    # https 로 열기. http 면 listen(8080) 으로 바꾸면 끝입니다.
+    # open with https. For http, just change it to listen(8080).
     let server = listen_tls(8443, "cert.pem", "key.pem") catch e:
         print(e + "\n")
         return
     while true:
         let req = server.next_request() catch e:
-            return                               # 서버가 닫혔을 때만 옵니다
+            return                               # only happens when the server is closed
         if req.path == "/hello":
-            let name = req.query["name"] else "손님"
-            req.respond(200, f"안녕하세요, {name}님") catch e:
+            let name = req.query["name"] else "guest"
+            req.respond(200, f"Hello, {name}") catch e:
                 print(e + "\n")
         else:
-            req.respond(404, "<h1>없는 쪽</h1>") catch e:
+            req.respond(404, "<h1>page not found</h1>") catch e:
                 print(e + "\n")
 ```
 
-`https://localhost:8443/hello?name=김밥` 으로 들어가면 `안녕하세요, 김밥님` 이 보입니다.
+Go to `https://localhost:8443/hello?name=Haru` and you'll see `Hello, Haru`.
 
-| 이름 | 하는 일 |
+| Name | What it does |
 |---|---|
-| `listen_tls(포트, 인증서, 비밀열쇠)` | https 서버를 엽니다 (`!Server`). 두 파일은 PEM 형식 |
-| `listen_tls_on("127.0.0.1", 포트, 인증서, 비밀열쇠)` | 이 컴퓨터 안에서만 받는 https 서버 |
-| `server.next_request()` | 다음 요청을 기다려 `Request` 로 줍니다. 요청을 잘못 보낸 손님은 알아서 건너뜁니다 |
-| `read_request(conn)` | `accept()` 로 받은 연결에서 요청 하나를 읽습니다 |
-| `url_decode(글)` | `url_encode` 의 반대 |
+| `listen_tls(port, cert, key)` | Opens an https server (`!Server`). Both files are in PEM format |
+| `listen_tls_on("127.0.0.1", port, cert, key)` | An https server that accepts only from this computer |
+| `server.next_request()` | Waits for the next request and gives a `Request`. Clients that send malformed requests are skipped automatically |
+| `read_request(conn)` | Reads one request from a connection obtained with `accept()` |
+| `url_decode(text)` | The reverse of `url_encode` |
 
-`Request` 에는 `method`("GET" ...) `path`("/hello", `?` 뒤는 빠짐) `query`(사전) `headers`(사전, 이름은 소문자)
-`body` 가 있고, `header(이름)` `respond(상태, 본문)` `respond_with(상태, 헤더, 본문)` 이 붙습니다.
-`respond` 는 본문이 `{`/`[` 로 시작하면 JSON, `<` 면 HTML, 아니면 글자로 알리고 연결을 닫습니다.
+`Request` has `method` ("GET" ...), `path` ("/hello", without the part after `?`), `query` (a dict), `headers` (a dict with lowercase names)
+and `body`, plus `header(name)` `respond(status, body)` `respond_with(status, headers, body)`.
+`respond` announces the body as JSON if it starts with `{`/`[`, as HTML if it starts with `<`, and as plain text otherwise, then closes the connection.
 
-**인증서.** https 서버에는 인증서 파일과 비밀 열쇠 파일이 필요합니다. 시험용은 이렇게 만듭니다.
+**Certificates.** An https server needs a certificate file and a private key file. For testing, make them like this.
 
 ```
 openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj /CN=localhost
 ```
 
-이렇게 만든 인증서는 내가 스스로 서명한 것이라 브라우저가 "안전하지 않음" 경고를 띄웁니다(시험에는 괜찮습니다).
-인터넷에 여는 진짜 서버는 Let's Encrypt(무료) 같은 곳에서 받은 `fullchain.pem` 과 `privkey.pem` 을 넣으면 됩니다.
-보안 연결을 맺지 못한 손님(인증서를 안 믿는 브라우저, http 로 잘못 온 손님)은 서버를 멈추지 않고 건너뜁니다.
+A certificate made this way is self-signed, so browsers show a "Not secure" warning (fine for testing).
+For a real server open to the internet, use the `fullchain.pem` and `privkey.pem` you get from a place like Let's Encrypt (free).
+Clients that fail to establish a secure connection (a browser that doesn't trust the certificate, a client that came in over plain http) are skipped without stopping the server.
 
-한 번에 한 손님씩 받으므로, 손님이 많으면 요청마다 `spawn` 으로 나눠 처리하세요(9.11).
+It serves one client at a time, so if you have many clients, handle each request separately with `spawn` (9.11).
 
-**`siskin run` 도 네이티브로 돕니다.** 네트워크는 운영체제와 직접 이야기해야 해서,
-`std.net` 을 쓰는 프로그램은 C 라이브러리를 쓸 때처럼 조용히 컴파일해서 돌립니다.
-그래서 처음 한 번은 1초쯤 더 걸립니다.
+**`siskin run` also runs it natively.** Networking has to talk to the operating system directly, so
+programs that use `std.net` are quietly compiled and run, just like when using a C library.
+That's why the first run takes about a second longer.
 
-여러 주소를 한꺼번에 받으려면 `spawn http_get(주소)` 로 동시에 보냅니다(아래 9.11).
+To fetch several URLs at once, send them concurrently with `spawn http_get(url)` (see 9.11 below).
 
 ---
 
-## 9.11 여러 일을 동시에 — `spawn` 과 `channel`
+## 9.11 Doing several things at once — `spawn` and `channel`
 
 ```siskin
 fn count_primes(lo: Int, hi: Int) -> Int:
     ...
 
 fn main():
-    let a = spawn count_primes(0, 50000)       # 새 작업에서 돌리고 바로 돌아옵니다
+    let a = spawn count_primes(0, 50000)       # runs in a new task and returns immediately
     let b = spawn count_primes(50000, 100000)
-    print(f"{a.wait() + b.wait()}\n")           # 끝날 때까지 기다려 결과를 받습니다
+    print(f"{a.wait() + b.wait()}\n")           # waits until they finish and gets the results
 ```
 
 ```cpp
@@ -1502,22 +1501,22 @@ auto b = std::async(std::launch::async, count_primes, 50000, 100000);
 std::cout << a.get() + b.get() << "\n";
 ```
 
-| Siskin | C++ | 설명 |
+| Siskin | C++ | Meaning |
 |---|---|---|
-| `spawn f(x)` | `std::async(f, x)` | 새 작업(스레드). 결과는 `Task[T]` |
-| `t.wait()` | `future.get()` | 끝날 때까지 기다려 결과를 받습니다 |
-| `t.done()` | `wait_for(0s) == ready` | 끝났는지만 봅니다 |
-| `channel[Int]()` | 스레드 안전한 큐 | 작업끼리 값을 주고받는 통로 (`Chan[Int]`) |
-| `channel[Int](10)` | 크기 정한 큐 | 10개가 차면 보내는 쪽이 기다립니다 |
-| `ch.send(v)` / `ch.recv()` | push / pop | 받을 때는 `?T`: 닫히고 비었으면 `none` |
-| `ch.close()` | | 다 보냈다고 알립니다 |
-| `for x in ch:` | | 닫힐 때까지 하나씩 받습니다 |
+| `spawn f(x)` | `std::async(f, x)` | A new task (thread). The result is a `Task[T]` |
+| `t.wait()` | `future.get()` | Waits until it finishes and gets the result |
+| `t.done()` | `wait_for(0s) == ready` | Only checks whether it has finished |
+| `channel[Int]()` | thread-safe queue | A pipe for passing values between tasks (`Chan[Int]`) |
+| `channel[Int](10)` | bounded queue | When 10 items are waiting, the sender waits |
+| `ch.send(v)` / `ch.recv()` | push / pop | Receiving gives `?T`: `none` when closed and empty |
+| `ch.close()` | | Announces that everything has been sent |
+| `for x in ch:` | | Receives one at a time until it's closed |
 
 ```siskin
 fn producer(ch: Chan[Int]):
     for i in range(5):
         ch.send(i * i)
-    ch.close()                  # 이게 있어야 받는 쪽의 for 가 끝납니다
+    ch.close()                  # without this, the receiver's for loop never ends
 
 fn main():
     let ch = channel[Int]()
@@ -1527,90 +1526,90 @@ fn main():
     p.wait()
 ```
 
-**작업끼리 메모리를 같이 만지지 않습니다.** `spawn` 에 넘기는 값은 복사본이라
-(클로저와 같은 규칙) 두 작업이 한 리스트를 동시에 바꾸는 사고(데이터 경쟁)가 생길 수 없습니다.
-그래서 자물쇠(mutex)가 필요 없습니다. 결과는 `wait()` 로 돌려받거나 통로로 보냅니다.
-원시 포인터(`*T`), 아레나, `Json` 값은 작업에 넘길 수 없습니다(`Json` 은 `stringify` 해서 글자로 넘기세요).
+**Tasks don't touch the same memory.** Values passed to `spawn` are copies
+(the same rule as closures), so two tasks can't change one list at the same time (a data race).
+That's why you don't need locks (mutexes). Get results back with `wait()` or send them through a channel.
+Raw pointers (`*T`), arenas, and `Json` values can't be passed to tasks (`stringify` a `Json` and pass it as text).
 
-모든 작업이 서로를 기다리고 있으면(아무도 `close` 를 안 해서 받는 쪽이 끝없이 기다리는 등)
-그대로 멈춰 있지 않고 "교착 상태(deadlock)" 실행 오류로 알려 줍니다.
-`main` 이 끝나면 아직 도는 작업을 다 기다린 뒤 끝납니다. 작업 안에서 난 실행 오류는 프로그램을 멈춥니다.
+If every task is waiting on another (for example, nobody calls `close`, so the receiver waits forever),
+the program doesn't just hang; it reports a "deadlock" runtime error.
+When `main` ends, it waits for all still-running tasks before exiting. A runtime error inside a task stops the program.
 
-**`siskin run` 과 `siskin build`:** 결과는 같고, 둘 다 CPU 여러 개를 진짜로 같이 씁니다
-(4코어에서 `siskin build` 약 3.5배, `siskin run` 약 3.2배). 파이썬과 달리 `siskin run` 에도
-"한 번에 한 작업" 제한(GIL)이 없습니다. 작업끼리 값을 나누지 않고 복사해서 넘기기 때문에
-가능한 일입니다. 예제는 `examples/15_concurrency.skn` 입니다.
+**`siskin run` and `siskin build`:** the results are the same, and both really use multiple CPUs at once
+(on 4 cores, about 3.5x for `siskin build` and about 3.2x for `siskin run`). Unlike Python, `siskin run` has no
+"one task at a time" limit (GIL). That's possible because tasks don't share values; they pass copies.
+See the example `examples/15_concurrency.skn`.
 
 
 ---
 
-## 10. 기호 한눈에
+## 10. Symbols at a glance
 
-| 기호 | 뜻 | C++로 치면 |
+| Symbol | Meaning | In C++ |
 |---|---|---|
-| `fn` | 함수 선언 표시 (타입 아님) | `int main()` 의 위치 |
-| `Int` `Float` `Str` `Bool` | 기본 타입 | `long long` `double` `std::string` `bool` |
-| `:` + 들여쓰기 | 블록 | `{ }` |
-| `->` | 반환 타입 | 함수 이름 앞 타입 |
-| `let` / `var` | 못 바꿈 / 바꿈 | `const T` / `T` |
-| `[Int]` | Int의 목록 | `std::vector<int>` |
-| `{Str: Int}` | 사전 | `std::map<std::string,int>` |
-| `?T` | 없을 수도 있는 T | `std::optional<T>` |
-| `!T` | 실패할 수도 있는 T | 예외 또는 에러 코드 |
-| `E!T` | 실패하면 enum E 값을 주는 T | `std::expected<T, E>` |
-| `none` | 값 없음 | `nullptr` / `nullopt` |
-| `try` | 실패하면 전파 | 예외 전파 |
-| `catch e:` | 실패 처리 | `catch (...)` |
-| `f"{x}"` | 문자열에 값 끼움 | `<<` 로 이어 붙이기 |
-| `self` | 자기 자신 | `this` |
-| `#` | 주석 | `//` |
-| `with arena a:` | 블록 전용 메모리 창고 | 스코프에 묶인 메모리 풀 |
-| `unsafe:` | 여기부터 내 책임 | (표시가 따로 없음) |
-| `*Int` | Int를 가리키는 원시 포인터 | `long long*` |
-| `alloc[Int](4)` | 칸 4개 받기 | `new long long[4]` |
-| `free(p)` | 돌려주기 | `delete[] p` |
-| `from std.x import y` | 이름 하나 가져오기 | `#include` + `using` |
-| `extern "C" fn ...` | C 함수 쓰겠다는 선언 | 헤더의 함수 선언 |
-| `extern "C" link "z"` | 라이브러리 묶기 | `-lz` |
-| `{"가": 1}` | 사전 | `std::map<std::string,int>` |
-| `r"\d+"` | 원시 문자열 | `R"(\d+)"` |
-| `(Int) -> Int` | 함수 타입 | `std::function<int(int)>` |
-| `fn(x: Int): x * k` | 익명 함수(클로저) | `[=](int x) { return x * k; }` |
-| `inout self` | 필드를 바꾸는 메서드 | `const` 없는 메서드 |
-| `inout n: Int` | 넘겨받은 변수를 바꿈 | `int& n` |
-| `(Int, Str)` / `p.0` | 튜플 / 첫째 값 | `std::pair` / `p.first` |
-| `fn f[T](x: T)` | 제네릭 함수 | `template <typename T>` |
-| `x else 기본값` | 없으면 기본값 | `x.value_or(기본값)` |
-| `a if 조건 else b` | 조건에 따라 고르기 | `조건 ? a : b` |
-| `case _:` | 나머지 전부 | `default:` |
-| `pass` | 빈 문장 | `;` |
-| `f"{x:.2f}"` | 소수 둘째 자리 | `std::format("{:.2f}", x)` |
-| `args()` | 명령줄 인자 | `argv` |
-| `import a` / `a.f()` | 다른 파일의 이름 쓰기 | `namespace a` / `a::f()` |
-| `import a as b` | 모듈에 다른 이름 | `namespace b = a;` |
-| `spawn f(x)` | 동시에 돌리기 | `std::async(f, x)` |
-| `channel[Int]()` | 작업 사이 통로 | 스레드 안전 큐 |
+| `fn` | Marks a function declaration (not a type) | where `int` goes in `int main()` |
+| `Int` `Float` `Str` `Bool` | Basic types | `long long` `double` `std::string` `bool` |
+| `:` + indentation | Block | `{ }` |
+| `->` | Return type | the type before the function name |
+| `let` / `var` | Unchangeable / changeable | `const T` / `T` |
+| `[Int]` | List of Int | `std::vector<int>` |
+| `{Str: Int}` | Dictionary | `std::map<std::string,int>` |
+| `?T` | A T that may be missing | `std::optional<T>` |
+| `!T` | A T that may fail | exception or error code |
+| `E!T` | A T that gives an enum E value on failure | `std::expected<T, E>` |
+| `none` | No value | `nullptr` / `nullopt` |
+| `try` | Propagate on failure | exception propagation |
+| `catch e:` | Handle failure | `catch (...)` |
+| `f"{x}"` | Insert a value into a string | chaining with `<<` |
+| `self` | The object itself | `this` |
+| `#` | Comment | `//` |
+| `with arena a:` | A memory store for one block | a scope-bound memory pool |
+| `unsafe:` | My responsibility from here | (no marker) |
+| `*Int` | Raw pointer to an Int | `long long*` |
+| `alloc[Int](4)` | Get 4 slots | `new long long[4]` |
+| `free(p)` | Give back | `delete[] p` |
+| `from std.x import y` | Import one name | `#include` + `using` |
+| `extern "C" fn ...` | Declares a C function to use | a function declaration in a header |
+| `extern "C" link "z"` | Link a library | `-lz` |
+| `{"a": 1}` | Dictionary | `std::map<std::string,int>` |
+| `r"\d+"` | Raw string | `R"(\d+)"` |
+| `(Int) -> Int` | Function type | `std::function<int(int)>` |
+| `fn(x: Int): x * k` | Anonymous function (closure) | `[=](int x) { return x * k; }` |
+| `inout self` | Method that changes fields | a method without `const` |
+| `inout n: Int` | Changes the variable passed in | `int& n` |
+| `(Int, Str)` / `p.0` | Tuple / first value | `std::pair` / `p.first` |
+| `fn f[T](x: T)` | Generic function | `template <typename T>` |
+| `x else default` | The default if missing | `x.value_or(default)` |
+| `a if cond else b` | Choose by condition | `cond ? a : b` |
+| `case _:` | Everything else | `default:` |
+| `pass` | Empty statement | `;` |
+| `f"{x:.2f}"` | Two decimal places | `std::format("{:.2f}", x)` |
+| `args()` | Command-line arguments | `argv` |
+| `import a` / `a.f()` | Use a name from another file | `namespace a` / `a::f()` |
+| `import a as b` | Another name for a module | `namespace b = a;` |
+| `spawn f(x)` | Run concurrently | `std::async(f, x)` |
+| `channel[Int]()` | Pipe between tasks | thread-safe queue |
 
 ---
 
-## 11. 예제 읽는 순서
+## 11. Order for reading the examples
 
-1. `examples/01_hello.skn` — 출력만
-2. `examples/02_basics.skn` — 함수, 반복문, 리스트
-3. `examples/03_types.skn` — 구조체, enum, match
+1. `examples/01_hello.skn` — output only
+2. `examples/02_basics.skn` — functions, loops, lists
+3. `examples/03_types.skn` — structs, enums, match
 4. `examples/04_errors.skn` — `?T`, `!T`
-5. `examples/05_contracts.skn` — 계약, doctest
-6. `examples/06_memory.skn` — 메모리 세 단계
-7. `examples/07_stdlib.skn` — 표준 라이브러리
-8. `examples/08_cffi.skn` — C 라이브러리 쓰기 (`siskin build` 로만 실행됩니다)
-9. `examples/09_data.skn` — 사전·정규식·JSON 을 한 번에
-10. `examples/12_closures.skn` — 함수를 값으로 넘기기, 익명 함수, 클로저
-11. `examples/13_system.skn` — 날짜, 다른 프로그램 실행, 폴더
-12. `examples/14_net.skn` — 웹에서 JSON 받아 오기, 작은 서버
-13. `examples/15_concurrency.skn` — 여러 일을 동시에 (`spawn`, `channel`)
-14. `examples/16_modules.skn` — 파일 나누기와 이름공간 (`shapes.skn` 를 가져다 씀)
+5. `examples/05_contracts.skn` — contracts, doctest
+6. `examples/06_memory.skn` — the three memory levels
+7. `examples/07_stdlib.skn` — the standard library
+8. `examples/08_cffi.skn` — using a C library (runs only with `siskin build`)
+9. `examples/09_data.skn` — dictionaries, regular expressions and JSON together
+10. `examples/12_closures.skn` — passing functions as values, anonymous functions, closures
+11. `examples/13_system.skn` — dates, running other programs, folders
+12. `examples/14_net.skn` — fetching JSON from the web, a small server
+13. `examples/15_concurrency.skn` — doing several things at once (`spawn`, `channel`)
+14. `examples/16_modules.skn` — splitting files and namespaces (imports `shapes.skn`)
 
-각 파일을 직접 고쳐서 돌려보는 게 가장 빠릅니다.
+The fastest way to learn is to edit each file yourself and run it.
 
 ```
 ~/siskin-target/release/siskin run examples/02_basics.skn
@@ -1618,169 +1617,169 @@ fn main():
 
 ---
 
-## 12. 도구
+## 12. Tools
 
-### 12.0 메시지 언어
+### 12.0 Message language
 
-컴파일러와 런타임의 오류 메시지는 **영어가 기본**입니다. 한국어로 보려면:
-
-```
-siskin --lang ko check main.skn     # 이번 한 번만
-export SISKIN_LANG=ko              # 늘 한국어로 (셸 설정에 넣어 두세요)
-```
-
-`siskin build` 는 그때 고른 언어를 실행 파일에 넣습니다. 그래서 같은 언어로 돌린
-`siskin run` 과 만든 프로그램의 오류 글이 똑같습니다.
-프로그램이 직접 찍는 글(`print`)은 당연히 바뀌지 않습니다.
-
-### 12.1 코드 정리 — `siskin fmt`
+Compiler and runtime error messages are **in English by default**. To see them in Korean:
 
 ```
-siskin fmt main.skn        # 파일 하나
-siskin fmt .              # 이 폴더 아래 .skn 전부
-siskin fmt --check .      # 고칠 곳이 있는지만 봅니다 (CI 에서 씁니다)
+siskin --lang ko check main.skn     # just this once
+export SISKIN_LANG=ko              # always Korean (put it in your shell config)
 ```
 
-들여쓰기를 공백 4칸 단위로 맞추고(탭도 고칩니다), `a+b` 를 `a + b` 로, `f( x,y )` 를
-`f(x, y)` 로, 줄 끝 공백과 너무 많은 빈 줄을 정리합니다. 줄을 나누거나 합치지는 않고,
-문자열과 주석의 내용은 건드리지 않습니다. 설정할 것은 없습니다. 모든 Siskin 코드가 같은 모양이
-되는 것이 목적입니다.
+`siskin build` embeds the language selected at build time into the executable. So the error text of
+`siskin run` and of the built program is identical when run with the same language.
+Text the program prints itself (`print`) is, of course, not changed.
 
-정리한 뒤에는 결과를 다시 읽어서 **뜻이 한 토큰도 바뀌지 않았는지** 확인합니다.
-만에 하나 달라지면 파일을 그대로 두고 알려 줍니다.
-
-### 12.2 에디터
-
-VS Code 는 [editors/vscode/](editors/vscode/) 의 `siskin-0.1.0.vsix` 를 설치합니다
-(확장 창 오른쪽 위 `…` → "VSIX에서 설치..."). 그러면
-
-- 글자를 칠 때마다 `siskin check` 와 같은 검사를 해서 오류에 밑줄을 긋습니다
-- "문서 서식"(Shift+Alt+F)이 `siskin fmt` 로 정리합니다
-- 함수 이름에서 F12 를 누르면 선언으로 갑니다 (import 한 파일까지)
-- 함수 이름에 마우스를 올리면 모양과 바로 위 주석이 보입니다
-- 편집기 오른쪽 위 ▷ 버튼이 `siskin run` 을 돌립니다
-
-다른 에디터는 `siskin lsp` 를 언어 서버로 적으면 됩니다. [editors/README.md](editors/README.md) 에
-Neovim 과 Helix 설정이 있습니다.
-
-### 12.3 디버거 — `siskin debug`
+### 12.1 Code formatting — `siskin fmt`
 
 ```
-siskin debug main.skn              # 첫 줄에서 멈춥니다
-siskin debug main.skn -b 12        # 12번째 줄까지 실행하고 멈춥니다
-siskin debug main.skn -b util.skn:5 # import 한 파일 util.skn 의 5번째 줄
+siskin fmt main.skn        # one file
+siskin fmt .              # every .skn under this folder
+siskin fmt --check .      # only reports whether anything needs fixing (used in CI)
 ```
 
-멈추면 `(siskin)` 이 나오고 명령을 받습니다.
+It normalizes indentation to 4-space steps (tabs too), turns `a+b` into `a + b` and `f( x,y )` into
+`f(x, y)`, and cleans up trailing whitespace and excess blank lines. It doesn't split or join lines,
+and it doesn't touch the contents of strings or comments. There's nothing to configure. The goal is for all Siskin code to
+look the same.
 
-| 명령 | 하는 일 |
+After formatting, it reads the result back and checks that **not a single token of meaning has changed.**
+If anything did change, it leaves the file as it was and tells you.
+
+### 12.2 Editors
+
+For VS Code, install `siskin-0.1.0.vsix` from [editors/vscode/](editors/vscode/)
+(the `…` at the top right of the Extensions view → "Install from VSIX..."). Then
+
+- as you type, it runs the same checks as `siskin check` and underlines errors
+- "Format Document" (Shift+Alt+F) formats with `siskin fmt`
+- pressing F12 on a function name goes to its declaration (including in imported files)
+- hovering over a function name shows its signature and the comment right above it
+- the ▷ button at the top right of the editor runs `siskin run`
+
+For other editors, configure `siskin lsp` as the language server. [editors/README.md](editors/README.md) has
+settings for Neovim and Helix.
+
+### 12.3 Debugger — `siskin debug`
+
+```
+siskin debug main.skn              # stops at the first line
+siskin debug main.skn -b 12        # runs until line 12 and stops
+siskin debug main.skn -b util.skn:5 # line 5 of the imported file util.skn
+```
+
+When it stops, `(siskin)` appears and it takes commands.
+
+| Command | What it does |
 |---|---|
-| `n` | 다음 줄. 함수를 부르는 줄이면 그 함수는 한 번에 실행합니다 |
-| `s` | 다음 줄. 함수를 부르면 그 안으로 들어갑니다 |
-| `o` | 지금 함수가 끝날 때까지 |
-| `c` | 멈출 곳까지 계속 |
-| `b 12` / `d 12` | 12번째 줄에 멈출 곳 만들기 / 지우기 (`b util.skn:5` 는 import 한 파일) |
-| `p 식` | 값 보기. `p xs`, `p xs.len()`, `p a + b` |
-| `v` | 지금 함수의 변수 전부 |
-| `l` | 지금 줄 둘레의 코드 |
-| `w` | 어떤 함수들을 거쳐 여기 왔는지 |
-| `q` | 끝내기 |
+| `n` | Next line. If the line calls a function, runs that function in one go |
+| `s` | Next line. If it calls a function, steps into it |
+| `o` | Until the current function returns |
+| `c` | Continue until a breakpoint |
+| `b 12` / `d 12` | Set / delete a breakpoint at line 12 (`b util.skn:5` for an imported file) |
+| `p expr` | Show a value. `p xs`, `p xs.len()`, `p a + b` |
+| `v` | All variables of the current function |
+| `l` | The code around the current line |
+| `w` | Which functions were called to get here |
+| `q` | Quit |
 
-그냥 Enter 는 방금 한 명령을 한 번 더 합니다. 디버거의 말은 표준 오류로 나가서
-프로그램의 출력과 섞이지 않습니다.
+Pressing Enter alone repeats the last command. The debugger's own messages go to standard error, so
+they don't mix with the program's output.
 
-`s` 로 import 한 파일의 함수 안에도 들어가고, 그 파일에 멈출 곳을 둘 수도 있습니다.
-표준 라이브러리 안에서는 멈추지 않습니다.
+`s` also steps into functions in imported files, and you can set breakpoints in those files.
+It doesn't stop inside the standard library.
 
-**C 라이브러리, `std.net`, `spawn` 을 쓰는 프로그램도 같은 명령으로 따라갑니다.**
-이때 `siskin debug` 는 프로그램을 멈출 자리를 넣어 네이티브로 컴파일한 뒤 돌립니다
-(처음에 1초쯤 걸립니다). 작업(`spawn`) 안에서 멈추면 `(task 2)` 처럼 몇 번째 작업인지 보여 줍니다.
-`n` `s` 는 멈춘 그 작업을 따라가고, 다른 작업은 멈출 곳(`b`)에서만 멈춥니다.
-보통 프로그램도 `siskin debug --native main.skn` 로 이 방식을 쓸 수 있습니다.
+**Programs that use C libraries, `std.net` or `spawn` are traced with the same commands.**
+In that case `siskin debug` compiles the program natively with stopping points inserted, then runs it
+(this takes about a second at first). When it stops inside a task (`spawn`), it shows which task, as in `(task 2)`.
+`n` and `s` follow the task that stopped; other tasks stop only at breakpoints (`b`).
+Ordinary programs can use this mode too, with `siskin debug --native main.skn`.
 
-이 방식에서 `p` 는 변수 값을 그대로 보여 주고, `p a + b` 처럼 식을 주면 멈춘 순간의 값을
-복사해서 계산합니다. 그래서 `p` 로 부른 함수가 값을 바꿔도 프로그램에는 영향이 없고,
-C 함수는 `p` 안에서 부를 수 없습니다.
+In this mode, `p` shows variable values as they are, and when you give an expression like `p a + b`, it copies the values
+at the moment of stopping and evaluates on the copies. So even if a function called from `p` changes a value, the program is unaffected,
+and C functions can't be called inside `p`.
 
-gdb 를 쓰고 싶으면 `siskin build --debug main.skn` 로 만든 뒤 따라갈 수 있습니다
-(`gdb ./main` → `break main.skn:12` → `run`). 줄 번호는 `.skn` 파일 그대로이고,
-변수 이름 앞에는 `v_`, 함수 이름 앞에는 `mu_` 가 붙어 보입니다.
+If you want to use gdb, build with `siskin build --debug main.skn` and trace from there
+(`gdb ./main` → `break main.skn:12` → `run`). Line numbers are those of the `.skn` file,
+and variable names show up with a `v_` prefix and function names with a `mu_` prefix.
 
-### 12.4 패키지 — 남이 만든 코드 쓰기
+### 12.4 Packages — using code other people wrote
 
 ```
-siskin new 할일앱              # 새 프로젝트: siskin.toml 과 main.skn
-cd 할일앱
-siskin add colors https://github.com/누군가/siskin-colors --rev v1.0
-siskin add util ../내-유틸     # 내 컴퓨터의 폴더도 됩니다
+siskin new todo-app            # new project: siskin.toml and main.skn
+cd todo-app
+siskin add colors https://github.com/someone/siskin-colors --rev v1.0
+siskin add util ../my-utils    # a folder on your own computer works too
 ```
 
-그다음 코드에서 `import colors` 한 뒤 `colors.paint(...)` 처럼 씁니다. 패키지 폴더의 `lib.skn` 를 읽고,
-`import colors.extra` 는 그 폴더의 `extra.skn` 를 읽습니다(`extra.함수()` 로 씀).
-패키지마다 이름 칸이 따로라서, 두 패키지가 같은 함수 이름을 써도 부딪히지 않습니다.
-두 패키지의 모듈 이름이 같으면 `import other.util as util2` 처럼 다른 이름을 붙입니다.
+Then in your code, `import colors` and use it as `colors.paint(...)`. It reads `lib.skn` in the package folder,
+and `import colors.extra` reads `extra.skn` in that folder (used as `extra.function()`).
+Each package has its own namespace, so two packages can use the same function name without clashing.
+If two packages have modules with the same name, give one a different name, as in `import other.util as util2`.
 
-`siskin.toml` 은 이렇게 생겼습니다.
+`siskin.toml` looks like this.
 
 ```toml
 [package]
-name = "할일앱"
+name = "todo-app"
 version = "0.1.0"
 
 [dependencies]
-colors = { git = "https://github.com/누군가/siskin-colors", rev = "v1.0" }
-util = { path = "../내-유틸" }
+colors = { git = "https://github.com/someone/siskin-colors", rev = "v1.0" }
+util = { path = "../my-utils" }
 ```
 
-| 명령 | 하는 일 |
+| Command | What it does |
 |---|---|
-| `siskin install` | siskin.toml 의 패키지를 받아 옵니다. `siskin.lock` 에 적힌 판을 그대로 받습니다 |
-| `siskin update` | 패키지를 새 판으로 올리고 `siskin.lock` 을 새로 씁니다 |
-| `siskin remove 이름` | 패키지를 뺍니다 |
+| `siskin install` | Fetches the packages in siskin.toml. Fetches exactly the versions recorded in `siskin.lock` |
+| `siskin update` | Upgrades packages to new versions and rewrites `siskin.lock` |
+| `siskin remove name` | Removes a package |
 
-**`siskin.lock` 도 git 에 같이 올리세요.** 받은 판(commit)이 적혀 있어서, 다른 컴퓨터에서
-`siskin install` 해도 똑같은 코드를 받습니다. 받은 패키지는 `.siskin/` 폴더에 들어가는데,
-이 폴더는 올리지 않습니다(`siskin new` 가 `.gitignore` 에 넣어 둡니다).
+**Commit `siskin.lock` to git too.** It records the fetched versions (commits), so running
+`siskin install` on another computer fetches exactly the same code. Fetched packages go into the `.siskin/` folder,
+which you don't commit (`siskin new` adds it to `.gitignore`).
 
-패키지가 다른 패키지를 쓰면 그것까지 받습니다. 같은 이름을 서로 다른 곳에서 받으려 하면 알려 줍니다.
+If a package uses other packages, those are fetched too. If the same name would be fetched from different places, you're told.
 
-**이름만으로 받기 — 패키지 목록**
+**Fetching by name only — the package list**
 
-패키지 목록(레지스트리)에 올라간 패키지는 주소 없이 이름만으로 받습니다. 파이썬의 `pip install` 과 같습니다.
+Packages in the package list (registry) can be fetched by name alone, without a URL. It's like Python's `pip install`.
 
 ```
-siskin search color            # 목록에서 찾기
-siskin add colors              # 목록에서 주소를 찾아 받기
+siskin search color            # search the list
+siskin add colors              # look up the URL in the list and fetch it
 ```
 
-목록은 서버가 아니라 **GitHub 저장소 하나**입니다. 그 안의 `packages/이름.toml` 파일 하나가 패키지 하나이고,
-안에는 이것만 적혀 있습니다.
+The list is not a server but **a single GitHub repository**. Each `packages/name.toml` file in it is one package,
+and all it contains is this.
 
 ```toml
-git = "https://github.com/누군가/siskin-colors"
-description = "터미널 글자에 색 입히기"
+git = "https://github.com/someone/siskin-colors"
+description = "Add color to terminal text"
 ```
 
-기본 목록은 `https://github.com/Haru-neo/siskin-registry` 입니다(2026-09-24 공개. 다른 목록을 쓰려면 아래 "다른 목록 쓰기" 를 봅니다).
-`siskin add colors` 는 목록을 `~/.siskin/registry/` 에 받아 두고(쓸 때마다 새로 받음), 거기서 주소를 찾아
-`siskin.toml` 에 `colors = { git = "..." }` 로 적습니다. 그다음은 주소를 직접 준 것과 똑같습니다.
-Rust 의 crates.io-index 와 맥의 Homebrew 도 이렇게 git 저장소로 목록을 둡니다. 서버를 돌리지 않아서 돈이 들지 않고,
-누가 무엇을 바꿨는지 git 기록에 모두 남습니다.
+The default list is `https://github.com/Haru-neo/siskin-registry` (published 2026-09-24; to use a different list, see "Using another list" below).
+`siskin add colors` downloads the list to `~/.siskin/registry/` (refreshed on every use), looks up the URL there, and
+writes `colors = { git = "..." }` into `siskin.toml`. From then on it's exactly the same as giving the URL directly.
+Rust's crates.io-index and macOS's Homebrew also keep their lists in git repositories like this. There's no server to run, so it costs nothing,
+and every change and who made it stays in the git history.
 
-**내 패키지 올리기.** 프로젝트를 GitHub 에 올리고(뿌리에 `lib.skn` 가 있어야 합니다) `siskin publish` 를 치면,
-목록 저장소에 더할 파일 내용을 보여 줍니다. 그 파일 하나를 더하는 PR 을 보내고, 합쳐지면 누구나 `siskin add 이름` 으로 받습니다.
-새 판은 내 저장소에 git 태그만 올리면 됩니다(`siskin add 이름 --rev v1.1`, `siskin update`).
-`siskin.toml` 의 `[package]` 에 `description = "한 줄 설명"` 을 넣으면 `siskin search` 에 보입니다.
+**Publishing your own package.** Push the project to GitHub (it must have `lib.skn` at the root) and run `siskin publish`;
+it shows the contents of the file to add to the list repository. Send a PR adding that one file, and once it's merged, anyone can fetch it with `siskin add name`.
+For a new version, just push a git tag to your repository (`siskin add name --rev v1.1`, `siskin update`).
+If you put `description = "one-line description"` under `[package]` in `siskin.toml`, it shows up in `siskin search`.
 
-**다른 목록 쓰기.** 회사 안에서만 쓰는 목록처럼 다른 곳을 가리키려면 둘 중 하나를 씁니다.
+**Using another list.** To point to a different place, such as a list used only inside your company, use one of these two.
 
 ```
-SISKIN_REGISTRY=https://github.com/우리회사/siskin-registry siskin add 사내도구
+SISKIN_REGISTRY=https://github.com/our-company/siskin-registry siskin add internal-tool
 ```
 
 ```toml
 [registry]
-url = "../우리-목록"          # siskin.toml 에. git 주소나 내 컴퓨터의 폴더
+url = "../our-list"          # in siskin.toml. A git URL or a folder on your computer
 ```
 
-목록이 내 컴퓨터의 폴더면 `siskin publish` 가 파일을 바로 적어 줍니다. 인터넷이 끊겨도 전에 받아 둔 목록으로 찾습니다.
+If the list is a folder on your computer, `siskin publish` writes the file for you directly. Even without an internet connection, it searches the previously downloaded list.

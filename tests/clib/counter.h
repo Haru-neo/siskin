@@ -1,4 +1,4 @@
-/* Siskin 시험용 작은 C 라이브러리 (import c ... also) */
+/* Small C library for Siskin tests (import c ... also) */
 #ifndef COUNTER_H
 #define COUNTER_H
 #include <stdint.h>

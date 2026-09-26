@@ -1,4 +1,4 @@
-# std.time: 지금 시각 (출력은 모양만 확인)
+# std.time: the current time (only the shape of the output is checked)
 import std.time
 from std.time import now, sleep
 

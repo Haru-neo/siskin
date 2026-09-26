@@ -9,6 +9,6 @@ fn find(users: [User], id: Int) -> ?User:
     return none
 
 fn main():
-    let users = [User(id: 1, name: "하루")]
+    let users = [User(id: 1, name: "Haru")]
     let u = find(users, 1)
     print(f"{u.name}\n")

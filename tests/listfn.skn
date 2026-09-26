@@ -1,4 +1,4 @@
-# 리스트 + 함수: map / filter / any / all / sort_by
+# Lists + functions: map / filter / any / all / sort_by
 struct Person:
     name: Str
     age: Int
@@ -13,8 +13,8 @@ fn main():
     print(f"{nums.filter(fn(x): x > limit)}\n")
     print(f"{nums.filter(is_even)}\n")
     print(f"{nums.any(fn(x): x > 8)} {nums.all(fn(x): x > 0)} {nums.any(fn(x): x > 100)}\n")
-    print(f"{nums.map(fn(x): str(x) + '개')}\n")
-    var people = [Person(name: "하루", age: 20), Person(name: "미카", age: 3), Person(name: "보라", age: 20), Person(name: "가온", age: 7)]
+    print(f"{nums.map(fn(x): str(x) + ' pcs')}\n")
+    var people = [Person(name: "Haru", age: 20), Person(name: "Mika", age: 3), Person(name: "Bora", age: 20), Person(name: "Gaon", age: 7)]
     people.sort_by(fn(p): p.age)
     print(f"{people.map(fn(p): p.name)}\n")
     people.sort_by(fn(p): p.name)

@@ -1,4 +1,4 @@
-# 에이전트 사용성 시험(2026-09-23)에서 나온 문제들: run 과 build 가 같아야 합니다.
+# Problems found in the agent usability trial (2026-09-23): run and build must agree.
 from std.math import sqrt
 
 struct Account:
@@ -10,7 +10,7 @@ struct Account:
 
     fn withdraw(inout self, amount: Int) -> !Unit:
         if amount > self.balance:
-            return error("잔액 부족: " + str(self.balance))
+            return error("insufficient funds: " + str(self.balance))
         self.balance -= amount
         return
 
@@ -30,9 +30,9 @@ struct Person:
 fn kind(s: Str) -> Str:
     match s:
         case "a":
-            return "에이"
+            return "ay"
         case _:
-            return "기타"
+            return "other"
 
 struct Vec2:
     x: Float
@@ -52,9 +52,9 @@ fn size(t: Tree) -> Int:
 fn grade(score: Int) -> Str:
     match score:
         case 100:
-            return "만점"
+            return "perfect"
         case _:
-            return "그 밖"
+            return "other"
 
 fn min_max(xs: [Int]) -> (Int, Int):
     var lo = xs[0]
@@ -85,14 +85,14 @@ fn main() -> !Unit:
     print(f"[{7:03d}]\n")
     print(f"{255:x} {255:X} [{"ab":^6}]\n")
     let n = 3
-    let label = "짝수" if n % 2 == 0 else "홀수"
+    let label = "even" if n % 2 == 0 else "odd"
     var k = 10
     k += 1
     k %= 4
     if [1, 2] == [1, 2]:
         pass
     print(f"{label} {k}\n")
-    var acc = Account(owner: "하루", balance: 0)
+    var acc = Account(owner: "Haru", balance: 0)
     acc.deposit(100)
     print(f"{acc.balance}\n")
     var accs = [Account(owner: "a", balance: 1)]
@@ -101,10 +101,10 @@ fn main() -> !Unit:
     let v = Vec2(3.0, 4.0)
     print(f"{v.x}\n")
     acc.withdraw(500) catch e:
-        if e.starts_with("잔액 부족"):
-            print("돈이 모자랍니다\n")
+        if e.starts_with("insufficient funds"):
+            print("not enough money\n")
         else:
-            print(f"실패: {e}\n")
+            print(f"failed: {e}\n")
     let t = Node(left: Leaf, key: 3, right: Node(left: Leaf, key: 4, right: Leaf))
     print(f"{size(t)} {grade(100)} {grade(3)}\n")
     let (lo, hi) = min_max([3, 9, 1])
@@ -117,16 +117,16 @@ fn main() -> !Unit:
     var xs = [5, 3, 9]
     xs.sort()
     print(f"{xs}\n")
-    var ages = {"하루": 20, "미카": 3}
-    ages["루비"] = 7
-    print(f"{ages.get("없음", 0)}\n")
+    var ages = {"Haru": 20, "Mika": 3}
+    ages["Ruby"] = 7
+    print(f"{ages.get("missing", 0)}\n")
     for k2, v2 in ages:
         print(f"{k2}={v2} ")
     print("\n")
     var groups: {Str: [Str]} = {}
-    var names = groups["과일"] else []
-    names.push("사과")
-    groups["과일"] = names
+    var names = groups["fruit"] else []
+    names.push("apple")
+    groups["fruit"] = names
     print(f"{groups}\n")
     let s = "가b"
     for c in s:

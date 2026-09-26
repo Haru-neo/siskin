@@ -100,7 +100,7 @@ impl Loader {
     /// 파일 하나를 읽어 모듈로 만들고 번호를 돌려줍니다.
     fn load(&mut self, path: &std::path::Path, ipath: &[String]) -> Result<usize, LoadErr> {
         let shown = path.to_string_lossy().to_string();
-        let canon = std::fs::canonicalize(path)
+        let canon = crate::canonicalize(path)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| shown.clone());
         if let Some(&i) = self.index.get(&canon) {
@@ -278,7 +278,7 @@ fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::S
         if let Some(rel) = lib.strip_prefix(":src:") {
             let near = src_dir.join(rel);
             let p = if near.exists() { near } else { std::path::PathBuf::from(rel) };
-            let abs = std::fs::canonicalize(&p).unwrap_or(p);
+            let abs = crate::canonicalize(&p).unwrap_or(p);
             out.push(ast::Stmt::Link(format!(":src:{}", abs.to_string_lossy()), line));
             continue;
         }
@@ -392,7 +392,7 @@ fn resolve_imports_err(
         globals: Vec::new(),
         injected: HashSet::new(),
     };
-    if let Ok(c) = std::fs::canonicalize(main_path) {
+    if let Ok(c) = crate::canonicalize(main_path) {
         ld.index.insert(c.to_string_lossy().to_string(), 0);
     }
     let dir = std::path::Path::new(main_path)
@@ -538,6 +538,21 @@ fn needs_native(prog: &ast::Program) -> bool {
     })
 }
 
+/// `std::fs::canonicalize` 와 같지만, 윈도우에서 붙는 `\\?\` 머리를 뗍니다.
+/// 그 머리가 붙은 경로는 C 컴파일러가 `#include "같은 폴더.h"` 를 못 찾게 만듭니다.
+pub fn canonicalize<P: AsRef<std::path::Path>>(p: P) -> std::io::Result<std::path::PathBuf> {
+    let c = std::fs::canonicalize(p)?;
+    if cfg!(windows) {
+        let s = c.to_string_lossy();
+        if let Some(rest) = s.strip_prefix(r"\\?\") {
+            if !rest.starts_with("UNC\\") {
+                return Ok(std::path::PathBuf::from(rest));
+            }
+        }
+    }
+    Ok(c)
+}
+
 /// C / C++ 컴파일러 이름. 환경변수 `CC` / `CXX` 로 바꿀 수 있습니다.
 /// 윈도우에는 보통 `cc` 가 없어서 clang, gcc 순서로 찾습니다. clang 을 먼저 보는 것은
 /// 헤더 가져오기(`import c`)가 clang 을 쓰므로, 같은 컴파일러로 맞추기 위해서입니다.
@@ -647,6 +662,9 @@ fn compile_native(
         let o = cpath.with_extension(format!("extra{}.o", n));
         let mut cc = std::process::Command::new(c_compiler(is_cpp));
         cc.arg(opt).arg("-w");
+        if cfg!(windows) {
+            cc.arg("-D_USE_MATH_DEFINES");
+        }
         if is_cpp {
             cc.arg("-std=c++17");
         }
@@ -668,6 +686,9 @@ fn compile_native(
         let o = cpath.with_extension("ffi.o");
         let mut cxx = std::process::Command::new(c_compiler(true));
         cxx.arg(opt).arg("-std=c++17").arg("-w").arg("-c").arg(&p).arg("-o").arg(&o);
+        if cfg!(windows) {
+            cxx.arg("-D_USE_MATH_DEFINES");
+        }
         for a in args {
             if let Some(dir) = a.strip_prefix("-I") {
                 cxx.arg(format!("-I{}", dir));
@@ -698,6 +719,10 @@ fn compile_native(
         cc.arg("-g").arg("-O0").arg("-w");
     } else {
         cc.arg(opt).arg("-w");
+    }
+    if cfg!(windows) {
+        // MSVC 헤더는 이것이 있어야 M_PI 같은 수학 상수를 줍니다(MinGW 는 원래 줌).
+        cc.arg("-D_USE_MATH_DEFINES");
     }
     if !needs_cxx {
         cc.arg("-std=gnu11");

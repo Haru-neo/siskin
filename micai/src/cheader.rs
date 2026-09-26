@@ -144,6 +144,8 @@ const INT_TYPES: &[&str] = &[
     "long int", "unsigned long int", "long long", "unsigned long long", "long long int",
     "unsigned long long int", "wchar_t", "__int128", "unsigned __int128", "signed",
     "signed int", "signed long", "signed short", "signed char int",
+    // 새 clang(21 이후)은 size_t 를 이 이름으로 보여 줍니다.
+    "__size_t", "__signed_size_t", "__ptrdiff_t",
 ];
 
 /// 공백을 하나로 줄이고 의미 없는 수식어를 뗍니다.
@@ -543,8 +545,9 @@ pub fn import_header(
 /// clang 이 알려 준 자리를 절대 경로로 바꿉니다. 나중에 다른 폴더에서
 /// 컴파일해도 같은 헤더를 보게 하기 위해서입니다.
 fn abs_path(im: &mut Imported) {
-    if let Ok(p) = std::fs::canonicalize(&im.header_path) {
-        im.header_path = p.to_string_lossy().to_string();
+    if let Ok(p) = crate::canonicalize(&im.header_path) {
+        // C 의 `#include "..."` 안에서 `\` 는 탈출 글자라서 윈도우 경로도 `/` 로 적습니다.
+        im.header_path = p.to_string_lossy().replace('\\', "/");
     }
 }
 

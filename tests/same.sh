@@ -7,6 +7,10 @@ M="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d)"
 pass=0; fail=0; known=0
+# 맥에는 timeout 명령이 없습니다(Homebrew 의 gtimeout 이 있으면 그것을 씁니다).
+if ! command -v timeout > /dev/null; then
+    if command -v gtimeout > /dev/null; then timeout() { gtimeout "$@"; }; else timeout() { shift; "$@"; }; fi
+fi
 cd "$ROOT"
 for f in examples/*.skn tests/*.skn tests/ns/main.skn realworld/*.skn trial/*/*.skn trial2/*/*.skn; do
     n="$(basename "$f")"

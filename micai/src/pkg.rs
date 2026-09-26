@@ -178,7 +178,7 @@ pub fn read_manifest(dir: &Path) -> Result<Manifest, String> {
 
 /// 이 폴더나 그 위에서 siskin.toml 이 있는 폴더(프로젝트 뿌리)를 찾습니다.
 pub fn find_root(start: &Path) -> Option<PathBuf> {
-    let start = std::fs::canonicalize(start).unwrap_or_else(|_| start.to_path_buf());
+    let start = crate::canonicalize(start).unwrap_or_else(|_| start.to_path_buf());
     let mut cur: Option<&Path> = Some(&start);
     while let Some(d) = cur {
         if d.join("siskin.toml").is_file() {
@@ -232,7 +232,7 @@ pub fn resolve_module(from_dir: &Path, ipath: &[String]) -> Result<PathBuf, Stri
         top.clone().unwrap_or_else(|| d.to_path_buf()).join(".siskin").join("deps").join(name)
     };
     // 이 파일에서 위로 올라가며 siskin.toml 을 봅니다. 폴더 패키지는 그 siskin.toml 기준 경로입니다.
-    let start = std::fs::canonicalize(from_dir).unwrap_or_else(|_| from_dir.to_path_buf());
+    let start = crate::canonicalize(from_dir).unwrap_or_else(|_| from_dir.to_path_buf());
     let mut cur: Option<&Path> = Some(&start);
     while let Some(d) = cur {
         if d.join("siskin.toml").is_file() {
@@ -544,7 +544,7 @@ fn registry_url(root: Option<&Path>) -> String {
                 // 상대 폴더는 siskin.toml 이 있는 폴더를 기준으로 봅니다.
                 if !looks_git(&u) && Path::new(&u).is_relative() {
                     let p = r.join(&u);
-                    return std::fs::canonicalize(&p).unwrap_or(p).to_string_lossy().to_string();
+                    return crate::canonicalize(&p).unwrap_or(p).to_string_lossy().to_string();
                 }
                 return u;
             }
@@ -802,7 +802,7 @@ pub fn cli(cmd: &str, args: &[String]) -> ExitCode {
             };
             let looks_git = looks_git(&from);
             let value = if !looks_git && root.join(&from).is_dir() || (!looks_git && Path::new(&from).is_dir()) {
-                let abs = std::fs::canonicalize(&from).unwrap_or_else(|_| PathBuf::from(&from));
+                let abs = crate::canonicalize(&from).unwrap_or_else(|_| PathBuf::from(&from));
                 let rel = pathdiff(&abs, &root).unwrap_or_else(|| abs.to_string_lossy().to_string());
                 format!("{{ path = \"{}\" }}", rel)
             } else {
@@ -1004,7 +1004,7 @@ pub fn cli(cmd: &str, args: &[String]) -> ExitCode {
 
 /// `to` 를 `base` 에서 본 상대 경로로.
 fn pathdiff(to: &Path, base: &Path) -> Option<String> {
-    let base = std::fs::canonicalize(base).ok()?;
+    let base = crate::canonicalize(base).ok()?;
     let a: Vec<_> = to.components().collect();
     let b: Vec<_> = base.components().collect();
     let mut i = 0;

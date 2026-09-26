@@ -1,8 +1,8 @@
 use std::cell::RefCell;
 use std::fmt;
 
-/// import 로 합친 파일마다 줄 번호에 이만큼씩 더해 둡니다. 그래야 오류가 어느 파일의
-/// 몇 번째 줄인지 알 수 있습니다 (예전에는 모두 main 파일의 줄로 보였습니다).
+/// Each file merged via import gets this much added to its line numbers, so an error
+/// shows which file and line it is in (previously everything appeared as lines of the main file).
 pub const FILE_LINES: usize = 1_000_000;
 
 thread_local! {
@@ -10,7 +10,7 @@ thread_local! {
     static FILES: RefCell<Vec<(String, String)>> = RefCell::new(vec![(String::new(), String::new())]);
 }
 
-/// 실행을 막지는 않지만 알려 줄 것 (코드가 W 로 시작). 같은 자리는 한 번만.
+/// Something worth reporting that does not stop execution (code starts with W). Once per location.
 pub fn push_warning(w: SiskinError) {
     WARNINGS.with(|ws| {
         let mut ws = ws.borrow_mut();
@@ -24,7 +24,7 @@ pub fn take_warnings() -> Vec<SiskinError> {
     WARNINGS.with(|ws| std::mem::take(&mut *ws.borrow_mut()))
 }
 
-/// 다른 파일을 등록하고, 그 파일을 읽을 때 쓸 줄 번호 시작값을 돌려줍니다.
+/// Register another file and return the starting line number to use when reading it.
 pub fn register_file(path: &str, src: &str) -> usize {
     FILES.with(|f| {
         let mut f = f.borrow_mut();
@@ -36,17 +36,17 @@ pub fn register_file(path: &str, src: &str) -> usize {
     })
 }
 
-/// 등록한 파일 목록을 통째로 꺼냅니다(새 작업 스레드에 넘길 때).
+/// Take the whole list of registered files (to hand to a new worker thread).
 pub fn files_snapshot() -> Vec<(String, String)> {
     FILES.with(|f| f.borrow().clone())
 }
 
-/// 다른 스레드에서 꺼낸 파일 목록을 이 스레드에 넣습니다.
+/// Install a file list taken from another thread into this thread.
 pub fn files_restore(v: Vec<(String, String)>) {
     FILES.with(|f| *f.borrow_mut() = v);
 }
 
-/// 합친 파일의 줄 번호를 (파일 이름, 파일 글, 그 파일 안의 줄) 로 되돌립니다. main 파일이면 None.
+/// Map a merged line number back to (file name, file source, line within that file). None for the main file.
 pub fn locate(line: usize) -> Option<(String, String, usize)> {
     if line < FILE_LINES {
         return None;
@@ -58,7 +58,7 @@ pub fn locate(line: usize) -> Option<(String, String, usize)> {
     })
 }
 
-/// 디버거의 `b util.skn:5`: 이름이 이렇게 끝나는 import 한 파일의 (줄 시작값, 경로).
+/// Debugger's `b util.skn:5`: (line offset, path) of the imported file whose name ends like this.
 pub fn find_file(name: &str) -> Option<(usize, String)> {
     FILES.with(|f| {
         f.borrow().iter().enumerate().skip(1).find_map(|(i, (p, _))| {
@@ -72,11 +72,11 @@ pub fn find_file(name: &str) -> Option<(usize, String)> {
     })
 }
 
-/// Siskin 컴파일러/런타임 진단.
+/// Siskin compiler/runtime diagnostic.
 ///
-/// 설계 문서 §9.2 "기계가 읽는 진단"에 따라 모든 오류는
-/// 안정된 코드(E0001 등), 위치, 사람이 읽는 메시지, 그리고
-/// 가능하면 적용 가능한 수정안(fix)을 함께 가집니다.
+/// Following design doc §9.2 "machine-readable diagnostics", every error carries
+/// a stable code (E0001 etc.), a location, a human-readable message, and,
+/// when possible, an applicable fix.
 #[derive(Debug, Clone)]
 pub struct SiskinError {
     pub code: &'static str,
@@ -88,7 +88,7 @@ pub struct SiskinError {
 
 impl SiskinError {
     pub fn new(code: &'static str, msg: impl Into<String>, line: usize, col: usize) -> Self {
-        // 모듈 안의 이름(`a·greet`)은 사람에게 `a.greet` 로 보입니다.
+        // Names inside a module (`a·greet`) are shown to people as `a.greet`.
         SiskinError { code, msg: crate::ns::shown(&msg.into()), line, col, fix: None }
     }
 
@@ -97,8 +97,8 @@ impl SiskinError {
         self
     }
 
-    /// 위치를 1열로만 아는 오류(타입 이름, 패턴, match 등)는 그 줄에서 더 나은 칸을 고릅니다:
-    /// 메시지에 `이름` 으로 적힌 것이 그 줄에 있으면 거기, 아니면 들여쓰기 다음 첫 글자.
+    /// For errors whose location is only known as column 1 (type names, patterns, match, etc.) pick a better column on that line:
+    /// where the name quoted in backticks in the message appears on that line, else the first character after indentation.
     fn best_col(&self, line_src: &str) -> usize {
         if self.col > 1 {
             return self.col;
@@ -124,7 +124,7 @@ impl SiskinError {
         chars.iter().take_while(|c| c.is_whitespace()).count() + 1
     }
 
-    /// `--json` 용: main 파일 안의 오류면 `best_col` 로 칸을 고친 사본.
+    /// For `--json`: a copy with the column fixed via `best_col` if the error is in the main file.
     pub fn with_best_col(&self, src: &str) -> SiskinError {
         let mut e = self.clone();
         if self.line < FILE_LINES {
@@ -135,9 +135,9 @@ impl SiskinError {
         e
     }
 
-    /// 사람이 읽는 형식.
+    /// Human-readable format.
     pub fn render(&self, file: &str, src: &str) -> String {
-        // import 로 합친 다른 파일 안의 오류면 그 파일 이름과 줄로 보여 줍니다.
+        // Errors inside another file merged via import are shown with that file's name and line.
         if let Some((f, text, line)) = locate(self.line) {
             let mut e = self.clone();
             e.line = line;
@@ -173,7 +173,7 @@ impl SiskinError {
         s
     }
 
-    /// 기계가 읽는 형식 (`siskin check --json`).
+    /// Machine-readable format (`siskin check --json`).
     pub fn to_json(&self, file: &str) -> String {
         if let Some((f, _, line)) = locate(self.line) {
             let mut e = self.clone();

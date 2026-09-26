@@ -23,20 +23,20 @@ mod value;
 use std::collections::HashSet;
 use std::process::ExitCode;
 
-/// 표준 라이브러리 모듈 이름들. 이 이름으로 시작하는 import는 내장이라
-/// 파일로 읽지 않습니다. 그 밖의 이름은 사용자가 만든 `.skn` 파일입니다.
+/// Standard library module names. Imports starting with these names are built in,
+/// so they are not read from files. Any other name is a user-written `.skn` file.
 const STDLIB_MODULES: &[&str] =
     &["std", "math", "fs", "io", "time", "random", "re", "json", "process", "net"];
 
-/// Siskin 으로 쓴 표준 라이브러리 조각. 해당 모듈을 import 하면 프로그램에 합쳐집니다.
-/// 운영체제에 묻는 작은 내장 함수(`__` 로 시작) 위에 나머지를 Siskin 으로 쌓았습니다.
+/// Standard library pieces written in Siskin. Importing a module merges its piece into the program.
+/// The rest is built in Siskin on top of small builtins (starting with `__`) that query the OS.
 const STD_SOURCES: &[(&str, &str)] = &[
     ("time", include_str!("std/time.skn")),
     ("process", include_str!("std/process.skn")),
     ("net", include_str!("std/net.skn")),
 ];
 
-/// `import std.time` 같은 줄을 만나면 그 모듈의 Siskin 조각을 (한 번만) 붙입니다.
+/// On a line like `import std.time`, append that module's Siskin piece (only once).
 fn inject_std(path: &[String], injected: &mut HashSet<String>, out: &mut Vec<ast::Stmt>) {
     let m = match path.last() {
         Some(m) => m.as_str(),
@@ -70,22 +70,22 @@ fn is_user_module(path: &[String]) -> bool {
 
 type LoadErr = (String, String, error::SiskinError);
 
-/// import 로 읽은 파일들. 파일마다 모듈 하나(`ns::Module`)이고, 0번이 main 입니다.
+/// Files read via import. Each file is one module (`ns::Module`); index 0 is main.
 struct Loader {
     mods: Vec<ns::Module>,
-    /// 모듈마다 (보여 줄 경로, 글) — 오류를 그 파일 기준으로 찍을 때 씁니다.
+    /// Per module: (display path, source) — used to report errors relative to that file.
     files: Vec<(String, String)>,
-    /// 정규 경로 → 모듈 번호. 같은 파일은 한 번만 읽습니다(서로 import 해도 됨).
+    /// Canonical path → module index. Each file is read only once (mutual imports are fine).
     index: std::collections::HashMap<String, usize>,
-    /// 다 읽은 순서(가져다 쓰는 파일이 먼저). 합칠 때 이 순서로 놓습니다.
+    /// Completion order (dependencies first). Modules are merged in this order.
     order: Vec<usize>,
-    /// 표준 라이브러리 조각(어디서나 보임)
+    /// Standard library pieces (visible everywhere)
     globals: Vec<ast::Stmt>,
     injected: HashSet<String>,
 }
 
 impl Loader {
-    /// 새 모듈의 앞 글자: import 경로의 마지막 이름. 이미 쓰였으면 뒤에 숫자를 붙입니다.
+    /// Prefix for a new module: the last name of the import path. If already taken, a number is appended.
     fn prefix_for(&self, ipath: &[String]) -> String {
         let base = ipath.last().cloned().unwrap_or_default();
         let mut p = base.clone();
@@ -97,7 +97,7 @@ impl Loader {
         p
     }
 
-    /// 파일 하나를 읽어 모듈로 만들고 번호를 돌려줍니다.
+    /// Read one file, turn it into a module and return its index.
     fn load(&mut self, path: &std::path::Path, ipath: &[String]) -> Result<usize, LoadErr> {
         let shown = path.to_string_lossy().to_string();
         let canon = crate::canonicalize(path)
@@ -140,7 +140,7 @@ impl Loader {
         Ok(idx)
     }
 
-    /// 모듈 `idx` 의 문장들을 정리합니다. 사용자 파일 import 는 따라가 읽고 기록만 남깁니다.
+    /// Process the statements of module `idx`. User file imports are followed and read; only a record is kept.
     fn take(&mut self, idx: usize, prog: ast::Program, dir: &std::path::Path) -> Result<(), LoadErr> {
         let here = |me: &Self, e: error::SiskinError| -> LoadErr {
             let (p, s) = me.files[idx].clone();
@@ -150,7 +150,7 @@ impl Loader {
         let mut imports = Vec::new();
         for s in prog.stmts {
             if let ast::Stmt::Import { path, names, renames, alias, line, col } = &s {
-                // `import fs` 는 예전에 조용히 받아들이고 아무 이름도 만들지 않았습니다.
+                // `import fs` used to be silently accepted without defining any names.
                 if idx == 0 && path.len() == 1 && path[0] != "std" && !is_user_module(path) {
                     let fix = if names.is_empty() {
                         tr!(format!("`import std.{}` 로 쓰세요", path[0]), format!("write `import std.{}`", path[0]))
@@ -223,9 +223,9 @@ impl Loader {
     }
 }
 
-/// `import c "zlib.h" link "z"` 한 줄을 실제 함수 선언 여러 개로 펼칩니다.
-/// 헤더에서 읽어 온 함수는 `extern` 함수와 똑같이 취급되고, 원래 C 타입을
-/// `c_sig` 에 달고 다닙니다. cgen이 그걸 보고 타입을 맞춘 껍데기를 냅니다.
+/// Expand one line like `import c "zlib.h" link "z"` into many real function declarations.
+/// Functions read from the header are treated exactly like `extern` functions and carry
+/// their original C types in `c_sig`. cgen uses that to emit type-correct wrappers.
 fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::Stmt>) -> Result<(), error::SiskinError> {
     let (header, cpp, links, incdirs, only, line, col) = match s {
         ast::Stmt::CHeader { header, cpp, links, incdirs, only, line, col } => {
@@ -233,8 +233,8 @@ fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::S
         }
         _ => return Ok(()),
     };
-    // `from "..."` 로 적은 폴더와, 이 소스가 있는 폴더를 함께 봅니다.
-    // 폴더 이름은 이 `.skn` 파일이 있는 자리를 기준으로 찾습니다 (`import` 와 같게).
+    // Look in the folders given with `from "..."` as well as the folder of this source.
+    // Folder names are resolved relative to this `.skn` file's location (same as `import`).
     let mut dirs: Vec<String> = Vec::new();
     for d in incdirs {
         let near = src_dir.join(d);
@@ -274,7 +274,7 @@ fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::S
         )));
     }
     for lib in links {
-        // `also "x.cpp"` 는 소스 파일입니다. 이 파일이 있는 폴더 기준으로 찾습니다.
+        // `also "x.cpp"` is a source file, resolved relative to this file's folder.
         if let Some(rel) = lib.strip_prefix(":src:") {
             let near = src_dir.join(rel);
             let p = if near.exists() { near } else { std::path::PathBuf::from(rel) };
@@ -286,7 +286,7 @@ fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::S
     }
     let mut shadowed: Vec<String> = Vec::new();
     for f in &im.fns {
-        // Siskin 이 이미 가진 이름(`abs`, `free`, `pow` ...)은 Siskin 쪽이 이깁니다.
+        // Names Siskin already has (`abs`, `free`, `pow` ...) take precedence on the Siskin side.
         if types::SISKIN_BUILTINS.contains(&f.name.as_str()) {
             shadowed.push(f.name.clone());
             continue;
@@ -297,7 +297,7 @@ fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::S
             .enumerate()
             .map(|(i, t)| ast::Param {
                 name: format!("a{}", i),
-                // 함수를 넘겨 달라는 자리는 Siskin 함수 타입 `(Int, Str) -> Int` 이 됩니다.
+                // A parameter that takes a function becomes a Siskin function type `(Int, Str) -> Int`.
                 ty: Some(match f.cbs.get(i).and_then(|c| c.as_ref()) {
                     Some(cb) => ast::TypeExpr::Fn(
                         cb.params
@@ -338,8 +338,8 @@ fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::S
             c_sig: Some(ast::CSig {
                 ret: f.c_ret.clone(),
                 params: f.c_params.clone(),
-                // clang 이 실제로 찾아낸 자리를 그대로 씁니다. 그래야 C 컴파일러도
-                // `-I` 없이 같은 파일을 봅니다.
+                // Use the location clang actually found, so that the C compiler
+                // sees the same file without `-I`.
                 header: if std::path::Path::new(&im.header_path).is_absolute() || im.header_path.starts_with('/') {
                     im.header_path.clone()
                 } else {
@@ -356,7 +356,7 @@ fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::S
             }),
         })));
     }
-    // 못 가져온 함수는 이름을 기억해 뒀다가, 그 이름을 부르면 왜 안 되는지 알려 줍니다.
+    // Remember the names of functions that could not be imported, to explain why if they are called.
     let mut skipped = im.skipped.clone();
     for n in shadowed {
         skipped.push((n, SHADOWED_WHY().into()));
@@ -375,9 +375,9 @@ fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::S
     Ok(())
 }
 
-/// 사용자 파일 import 를 모두 풀어 하나의 프로그램으로 합칩니다. 파일마다 이름공간이
-/// 따로라서(`ns`) 두 파일이 같은 이름을 써도 부딪히지 않습니다.
-/// 실패하면 (파일 경로, 그 파일 글, 오류) 를 돌려줍니다.
+/// Resolve all user file imports and merge them into one program. Each file has its own
+/// namespace (`ns`), so two files may use the same name without clashing.
+/// On failure, returns (file path, that file's source, error).
 fn resolve_imports_err(
     prog: &mut ast::Program,
     main_path: &str,
@@ -401,7 +401,7 @@ fn resolve_imports_err(
         .unwrap_or_default();
     let main = ast::Program { stmts: std::mem::take(&mut prog.stmts) };
     ld.take(0, main, &dir)?;
-    // 어디서나 보이는 이름: 표준 조각, 내장 함수, C 함수.
+    // Names visible everywhere: standard pieces, builtins, C functions.
     let mut globals: HashSet<String> = types::SISKIN_BUILTINS.iter().map(|s| s.to_string()).collect();
     for s in ld.globals.iter().chain(ld.mods.iter().flat_map(|m| m.stmts.iter())) {
         match s {
@@ -435,7 +435,7 @@ fn resolve_imports(prog: &mut ast::Program, main_path: &str) -> Result<(), ()> {
 
 
 
-/// `siskin fmt` — 파일(폴더면 그 안의 .skn 전부)의 모양을 정리합니다.
+/// `siskin fmt` — format a file (or every .skn inside a folder).
 fn run_fmt(files: &[&String], args: &[String]) -> ExitCode {
     let check = args.iter().any(|a| a == "--check");
     let to_stdout = args.iter().any(|a| a == "--stdout");
@@ -524,12 +524,12 @@ fn run_fmt(files: &[&String], args: &[String]) -> ExitCode {
     }
 }
 
-/// 프로그램 어딘가에 `spawn` 이 있는가.
+/// Whether the program contains a `spawn` anywhere.
 fn uses_spawn(prog: &ast::Program) -> bool {
     format!("{:?}", prog.stmts).contains("Spawn(")
 }
 
-/// 인터프리터로는 못 돌리는 프로그램인가: C 함수를 부르거나 std.net 을 씁니다.
+/// Whether the program cannot run in the interpreter: it calls C functions or uses std.net.
 fn needs_native(prog: &ast::Program) -> bool {
     prog.stmts.iter().any(|s| match s {
         ast::Stmt::Fn(f) => f.is_extern,
@@ -538,8 +538,8 @@ fn needs_native(prog: &ast::Program) -> bool {
     })
 }
 
-/// `std::fs::canonicalize` 와 같지만, 윈도우에서 붙는 `\\?\` 머리를 뗍니다.
-/// 그 머리가 붙은 경로는 C 컴파일러가 `#include "같은 폴더.h"` 를 못 찾게 만듭니다.
+/// Like `std::fs::canonicalize`, but strips the `\\?\` prefix added on Windows.
+/// Paths with that prefix keep the C compiler from finding `#include "same_folder.h"`.
 pub fn canonicalize<P: AsRef<std::path::Path>>(p: P) -> std::io::Result<std::path::PathBuf> {
     let c = std::fs::canonicalize(p)?;
     if cfg!(windows) {
@@ -553,16 +553,16 @@ pub fn canonicalize<P: AsRef<std::path::Path>>(p: P) -> std::io::Result<std::pat
     Ok(c)
 }
 
-/// C / C++ 컴파일러 이름. 환경변수 `CC` / `CXX` 로 바꿀 수 있습니다.
-/// 윈도우에는 보통 `cc` 가 없어서 clang, gcc 순서로 찾습니다. clang 을 먼저 보는 것은
-/// 헤더 가져오기(`import c`)가 clang 을 쓰므로, 같은 컴파일러로 맞추기 위해서입니다.
+/// C / C++ compiler names. Can be overridden with the `CC` / `CXX` environment variables.
+/// Windows usually has no `cc`, so look for clang, then gcc. clang comes first because
+/// header import (`import c`) uses clang, and we want the same compiler for both.
 fn c_compiler(cpp: bool) -> String {
     if let Ok(c) = std::env::var(if cpp { "CXX" } else { "CC" }) {
         if !c.trim().is_empty() {
             return c;
         }
     }
-    // C 컴파일러를 CC 로 정했으면 C++ 도 같은 식구를 씁니다.
+    // If the C compiler was set via CC, use the matching C++ compiler from the same family.
     if cpp {
         if let Ok(c) = std::env::var("CC") {
             let c = c.trim().to_string();
@@ -599,7 +599,7 @@ fn c_compiler(cpp: bool) -> String {
     (if cpp { "c++" } else { "cc" }).to_string()
 }
 
-/// 헤더를 읽을 clang. `CC` 가 clang 이면 그것을, 아니면 `clang` 을 씁니다.
+/// The clang used to read headers. Uses `CC` if it is clang, otherwise `clang`.
 pub fn header_clang() -> String {
     match std::env::var("CC") {
         Ok(c) if c.contains("clang") => c,
@@ -607,7 +607,7 @@ pub fn header_clang() -> String {
     }
 }
 
-/// 컴파일러가 MinGW 용(윈도우의 gcc, llvm-mingw 의 clang)인가. 이때만 정적으로 묶습니다.
+/// Whether the compiler targets MinGW (gcc on Windows, llvm-mingw clang). Only then link statically.
 fn targets_mingw(cc: &str) -> bool {
     std::process::Command::new(cc)
         .arg("-dumpmachine")
@@ -616,7 +616,7 @@ fn targets_mingw(cc: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// 컴파일러를 못 찾았을 때의 안내. 무엇을 깔면 되는지까지 알려 줍니다.
+/// Hint shown when no compiler is found, including what to install.
 fn no_compiler(what: &str, e: std::io::Error) -> String {
     let hint = if cfg!(windows) {
         tr!(
@@ -631,8 +631,8 @@ fn no_compiler(what: &str, e: std::io::Error) -> String {
     format!("{}: {}{}", what, e, hint)
 }
 
-/// 만들어진 C(그리고 C++ 다리) 파일을 실제 실행 파일로 만듭니다.
-/// C++ 라이브러리를 쓰면 다리 파일을 C++ 컴파일러로 따로 컴파일해서 함께 묶습니다.
+/// Turn the generated C (and C++ bridge) files into an actual executable.
+/// When a C++ library is used, the bridge file is compiled separately with the C++ compiler and linked in.
 fn compile_native(
     csrc: &str,
     cppsrc: Option<&String>,
@@ -643,7 +643,7 @@ fn compile_native(
     release: bool,
     opt: &str,
 ) -> Result<(), String> {
-    // `also "x.cpp"` 로 적은 것은 링크할 이름이 아니라 같이 컴파일할 파일입니다.
+    // Items given with `also "x.cpp"` are files to compile together, not names to link.
     let mut links: Vec<String> = Vec::new();
     let mut extra_srcs: Vec<String> = Vec::new();
     for l in all_links {
@@ -656,7 +656,7 @@ fn compile_native(
     let mut objs: Vec<std::path::PathBuf> = Vec::new();
     std::fs::write(cpath, csrc)
         .map_err(|e| tr!(format!("C 파일을 쓸 수 없습니다: {}", e), format!("cannot write C file: {}", e)))?;
-    // 사용자가 같이 컴파일해 달라고 한 C / C++ 소스.
+    // C / C++ sources the user asked to compile along.
     for (n, f) in extra_srcs.iter().enumerate() {
         let is_cpp = f.ends_with(".cpp") || f.ends_with(".cc") || f.ends_with(".cxx") || f.ends_with(".C");
         let o = cpath.with_extension(format!("extra{}.o", n));
@@ -708,20 +708,20 @@ fn compile_native(
         cpp_path = Some(p);
     }
 
-    // C++ 다리가 있으면 C++ 컴파일러로 묶어야 표준 라이브러리가 따라옵니다.
+    // With a C++ bridge, link with the C++ compiler so the standard library comes along.
     let needs_cxx = cppsrc.is_some()
         || extra_srcs.iter().any(|f| {
             f.ends_with(".cpp") || f.ends_with(".cc") || f.ends_with(".cxx") || f.ends_with(".C")
         });
     let mut cc = std::process::Command::new(c_compiler(needs_cxx));
-    // `--debug`: gdb 로 .skn 줄을 따라갈 수 있게 디버그 정보를 넣고 최적화를 끕니다.
+    // `--debug`: add debug info and disable optimization so gdb can follow .skn lines.
     if args.iter().any(|a| a == "--debug") {
         cc.arg("-g").arg("-O0").arg("-w");
     } else {
         cc.arg(opt).arg("-w");
     }
     if cfg!(windows) {
-        // MSVC 헤더는 이것이 있어야 M_PI 같은 수학 상수를 줍니다(MinGW 는 원래 줌).
+        // MSVC headers need this to provide math constants like M_PI (MinGW provides them by default).
         cc.arg("-D_USE_MATH_DEFINES");
     }
     if !needs_cxx {
@@ -740,9 +740,9 @@ fn compile_native(
     }
     cc.arg("-o").arg(outname);
     if cfg!(windows) {
-        // 윈도우: 만든 .exe 가 MinGW 의 DLL 없이도 돌도록 정적으로 묶고,
-        // 명령줄 인자를 UTF-8 로 읽는 데 쓰는 shell32 를 붙입니다.
-        // (-static 은 MinGW 용입니다. MSVC 용 clang 은 원래 MinGW DLL 이 필요 없습니다.)
+        // Windows: link statically so the .exe runs without MinGW DLLs,
+        // and add shell32, used to read command-line arguments as UTF-8.
+        // (-static is for MinGW. MSVC-targeting clang never needs MinGW DLLs.)
         if targets_mingw(&c_compiler(needs_cxx)) {
             cc.arg("-static");
         }
@@ -781,7 +781,7 @@ fn compile_native(
     let err_text = String::from_utf8_lossy(&out.stderr).to_string();
     eprint!("{}", err_text);
     if !out.status.success() {
-        // 링크 단계 실패(라이브러리를 못 찾음)와, Siskin 이 잘못된 C 를 만든 경우를 나눠서 알립니다.
+        // Report link failures (library not found) separately from Siskin generating invalid C.
         let link_fail = err_text.contains("undefined reference")
             || err_text.contains("cannot find -l")
             || err_text.contains("ld returned")
@@ -813,11 +813,11 @@ fn compile_native(
     Ok(())
 }
 
-/// C 라이브러리를 쓰는 프로그램을 `siskin run` 으로 돌릴 때 부릅니다.
+/// Called when running a program that uses C libraries with `siskin run`.
 ///
-/// 인터프리터는 C 함수를 부를 수 없습니다. 진짜로 링크가 되어야 하기
-/// 때문입니다. 그래서 조용히 네이티브로 컴파일해서 돌립니다. 이렇게 해야
-/// `siskin run` 과 `siskin build` 의 결과가 항상 같습니다.
+/// The interpreter cannot call C functions, because they have to be actually
+/// linked. So it silently compiles natively and runs the result. This way
+/// `siskin run` and `siskin build` always give the same result.
 fn run_via_native(
     prog: &ast::Program,
     path: &str,
@@ -876,7 +876,7 @@ fn run_via_native(
     }
 }
 
-/// `siskin debug` 의 네이티브 방식: 멈출 자리를 넣어 컴파일하고 자식으로 돌리며 따라갑니다.
+/// Native mode of `siskin debug`: compile with stop points, run as a child and follow it.
 fn debug_native(
     prog: &ast::Program,
     path: &str,
@@ -918,12 +918,12 @@ fn debug_native(
     ExitCode::from((code & 0xff) as u8)
 }
 
-/// `오류 N개` / `N errors`
+/// Error count text: `N errors` (or its Korean form).
 fn error_count(n: usize) -> String {
     tr!(format!("오류 {}개", n), format!("{} error{}", n, if n == 1 { "" } else { "s" }))
 }
 
-/// C 헤더 함수 이름이 Siskin 내장 이름과 겹칠 때 드는 이유.
+/// Reason given when a C header function name clashes with a Siskin builtin name.
 #[allow(non_snake_case)]
 fn SHADOWED_WHY() -> &'static str {
     tr!(
@@ -1018,8 +1018,8 @@ extern "C" {
 }
 
 fn main() -> ExitCode {
-    // `siskin run x.skn | head` 처럼 읽는 쪽이 먼저 닫히면 C 프로그램처럼 조용히 끝냅니다
-    // (Rust 기본값은 이 신호를 무시해서 print 가 패닉 메시지를 냈습니다).
+    // When the reader closes first, as in `siskin run x.skn | head`, exit quietly like a C program
+    // (Rust ignores this signal by default, which made print emit a panic message).
     #[cfg(unix)]
     unsafe {
         signal(13, 0);
@@ -1033,7 +1033,7 @@ fn main() -> ExitCode {
 
     let cmd = args[0].as_str();
     let json = args.iter().any(|a| a == "--json");
-    // `-l 이름` / `-L 폴더` 의 값이 파일 이름으로 새지 않게 걸러 냅니다.
+    // Keep the values of `-l name` / `-L folder` from leaking into file names.
     let files: Vec<&String> = {
         let mut out = Vec::new();
         let mut i = 1usize;
@@ -1241,7 +1241,7 @@ fn main() -> ExitCode {
                         error::take_warnings().iter().map(|w| w.with_best_col(&src).to_json(&path)).collect();
                     println!("{{\"file\":\"{}\",\"diagnostics\":[{}],\"decls\":{}}}", path, ws.join(","), mine);
                 } else {
-                    // 헤더에서 자동으로 가져온 선언은 세지 않습니다. 사람이 쓴 것만 셉니다.
+                    // Declarations imported automatically from headers are not counted; only hand-written ones.
                     let mine = prog
                         .stmts
                         .iter()
@@ -1343,9 +1343,9 @@ fn main() -> ExitCode {
                 }
                 dbg = Some(debug::Debugger::new(&path, &src, breaks));
             }
-            // C 함수를 쓰는 프로그램은 링크가 필요하므로 네이티브로 돌립니다.
-            // 디버거도 이때는 멈출 자리를 넣어 네이티브로 컴파일해서 따라갑니다.
-            // `spawn` 을 쓰는 프로그램도 디버거는 네이티브로 돌립니다(작업 안에서도 멈추도록).
+            // Programs that use C functions need linking, so run them natively.
+            // In that case the debugger also compiles natively with stop points and follows along.
+            // Programs using `spawn` are also debugged natively (so it can stop inside tasks too).
             let native_dbg = cmd == "debug" && (args.iter().any(|a| a == "--native") || uses_spawn(&prog));
             if needs_native(&prog) || native_dbg {
                 if let Some(mut d) = dbg {
@@ -1357,7 +1357,7 @@ fn main() -> ExitCode {
             if let Some(d) = dbg {
                 it.dbg = Some(Box::new(d));
             }
-            // 스크립트 경로 뒤의 위치 인자는 프로그램에 넘깁니다. `args()`가 냅니다.
+            // Positional arguments after the script path are passed to the program, via `args()`.
             it.prog_args = files.iter().skip(1).map(|s| (*s).clone()).collect();
             let debugging = it.dbg.is_some();
             conc::set_source(&path, &src);
@@ -1427,14 +1427,14 @@ fn main() -> ExitCode {
                 .and_then(|i| args.get(i + 1))
                 .cloned()
                 .unwrap_or_else(|| stem.clone());
-            // 윈도우 실행 파일은 `.exe` 로 끝나야 합니다.
+            // Windows executables must end in `.exe`.
             let outname = if cfg!(windows) && !outname.ends_with(".c") && std::path::Path::new(&outname).extension().is_none() {
                 format!("{}.exe", outname)
             } else {
                 outname
             };
 
-            // `-o x.c` 로 주면 `x.c.c` 가 되지 않게 합니다.
+            // Avoid `x.c.c` when given `-o x.c`.
             let cpath = if outname.ends_with(".c") {
                 outname.clone()
             } else {
@@ -1543,7 +1543,7 @@ fn main() -> ExitCode {
     }
 }
 
-/// 모아 둔 경고를 오류 출력으로 보여 줍니다 (프로그램 출력과 섞이지 않게).
+/// Print collected warnings to stderr (so they don't mix with program output).
 fn show_warnings(path: &str, src: &str) {
     for w in error::take_warnings() {
         eprint!("{}", w.render(path, src));

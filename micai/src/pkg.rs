@@ -1,22 +1,22 @@
-//! 패키지 관리 (첫 버전).
+//! Package management (first version).
 //!
-//! - `siskin new 이름`       새 프로젝트 폴더를 만듭니다 (siskin.toml, main.skn).
-//! - `siskin add 이름 주소`  남이 만든 패키지를 씁니다. 주소는 git 저장소나 내 컴퓨터의 폴더.
-//! - `siskin install`        siskin.toml 에 적힌 패키지를 받아 옵니다. 받은 판(commit)은 siskin.lock 에 적어
-//!                         두어서, 다른 컴퓨터에서도 똑같은 판을 받습니다.
-//! - `siskin remove 이름`    패키지를 뺍니다.
+//! - `siskin new NAME`       Creates a new project folder (siskin.toml, main.skn).
+//! - `siskin add NAME SRC`   Uses a package made by someone else. SRC is a git repository or a local folder.
+//! - `siskin install`        Fetches the packages listed in siskin.toml. The fetched revision (commit) is recorded
+//!                         in siskin.lock so other machines fetch exactly the same revision.
+//! - `siskin remove NAME`    Removes a package.
 //!
-//! 받은 패키지는 프로젝트의 `.siskin/deps/이름/` 에 놓이고, `import 이름` 은 그 폴더의
-//! `lib.skn` 를, `import 이름.조각` 은 `조각.skn` 를 읽습니다.
-//! - `siskin add 이름`       주소 없이 이름만 주면 패키지 목록(레지스트리)에서 주소를 찾습니다.
-//! - `siskin search 단어`    패키지 목록에서 찾습니다.
-//! - `siskin publish`        내 패키지를 목록에 올릴 때 쓸 파일을 만들어 줍니다.
+//! Fetched packages go into the project's `.siskin/deps/NAME/`; `import NAME` reads that folder's
+//! `lib.skn`, and `import NAME.part` reads `part.skn`.
+//! - `siskin add NAME`       Given only a name, looks up the source in the package index (registry).
+//! - `siskin search WORD`    Searches the package index.
+//! - `siskin publish`        Generates the file to submit when listing your package in the index.
 //!
-//! 패키지 목록은 서버가 아니라 git 저장소 하나입니다 (crates.io-index, Homebrew tap 과 같은 방식).
-//! 저장소 안의 `packages/이름.toml` 파일 하나가 패키지 하나이고, 안에는 `git = "주소"` 와
-//! `description = "설명"` 이 들어 있습니다. 올리려면 그 저장소에 파일 하나를 더하는 PR 을 보냅니다.
-//! 목록 주소는 환경 변수 `SISKIN_REGISTRY` 나 siskin.toml 의 `[registry] url = "..."` 로 바꿉니다
-//! (git 주소나 내 컴퓨터의 폴더). 받은 목록은 `~/.siskin/registry/` 에 두고 쓸 때마다 새로 받습니다.
+//! The package index is a single git repository, not a server (the same approach as crates.io-index and Homebrew taps).
+//! Each `packages/NAME.toml` file in the repository is one package, containing `git = "SRC"` and
+//! `description = "..."`. To publish, send a PR adding one file to that repository.
+//! The index location can be changed with the `SISKIN_REGISTRY` environment variable or `[registry] url = "..."` in siskin.toml
+//! (a git URL or a local folder). The fetched index is kept in `~/.siskin/registry/` and refreshed on each use.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -34,13 +34,13 @@ pub struct Manifest {
     pub version: String,
     pub deps: BTreeMap<String, Source>,
     pub description: String,
-    /// `[registry] url = "..."`: 이 프로젝트가 쓰는 패키지 목록
+    /// `[registry] url = "..."`: the package index this project uses
     pub registry: Option<String>,
 }
 
-/// TOML 의 아주 작은 부분만 읽습니다: `[구역]`, `키 = "글"`, `키 = { 키 = "글", ... }`.
+/// Reads only a tiny subset of TOML: `[section]`, `key = "text"`, `key = { key = "text", ... }`.
 fn parse_toml(text: &str) -> Result<BTreeMap<String, BTreeMap<String, BTreeMap<String, String>>>, String> {
-    // 구역 → 키 → (값이 표면 그 안의 키들, 그냥 글이면 "" 키 하나)
+    // section → key → (keys inside if the value is a table; a single "" key if it is plain text)
     let mut out: BTreeMap<String, BTreeMap<String, BTreeMap<String, String>>> = BTreeMap::new();
     let mut section = String::new();
     for (i, raw) in text.lines().enumerate() {
@@ -176,7 +176,7 @@ pub fn read_manifest(dir: &Path) -> Result<Manifest, String> {
     Ok(m)
 }
 
-/// 이 폴더나 그 위에서 siskin.toml 이 있는 폴더(프로젝트 뿌리)를 찾습니다.
+/// Find the folder containing siskin.toml (the project root) in this folder or above.
 pub fn find_root(start: &Path) -> Option<PathBuf> {
     let start = crate::canonicalize(start).unwrap_or_else(|_| start.to_path_buf());
     let mut cur: Option<&Path> = Some(&start);
@@ -190,8 +190,8 @@ pub fn find_root(start: &Path) -> Option<PathBuf> {
 }
 
 thread_local! {
-    /// 지금 컴파일하는 프로그램(main 파일)의 프로젝트 뿌리. git 으로 받은 패키지는 모두
-    /// 여기의 `.siskin/deps/` 에 한 줄로 놓입니다 (패키지가 쓰는 패키지도).
+    /// Project root of the program being compiled (the main file). All packages fetched via git
+    /// are placed flat in `.siskin/deps/` here (including packages used by packages).
     static PROJECT_ROOT: std::cell::RefCell<Option<PathBuf>> = std::cell::RefCell::new(None);
 }
 
@@ -219,8 +219,8 @@ fn package_file(name: &str, root: &Path, ipath: &[String]) -> Result<PathBuf, St
     Ok(file)
 }
 
-/// `import a.b` 가 가리키는 파일을 찾습니다. 같은 폴더의 `a/b.skn` 가 먼저이고,
-/// 없으면 패키지 `a` 에서 찾습니다.
+/// Find the file `import a.b` refers to. `a/b.skn` in the same folder comes first;
+/// otherwise look in package `a`.
 pub fn resolve_module(from_dir: &Path, ipath: &[String]) -> Result<PathBuf, String> {
     let local = from_dir.join(format!("{}.skn", ipath.join("/")));
     if local.exists() || ipath.is_empty() {
@@ -231,7 +231,7 @@ pub fn resolve_module(from_dir: &Path, ipath: &[String]) -> Result<PathBuf, Stri
     let installed = |d: &Path| -> PathBuf {
         top.clone().unwrap_or_else(|| d.to_path_buf()).join(".siskin").join("deps").join(name)
     };
-    // 이 파일에서 위로 올라가며 siskin.toml 을 봅니다. 폴더 패키지는 그 siskin.toml 기준 경로입니다.
+    // Walk up from this file looking for siskin.toml. Folder packages use paths relative to that siskin.toml.
     let start = crate::canonicalize(from_dir).unwrap_or_else(|_| from_dir.to_path_buf());
     let mut cur: Option<&Path> = Some(&start);
     while let Some(d) = cur {
@@ -246,7 +246,7 @@ pub fn resolve_module(from_dir: &Path, ipath: &[String]) -> Result<PathBuf, Stri
         }
         cur = d.parent();
     }
-    // 목록에는 없지만 받아 둔 패키지 (패키지가 쓰는 패키지).
+    // Packages not listed but already fetched (packages used by packages).
     if let Some(t) = &top {
         let r = t.join(".siskin").join("deps").join(name);
         if r.is_dir() {
@@ -268,7 +268,7 @@ pub fn resolve_module(from_dir: &Path, ipath: &[String]) -> Result<PathBuf, Stri
     ))
 }
 
-// ---------------------------------------------------------------- 명령들
+// ---------------------------------------------------------------- commands
 
 fn git(args: &[&str], dir: Option<&Path>) -> Result<String, String> {
     let mut c = Command::new("git");
@@ -280,7 +280,7 @@ fn git(args: &[&str], dir: Option<&Path>) -> Result<String, String> {
     let out = c.output().map_err(|_| tr!("git 을 찾을 수 없습니다. git 을 먼저 설치해 주세요", "cannot find git; please install git first").to_string())?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        // 여러 줄이면 `fatal:` 줄이 가장 쓸모 있습니다.
+        // With multiple lines, the `fatal:` line is the most useful.
         let line = err.lines().find(|l| l.starts_with("fatal:")).or_else(|| err.lines().last());
         return Err(line.unwrap_or(tr!("git 이 실패했습니다", "git failed")).to_string());
     }
@@ -304,7 +304,7 @@ fn read_lock(root: &Path) -> BTreeMap<String, (String, String)> {
 }
 
 fn write_lock(root: &Path, lock: &BTreeMap<String, (String, String)>) -> Result<(), String> {
-    // 머리 주석은 언어와 상관없이 늘 같게 둡니다. 팀원마다 언어가 달라도 git diff 가 생기지 않게.
+    // The header comment is always the same regardless of language, so team members with different languages don't cause git diffs.
     let mut s = String::from(
         "# Generated by `siskin install`. Records the exact version of each fetched package.\n# Do not edit by hand; commit this file to git too.\n",
     );
@@ -314,13 +314,13 @@ fn write_lock(root: &Path, lock: &BTreeMap<String, (String, String)>) -> Result<
     std::fs::write(root.join("siskin.lock"), s).map_err(|e| tr!(format!("siskin.lock 을 쓸 수 없습니다 ({})", e), format!("cannot write siskin.lock ({})", e)))
 }
 
-/// 패키지를 받아 옵니다 (그 패키지가 쓰는 패키지까지). 받은 판을 lock 에 적습니다.
+/// Fetch packages (including the packages they use). Record the fetched revisions in the lock file.
 fn install_all(root: &Path, update: bool, fresh: Option<&str>) -> Result<usize, String> {
     let manifest = read_manifest(root)?;
     let old_lock = read_lock(root);
     let mut lock: BTreeMap<String, (String, String)> = BTreeMap::new();
     let deps_dir = root.join(".siskin").join("deps");
-    // (이름, 출처, 이 요구를 적은 폴더, 누가 요구했나)
+    // (name, source, folder where this requirement was declared, who required it)
     let mut queue: Vec<(String, Source, PathBuf, String)> =
         manifest.deps.iter().map(|(n, s)| (n.clone(), s.clone(), root.to_path_buf(), "siskin.toml".to_string())).collect();
     let mut done: BTreeMap<String, (Source, String)> = BTreeMap::new();
@@ -371,7 +371,7 @@ fn install_all(root: &Path, update: bool, fresh: Option<&str>) -> Result<usize, 
                 } else if update || rev.is_some() {
                     let _ = git(&["fetch", "--quiet", "--tags", "origin"], Some(&dest));
                 }
-                // 고를 판: lock 에 있으면 그 판(같은 주소일 때), 아니면 rev, 아니면 기본 가지의 최신.
+                // Revision to pick: the one in the lock file (if the source matches), else rev, else the latest on the default branch.
                 let locked = if fresh == Some(name.as_str()) {
                     None
                 } else {
@@ -435,7 +435,7 @@ fn add_dep_line(root: &Path, name: &str, value: &str) -> Result<(), String> {
     let p = root.join("siskin.toml");
     let text = std::fs::read_to_string(&p).map_err(toml_read_err)?;
     let mut lines: Vec<String> = text.lines().map(|s| s.to_string()).collect();
-    // 이미 있으면 바꿉니다.
+    // Replace it if it already exists.
     let mut in_deps = false;
     let mut deps_at: Option<usize> = None;
     let mut last_in_deps: Option<usize> = None;
@@ -519,9 +519,9 @@ fn root_or_complain() -> Option<PathBuf> {
     r
 }
 
-// ---------------------------------------------------------------- 패키지 목록(레지스트리)
+// ---------------------------------------------------------------- package index (registry)
 
-/// 기본 패키지 목록. 아직 실제로 만들어지지 않았으면 `SISKIN_REGISTRY` 로 다른 곳을 가리킵니다.
+/// Default package index. If it does not actually exist yet, point elsewhere with `SISKIN_REGISTRY`.
 pub const DEFAULT_REGISTRY: &str = "https://github.com/Haru-neo/siskin-registry";
 
 #[derive(Debug, Clone)]
@@ -531,7 +531,7 @@ struct Entry {
     description: String,
 }
 
-/// 쓸 목록의 주소: SISKIN_REGISTRY > siskin.toml 의 [registry] url > 기본값.
+/// Location of the index to use: SISKIN_REGISTRY > [registry] url in siskin.toml > default.
 fn registry_url(root: Option<&Path>) -> String {
     if let Ok(v) = std::env::var("SISKIN_REGISTRY") {
         if !v.trim().is_empty() {
@@ -541,7 +541,7 @@ fn registry_url(root: Option<&Path>) -> String {
     if let Some(r) = root {
         if let Ok(m) = read_manifest(r) {
             if let Some(u) = m.registry {
-                // 상대 폴더는 siskin.toml 이 있는 폴더를 기준으로 봅니다.
+                // Relative folders are resolved against the folder containing siskin.toml.
                 if !looks_git(&u) && Path::new(&u).is_relative() {
                     let p = r.join(&u);
                     return crate::canonicalize(&p).unwrap_or(p).to_string_lossy().to_string();
@@ -567,8 +567,8 @@ fn siskin_home() -> PathBuf {
     PathBuf::from(home).join(".siskin")
 }
 
-/// 목록을 내 컴퓨터에 준비합니다. 폴더면 그대로, git 이면 받아 두거나 새로 받습니다.
-/// 인터넷이 안 되면 전에 받아 둔 것을 씁니다.
+/// Prepare the index locally. A folder is used as is; a git index is cloned or refreshed.
+/// Without internet access, the previously fetched copy is used.
 fn registry_dir(url: &str) -> Result<PathBuf, String> {
     if !looks_git(url) {
         let d = PathBuf::from(url);
@@ -616,7 +616,7 @@ fn registry_dir(url: &str) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// 목록 안의 패키지 하나 (`packages/이름.toml`).
+/// One package in the index (`packages/NAME.toml`).
 fn registry_entry(dir: &Path, name: &str) -> Result<Option<Entry>, String> {
     let p = dir.join("packages").join(format!("{}.toml", name));
     if !p.is_file() {
@@ -653,7 +653,7 @@ fn registry_all(dir: &Path) -> Vec<Entry> {
     out
 }
 
-/// 비슷한 이름 (한두 글자 틀린 것).
+/// Similar names (off by one or two characters).
 fn near_names(entries: &[Entry], name: &str) -> Vec<String> {
     let lower = name.to_lowercase();
     entries
@@ -682,7 +682,7 @@ fn edit_distance(a: &str, b: &str) -> usize {
     prev[b.len()]
 }
 
-/// `siskin add 이름` 에서 주소를 찾습니다.
+/// Look up the source for `siskin add NAME`.
 fn lookup(root: &Path, name: &str) -> Result<String, String> {
     let url = registry_url(Some(root));
     let dir = registry_dir(&url)?;
@@ -792,7 +792,7 @@ pub fn cli(cmd: &str, args: &[String]) -> ExitCode {
                     )
                 ));
             }
-            // 주소가 없으면 패키지 목록에서 찾습니다.
+            // Without a source, look it up in the package index.
             let from = match from {
                 Some(f) => f,
                 None => match lookup(&root, &name) {
@@ -826,7 +826,7 @@ pub fn cli(cmd: &str, args: &[String]) -> ExitCode {
                     ExitCode::SUCCESS
                 }
                 Err(e) => {
-                    // 실패하면 siskin.toml 을 원래대로 돌려 둡니다.
+                    // On failure, restore siskin.toml to its original state.
                     let _ = std::fs::write(root.join("siskin.toml"), before);
                     if !had_dir {
                         let _ = std::fs::remove_dir_all(root.join(".siskin").join("deps").join(&name));
@@ -982,7 +982,7 @@ pub fn cli(cmd: &str, args: &[String]) -> ExitCode {
             let body = format!("git = \"{}\"\ndescription = \"{}\"\n", git_url, desc);
             let file = format!("packages/{}.toml", name);
             if !looks_git(&url) {
-                // 내 컴퓨터의 목록 폴더면 바로 적습니다.
+                // If the index is a local folder, write directly to it.
                 let p = dir.join(&file);
                 let _ = std::fs::create_dir_all(dir.join("packages"));
                 if let Err(e) = std::fs::write(&p, &body) {
@@ -1002,7 +1002,7 @@ pub fn cli(cmd: &str, args: &[String]) -> ExitCode {
     }
 }
 
-/// `to` 를 `base` 에서 본 상대 경로로.
+/// `to` as a path relative to `base`.
 fn pathdiff(to: &Path, base: &Path) -> Option<String> {
     let base = crate::canonicalize(base).ok()?;
     let a: Vec<_> = to.components().collect();

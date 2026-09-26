@@ -1,4 +1,4 @@
-# 클로저 기본
+# Closure basics
 fn apply(f: (Int) -> Int, x: Int) -> Int:
     return f(x)
 
@@ -34,32 +34,32 @@ fn main():
     print(f"{map(nums, fn(x): x * k)}\n")
     let names = map(nums, fn(x): "#" + str(x))
     print(f"{names}\n")
-    # 이름 붙은 함수도 값
+    # A named function is a value too
     print(f"{apply(twice, 21)}\n")
-    # 만든 뒤 바깥 값을 바꿔도 클로저는 만들 때의 값
+    # Changing an outer value after creation: the closure keeps the value from creation time
     var base = 1
     let g = fn(x: Int): x + base
     base = 100
     print(f"{g(1)} {base}\n")
-    # 중첩 함수(여러 줄) + 재귀
-    let prefix = "값"
+    # Nested function (multi-line) + recursion
+    let prefix = "value"
     fn describe(n: Int) -> Str:
         if n <= 0:
             return prefix
         return describe(n - 1) + "!"
     print(describe(3) + "\n")
-    # 리스트를 붙잡은 뒤 원본을 고쳐도 그대로
+    # Capturing a list, then modifying the original: the capture is unchanged
     var xs = [1, 2]
     let count = fn(): xs.len()
     xs.push(3)
     print(f"{count()} {xs.len()}\n")
-    # 함수 목록
+    # A list of functions
     let ops: [(Int) -> Int] = [fn(x: Int): x + 1, fn(x: Int): x * x, twice]
     for op in ops:
         print(f"{op(7)} ")
     print("\n")
-    # 클로저 안의 클로저
+    # A closure inside a closure
     let outer = fn(a: Int): fn(b: Int): a + b + k
     print(f"{outer(1)(2)}\n")
     let say = fn(s: Str): print(s + "\n")
-    say("안녕")
+    say("hello")

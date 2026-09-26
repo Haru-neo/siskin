@@ -1,10 +1,10 @@
-//! P3 네이티브 백엔드: Siskin을 C로 번역합니다.
+//! P3 native backend: translates Siskin to C.
 //!
-//! 왜 C인가. 생성된 것이 진짜 C라서 gcc -O2가 그대로 최적화합니다.
-//! "C만큼 빠르다"는 주장을 증명하는 가장 짧은 길이고, LLVM 연동보다
-//! 훨씬 적은 코드로 됩니다.
+//! Why C? The output is real C, so gcc -O2 optimizes it directly.
+//! It's the shortest path to backing the claim "as fast as C", and it takes
+//! far less code than an LLVM integration.
 //!
-//! 출력 순서: 런타임 / 구조체·열거형 / ?T·!T 타입 / 함수 선언 / 함수 본문
+//! Output order: runtime / structs·enums / ?T·!T types / function declarations / function bodies
 
 use crate::ast::*;
 use crate::error::SiskinError;
@@ -12,7 +12,7 @@ use crate::types::{Region, Ty, Types};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
-const RUNTIME: &str = r##"/* ------- Siskin 런타임 (자동 생성) ------- */
+const RUNTIME: &str = r##"/* ------- Siskin runtime (auto-generated) ------- */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,8 +22,8 @@ const RUNTIME: &str = r##"/* ------- Siskin 런타임 (자동 생성) ------- */
 #include <math.h>
 #include <errno.h>
 #ifdef _WIN32
-/* 윈도우: 경로·명령줄 인자·화면 글자를 UTF-8 로 맞춥니다. 인터프리터(siskin run)가
-   UTF-8 로 다루므로 이렇게 해야 두 방식의 결과가 같습니다. */
+/* Windows: make paths, command-line arguments and console text UTF-8. The interpreter (siskin run)
+   works in UTF-8, so this keeps both modes' results identical. */
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #ifndef _WIN32_WINNT
@@ -62,7 +62,7 @@ static FILE* mi_fopen(const char* p, const char* m) {
 }
 static int mi_unlink(const char* p) { wchar_t* w = mi_wide(p); int r = _wunlink(w); free(w); return r; }
 #define getpid _getpid
-/* main 맨 앞에서 부릅니다: 화면을 UTF-8 로, 줄바꿈을 그대로(\n), 인자를 UTF-8 로. */
+/* Called at the very start of main: console in UTF-8, newlines left as-is (\n), arguments in UTF-8. */
 static void mi_win_init(int* argc, char*** argv) {
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
@@ -78,8 +78,8 @@ static void mi_win_init(int* argc, char*** argv) {
     LocalFree(wa);
     *argc = n; *argv = a;
 }
-/* 런타임(동시성·네트워크·디버거)이 쓰는 pthread 몇 개를 윈도우 스레드로 옮겨 둡니다.
-   MSVC 용 clang 에는 pthread 가 없고, MinGW 에서도 따로 DLL 을 안 달고 다니게 됩니다. */
+/* Maps the few pthread functions the runtime (concurrency, networking, debugger) uses onto Windows threads.
+   clang for MSVC has no pthread, and on MinGW this avoids shipping a separate DLL. */
 typedef HANDLE pthread_t;
 typedef SRWLOCK pthread_mutex_t;
 typedef CONDITION_VARIABLE pthread_cond_t;
@@ -103,7 +103,7 @@ static unsigned __stdcall mi_thr_tramp(void* p) {
     s.f(s.arg);
     return 0;
 }
-/* 늘 떼어 놓은(detached) 스레드로 만듭니다. 여기서는 그렇게만 씁니다. */
+/* Always creates detached threads. That is the only way they are used here. */
 static int pthread_create(pthread_t* t, const pthread_attr_t* a, void* (*f)(void*), void* arg) {
     MiThrStart* s = (MiThrStart*)malloc(sizeof(MiThrStart));
     if (!s) return 1;
@@ -121,7 +121,7 @@ static int pthread_create(pthread_t* t, const pthread_attr_t* a, void* (*f)(void
 #endif
 
 typedef struct { const char* p; int64_t len; } MiStr;
-/* 함수 값. 함수 자리(fn)와 붙잡은 값 묶음(env). 이름 붙은 함수는 env 가 NULL 입니다. */
+/* Function value: the function (fn) and the captured-value bundle (env). Named functions have env == NULL. */
 typedef struct { void* fn; void* env; } MiClo;
 typedef struct MiArena MiArena;
 typedef struct { void* data; int64_t len; int64_t cap; int64_t esz; MiArena* ar; } MiList;
@@ -142,7 +142,7 @@ typedef struct { bool ok; int64_t val; MiStr err; } MiRes_int64_t;
 typedef struct { bool ok; double  val; MiStr err; } MiRes_double;
 typedef struct { bool ok; MiStr   val; MiStr err; } MiRes_MiStr;
 
-/* 디버그 빌드는 지금 실행 중인 .skn 줄을 기억해 두었다가 실행 오류에 함께 알립니다. */
+/* Debug builds remember the .skn line currently executing and report it with runtime errors. */
 static _Thread_local const char* mi_file = "";
 static _Thread_local int64_t mi_line = 0;
 #ifdef MI_RELEASE
@@ -161,14 +161,14 @@ static void mi_panic(const char* msg) {
 static MiStr mi_str(const char* s) { MiStr r; r.p = s; r.len = (int64_t)strlen(s); return r; }
 static MiStr mi_mk(const char* p, int64_t n) { MiStr r; r.p = p; r.len = n; return r; }
 
-/* 글자 수를 셉니다. UTF-8 이어붙임 바이트는 빼고 셉니다. */
+/* Counts characters, skipping UTF-8 continuation bytes. */
 static int64_t mi_utf8_len(const char* p, int64_t bytes) {
     int64_t n = 0;
     for (int64_t i = 0; i < bytes; i++) if (((unsigned char)p[i] & 0xC0) != 0x80) n++;
     return n;
 }
 
-/* i 바이트에서 시작하는 글자가 몇 바이트인지 (문자열 끝을 넘지 않게) */
+/* Byte length of the character starting at byte i (never past the end of the string) */
 static int64_t mi_utf8_step(MiStr s, int64_t i) {
     int64_t n = 1;
     while (i + n < s.len && (((unsigned char)s.p[i + n]) & 0xC0) == 0x80) n++;
@@ -207,7 +207,7 @@ static MiStr mi_from_i64(int64_t v) {
     return mi_mk(buf, n);
 }
 
-/* NaN·무한대는 인터프리터(Rust)와 같은 글자로 씁니다. C의 printf는 `-nan` 처럼 달리 씁니다. */
+/* NaN and infinity are written the same way as the interpreter (Rust). C's printf writes them differently, e.g. `-nan`. */
 static const char* mi_nonfinite(double v) {
     if (isnan(v)) return "NaN";
     if (isinf(v)) return v < 0 ? "-inf" : "inf";
@@ -218,14 +218,14 @@ static MiStr mi_from_f64(double v) {
     if (mi_nonfinite(v)) return mi_str(mi_nonfinite(v));
     char* buf = mi_alloc(40);
     int n;
-    /* 정수처럼 딱 떨어지면 `.0` 을 붙입니다. 인터프리터와 같은 규칙입니다.
-       자릿수가 많을 수 있어 넉넉히 잡습니다. */
+    /* If the value is integral, append `.0`. Same rule as the interpreter.
+       There may be many digits, so allocate generously. */
     if (isfinite(v) && floor(v) == v) {
         char* big = mi_alloc(360);
         n = snprintf(big, 361, "%.1f", v);
         return mi_mk(big, n);
     }
-    /* 인터프리터와 같은 결과를 내려면 되돌려 읽어도 같아지는 가장 짧은 표기가 필요합니다. */
+    /* Matching the interpreter requires the shortest representation that round-trips. */
     n = snprintf(buf, 41, "%.17g", v);
     for (int p = 1; p <= 17; p++) {
         int m = snprintf(buf, 41, "%.*g", p, v);
@@ -258,15 +258,15 @@ static int64_t mi_mod_i64(int64_t a, int64_t b) {
     return a % b;
 }
 
-/* 실수도 0으로 나누면 인터프리터처럼 멈춥니다 (inf 를 몰래 만들지 않음). */
+/* Float division by zero also halts, like the interpreter (no silent inf). */
 static double mi_div_f64(double a, double b) {
     if (b == 0.0) mi_panic(MI_T("0으로 나눌 수 없습니다", "division by zero"));
     return a / b;
 }
 
-/* ---------------- 메모리 Level 1: 아레나 (범프 할당) ---------------- */
-/* 한 덩어리를 크게 잡아 두고 포인터만 앞으로 밀면서 나눠 줍니다.
-   블록이 끝나면 덩어리 전체를 한 번에 돌려줍니다.                     */
+/* ---------------- Memory Level 1: arena (bump allocation) ---------------- */
+/* Reserve one large chunk and hand out pieces by bumping a pointer forward.
+   When the block ends, the whole chunk is released at once.                     */
 typedef struct MiChunk {
     struct MiChunk* next;
     size_t used, cap;
@@ -280,7 +280,7 @@ struct MiArena { MiChunk* head; size_t total; };
 static MiArena mi_arena_new(void) { MiArena a; a.head = NULL; a.total = 0; return a; }
 
 static void* mi_arena_bump(MiArena* a, size_t n) {
-    n = (n + 15) & ~(size_t)15;              /* 16바이트 정렬 */
+    n = (n + 15) & ~(size_t)15;              /* 16-byte alignment */
     if (!a->head || a->head->cap - a->head->used < n) {
         size_t cap = a->head ? a->head->cap * 2 : MI_CHUNK0;
         if (cap < n) cap = n;
@@ -296,7 +296,7 @@ static void* mi_arena_bump(MiArena* a, size_t n) {
 }
 
 #ifndef MI_RELEASE
-static _Thread_local MiChunk* mi_quarantine = NULL;        /* 디버그: 해제한 덩어리를 붙들어 둡니다 */
+static _Thread_local MiChunk* mi_quarantine = NULL;        /* debug: keeps freed chunks around */
 #endif
 
 static void mi_arena_drop(MiArena* a) {
@@ -306,8 +306,8 @@ static void mi_arena_drop(MiArena* a) {
 #ifdef MI_RELEASE
         free(c);
 #else
-        /* 디버그에서는 실제로 돌려주지 않고 격리합니다.
-           블록을 벗어난 포인터를 쓰면 그 자리에서 잡아내기 위해서입니다. */
+        /* In debug, don't actually release it; quarantine it instead.
+           This catches any pointer used after it escapes the block, right where it happens. */
         memset(c->data, 0xDD, c->used);
         c->next = mi_quarantine;
         mi_quarantine = c;
@@ -319,9 +319,9 @@ static void mi_arena_drop(MiArena* a) {
 
 static void mi_arena_cleanup(MiArena* a) { mi_arena_drop(a); }
 
-/* ---------------- 메모리 Level 2: 원시 포인터 ---------------- */
-/* 릴리스에서는 그냥 C 포인터입니다. 덧씌우는 비용이 0입니다.
-   디버그에서는 세대 번호를 들고 다녀서, 해제한 메모리를 다시 쓰면 잡힙니다. */
+/* ---------------- Memory Level 2: raw pointers ---------------- */
+/* In release, this is just a C pointer, with zero overhead.
+   In debug, it carries a generation number, so reusing freed memory is caught. */
 typedef struct { uint64_t gen; int64_t size; int64_t in_arena; } MiGuard;
 typedef struct { MiGuard* g; int64_t off; uint64_t gen; } MiPtr;
 
@@ -353,9 +353,9 @@ static void mi_ptr_free(MiPtr p) {
     if (p.off != 0) mi_panic(MI_T("포인터 중간을 해제할 수 없습니다", "cannot free a pointer into the middle of an allocation"));
     if (p.g->gen == 0) mi_panic(MI_T("이미 해제한 메모리를 또 해제했습니다", "double free: this memory was already freed"));
     if (p.g->gen != p.gen) mi_panic(MI_T("이 포인터는 더 이상 이 메모리를 가리키지 않습니다", "this pointer no longer refers to this memory"));
-    p.g->gen = 0;                /* 세대를 지웁니다 */
+    p.g->gen = 0;                /* clear the generation */
     memset(p.g + 1, 0xDD, (size_t)p.g->size);
-    /* 메모리 자체는 돌려주지 않고 격리합니다. 해제 후 접근을 잡기 위해서입니다. */
+    /* Don't release the memory itself; quarantine it to catch use-after-free. */
 }
 
 static void* mi_ptr_at(MiPtr p, int64_t byteoff, int64_t size) {
@@ -398,11 +398,11 @@ static void* mi_raw_alloc(int64_t bytes) {
   #define MI_NULL(T)       mi_ptr_null()
 #endif
 
-/* ---------------- 표준 라이브러리 ---------------- */
+/* ---------------- Standard library ---------------- */
 #include <time.h>
 
-/* 난수. 인터프리터(siskin run)와 한 글자도 다르지 않은 값을 내야 하므로
-   양쪽에 똑같은 계산식을 둡니다 (xorshift64*). */
+/* Random numbers. Must produce values identical to the interpreter (siskin run),
+   so both sides use exactly the same formula (xorshift64*). */
 static _Thread_local uint64_t mi_rng = 0x853C49E6748FEA9Bull;
 
 static uint64_t mi_next_rand(void) {
@@ -432,7 +432,7 @@ static int64_t mi_rand_int(int64_t lo, int64_t hi) {
 static double mi_now(void) {
     FILETIME ft;
     GetSystemTimePreciseAsFileTime(&ft);
-    uint64_t v = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;   /* 1601년부터 100ns 단위 */
+    uint64_t v = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;   /* 100ns units since 1601 */
     return (double)(v - 116444736000000000ull) / 1e7;
 }
 
@@ -461,12 +461,12 @@ static double mi_clock(void) {
 }
 #endif
 
-/* Siskin 문자열을 C가 쓰는 "0으로 끝나는 문자열"로 바꿉니다.
-   잘라낸 문자열은 끝에 0이 없을 수 있어 항상 복사합니다. */
+/* Converts a Siskin string to the "NUL-terminated string" C uses.
+   Sliced strings may lack a trailing NUL, so always copy. */
 static const char* mi_cstr(MiStr s) {
     char* b = mi_alloc(s.len);
     memcpy(b, s.p, (size_t)s.len);
-    return b;                      /* mi_alloc 이 끝에 0을 붙입니다 */
+    return b;                      /* mi_alloc appends a NUL */
 }
 
 static bool mi_exists(MiStr p) {
@@ -476,16 +476,16 @@ static bool mi_exists(MiStr p) {
     return true;
 }
 
-/* ---------------- C 라이브러리 연결 (FFI) ---------------- */
-/* Level 2 포인터에서 진짜 C 주소를 꺼냅니다.
-   디버그에서는 여기서 한 번 살아 있는지 확인하고 넘깁니다. */
+/* ---------------- C library interop (FFI) ---------------- */
+/* Extracts the real C address from a Level 2 pointer.
+   In debug, checks once here that it is still alive before passing it on. */
 #ifdef MI_RELEASE
   #define MI_RAW(T, p)   ((T*)(p))
 #else
   #define MI_RAW(T, p)   ((T*)mi_ptr_at((p), 0, 0))
 #endif
 
-/* C가 돌려준 문자열을 Siskin 문자열로. NULL이면 빈 문자열입니다. */
+/* Converts a string returned by C into a Siskin string. NULL becomes the empty string. */
 static MiStr mi_from_c(const char* p) {
     if (!p) return mi_mk("", 0);
     return mi_mk(p, (int64_t)strlen(p));
@@ -495,7 +495,7 @@ static MiList mi_list_new(int64_t esz) {
     MiList l; l.data = NULL; l.len = 0; l.cap = 0; l.esz = esz; l.ar = NULL; return l;
 }
 
-/* 리스트 정렬. 원소 타입마다 비교 방법이 달라 코드가 타입을 넘겨 줍니다. */
+/* List sorting. Comparison differs per element type, so the generated code passes the type. */
 static int mi_cmp_i64(const void* a, const void* b) {
     int64_t x = *(const int64_t*)a, y = *(const int64_t*)b;
     return (x > y) - (x < y);
@@ -520,8 +520,8 @@ static void mi_list_push(MiList* l, const void* v) {
     if (l->len == l->cap) {
         int64_t ncap = l->cap ? l->cap * 2 : 8;
         if (l->ar) {
-            /* 아레나 리스트: 새 자리를 범프로 받고 옮겨 담습니다.
-               개별 free가 없으니 realloc보다 단순하고 빠릅니다. */
+            /* Arena list: get a new slot by bumping and copy the contents over.
+               There's no individual free, so this is simpler and faster than realloc. */
             void* nd = mi_arena_bump(l->ar, (size_t)(ncap * l->esz));
             if (l->len) memcpy(nd, l->data, (size_t)(l->len * l->esz));
             l->data = nd;
@@ -575,8 +575,8 @@ static void mi_list_reverse(MiList* l) {
     if (big != tmp) free(big);
 }
 
-/* sort_by: 미리 구한 기준값(keys)으로 안정 정렬합니다(같으면 원래 순서).
-   kind 0 = Int, 1 = Float, 2 = Str. 인터프리터와 같은 순서가 나와야 합니다. */
+/* sort_by: stable sort by precomputed keys (ties keep original order).
+   kind 0 = Int, 1 = Float, 2 = Str. Must produce the same order as the interpreter. */
 static int mi_key_cmp(const void* keys, int kind, int64_t a, int64_t b) {
     if (kind == 1) { double x = ((const double*)keys)[a], y = ((const double*)keys)[b]; return x < y ? -1 : (x > y ? 1 : 0); }
     if (kind == 2) return mi_str_cmp(((const MiStr*)keys)[a], ((const MiStr*)keys)[b]);
@@ -590,7 +590,7 @@ static void mi_list_sort_keyed(MiList* l, const void* keys, int kind) {
     int64_t* tmp = (int64_t*)malloc((size_t)n * sizeof(int64_t));
     if (!idx || !tmp) mi_panic(MI_T("메모리가 부족합니다", "out of memory"));
     for (int64_t i = 0; i < n; i++) idx[i] = i;
-    for (int64_t w = 1; w < n; w *= 2) {            /* 아래에서 위로 합치는 병합 정렬 */
+    for (int64_t w = 1; w < n; w *= 2) {            /* bottom-up merge sort */
         for (int64_t lo = 0; lo < n; lo += 2 * w) {
             int64_t mid = lo + w < n ? lo + w : n, hi = lo + 2 * w < n ? lo + 2 * w : n;
             int64_t i = lo, j = mid, k = lo;
@@ -614,7 +614,7 @@ static MiStr mi_str_repeat(MiStr s, int64_t n) {
     return mi_mk(buf, s.len * n);
 }
 
-/* f-string 서식: 소수 자릿수 / 16진수 / 폭·정렬 채우기. 인터프리터와 같은 규칙. */
+/* f-string formatting: decimal places / hex / width, alignment and fill. Same rules as the interpreter. */
 static MiStr mi_fmt_float(double v, int64_t prec) {
     if (mi_nonfinite(v)) return mi_str(mi_nonfinite(v));
     char* buf = mi_alloc(400);
@@ -627,10 +627,10 @@ static MiStr mi_fmt_hex(int64_t v, int upper) {
     return mi_mk(buf, n);
 }
 static MiStr mi_fmt_pad(MiStr s, int64_t width, char align, char fill) {
-    int64_t len = mi_utf8_len(s.p, s.len);       /* 글자 수 기준 (Str.len과 같음) */
+    int64_t len = mi_utf8_len(s.p, s.len);       /* in characters (same as Str.len) */
     if (len >= width) return s;
     int64_t pad = width - len;
-    int64_t total = s.len + pad;                 /* fill 은 ASCII 한 바이트로 봅니다 */
+    int64_t total = s.len + pad;                 /* fill is treated as a single ASCII byte */
     char* buf = mi_alloc(total);
     int64_t left, right;
     if (align == '<') { left = 0; right = pad; }
@@ -643,7 +643,7 @@ static MiStr mi_fmt_pad(MiStr s, int64_t width, char align, char fill) {
     return mi_mk(buf, total);
 }
 
-/* 화면 폭: 한글·CJK·전각·이모지는 두 칸으로 셉니다. 인터프리터와 같은 규칙. */
+/* Display width: Hangul, CJK, fullwidth and emoji count as two columns. Same rule as the interpreter. */
 static int mi_char_width(uint32_t u) {
     if ((u >= 0x1100 && u <= 0x115F) || (u >= 0x2E80 && u <= 0xA4CF) ||
         (u >= 0xAC00 && u <= 0xD7A3) || (u >= 0xF900 && u <= 0xFAFF) ||
@@ -669,7 +669,7 @@ static int64_t mi_disp_width(MiStr s) {
     }
     return w;
 }
-/* pad_right: 왼쪽 정렬(오른쪽에 공백). pad_left: 오른쪽 정렬(왼쪽에 공백). 화면 폭 기준. */
+/* pad_right: left-align (spaces on the right). pad_left: right-align (spaces on the left). By display width. */
 static MiStr mi_pad_right(MiStr s, int64_t width) {
     int64_t w = mi_disp_width(s);
     if (w >= width) return s;
@@ -689,9 +689,9 @@ static MiStr mi_pad_left(MiStr s, int64_t width) {
     return mi_mk(buf, s.len + pad);
 }
 
-/* input() / args(): 키보드 한 줄 읽기와 명령행 인자. */
-static MiList mi_prog_args;   /* main에서 채웁니다. */
-/* 한 줄 읽기. 입력이 끝났으면(EOF) none 입니다. 빈 줄은 "" 입니다. */
+/* input() / args(): reading a line from the keyboard, and command-line arguments. */
+static MiList mi_prog_args;   /* filled in main. */
+/* Reads one line. none at end of input (EOF). An empty line is "". */
 static MiOpt_MiStr mi_input(void) {
     MiOpt_MiStr r;
     size_t cap = 64, len = 0;
@@ -727,16 +727,16 @@ static MiStr mi_str_slice(MiStr s, int64_t a, int64_t b) {
     return mi_mk(s.p + ba, bb - ba);
 }
 
-/* ---------------- 사전(Dict) ---------------- */
-/* 넣은 순서를 기억하는 해시 표입니다.
-   entries 에 들어온 순서대로 쌓고, idx 는 빠르게 찾기 위한 색인입니다. */
+/* ---------------- Dict ---------------- */
+/* A hash table that remembers insertion order.
+   entries are stored in insertion order; idx is an index for fast lookup. */
 typedef struct {
-    char* keys;      /* 넣은 순서대로 */
+    char* keys;      /* in insertion order */
     char* vals;
-    int64_t* idx;    /* 해시 -> entries 위치. -1이면 빈 칸 */
+    int64_t* idx;    /* hash -> position in entries. -1 means empty slot */
     int64_t len, cap, islots;
     int64_t ksz, vsz;
-    int kkind;       /* 0 = 숫자/불리언(바이트 비교), 1 = 문자열 */
+    int kkind;       /* 0 = number/boolean (byte compare), 1 = string */
 } MiDict;
 
 static MiDict mi_dict_new(int64_t ksz, int64_t vsz, int kkind) {
@@ -780,7 +780,7 @@ static void mi_dict_reindex(MiDict* d, int64_t slots) {
     }
 }
 
-/* 키가 있으면 그 자리를, 없으면 -1 을 냅니다. */
+/* Returns the entry position if the key exists, otherwise -1. */
 static int64_t mi_dict_find(const MiDict* d, const void* k) {
     if (d->islots == 0) return -1;
     uint64_t h = mi_dict_hash(d, k);
@@ -795,7 +795,7 @@ static int64_t mi_dict_find(const MiDict* d, const void* k) {
 
 static void mi_dict_set(MiDict* d, const void* k, const void* v) {
     int64_t e = mi_dict_find(d, k);
-    if (e >= 0) {                                  /* 이미 있으면 값만 바꿉니다 */
+    if (e >= 0) {                                  /* if it already exists, just replace the value */
         memcpy(d->vals + e * d->vsz, v, (size_t)d->vsz);
         return;
     }
@@ -808,7 +808,7 @@ static void mi_dict_set(MiDict* d, const void* k, const void* v) {
     memcpy(d->keys + d->len * d->ksz, k, (size_t)d->ksz);
     memcpy(d->vals + d->len * d->vsz, v, (size_t)d->vsz);
     d->len++;
-    /* 절반 넘게 차면 색인을 넓힙니다. */
+    /* Grow the index when more than half full. */
     if (d->islots == 0 || d->len * 2 > d->islots) {
         int64_t slots = d->islots ? d->islots * 2 : 16;
         while (d->len * 2 > slots) slots *= 2;
@@ -823,7 +823,7 @@ static void mi_dict_set(MiDict* d, const void* k, const void* v) {
 
 static bool mi_dict_has(const MiDict* d, const void* k) { return mi_dict_find(d, k) >= 0; }
 
-/* 찾으면 값의 주소, 없으면 NULL. */
+/* Address of the value if found, otherwise NULL. */
 static void* mi_dict_at(const MiDict* d, const void* k) {
     int64_t e = mi_dict_find(d, k);
     return e < 0 ? NULL : (void*)(d->vals + e * d->vsz);
@@ -835,7 +835,7 @@ static MiList mi_dict_keys(const MiDict* d) {
     return out;
 }
 
-/* 값 의미론: 복사본을 고쳐도 원본이 그대로이도록 속까지 새로 만듭니다. */
+/* Value semantics: deep-copy so modifying the copy leaves the original intact. */
 static MiList mi_list_copy(MiList l) {
     MiList r = mi_list_new(l.esz);
     if (l.len > 0) {
@@ -864,7 +864,7 @@ static MiDict mi_dict_copy(MiDict d) {
     return r;
 }
 
-/* 따옴표를 붙이고 \\ 와 " 를 이스케이프한 문자열. 인터프리터의 repr 과 같습니다. */
+/* The string quoted, with \\ and " escaped. Same as the interpreter's repr. */
 static MiStr mi_str_repr(MiStr s) {
     int64_t extra = 2;
     for (int64_t i = 0; i < s.len; i++) if (s.p[i] == '"' || s.p[i] == '\\') extra++;
@@ -891,7 +891,7 @@ static void mi_contract_fail(const char* rendered) {
     exit(1);
 }
 
-/* i번째 "글자"를 냅니다. 바이트가 아닙니다. */
+/* Returns the i-th "character", not byte. */
 static MiStr mi_str_index(MiStr s, int64_t i) {
     int64_t n = mi_utf8_len(s.p, s.len);
     if (i < 0 || i >= n) {
@@ -906,7 +906,7 @@ static MiStr mi_str_index(MiStr s, int64_t i) {
     return mi_mk(buf, z - a);
 }
 
-/* 문자열 메서드 */
+/* String methods */
 static MiList mi_split(MiStr s, MiStr sep) {
     MiList out = mi_list_new((int64_t)sizeof(MiStr));
     if (sep.len == 0) { mi_list_push(&out, &s); return out; }
@@ -1018,7 +1018,7 @@ static MiRes_double mi_parse_float(MiStr s) {
     return r;
 }
 
-/* errno 를 사람이 읽는 까닭으로. 인터프리터(sys.rs)와 글자까지 같습니다. */
+/* Turns errno into a human-readable reason. Identical, character for character, to the interpreter (sys.rs). */
 static MiStr mi_errmsg(MiStr path, int e) {
     const char* why;
     char buf[64];
@@ -1034,7 +1034,7 @@ static MiStr mi_errmsg(MiStr path, int e) {
     return mi_cat(mi_cat(path, mi_str(": ")), mi_str(why));
 }
 
-/* `!Unit` 은 내부적으로 MiRes_int64_t 로 표현됩니다. */
+/* `!Unit` is represented internally as MiRes_int64_t. */
 static MiRes_int64_t mi_write_text(MiStr path, MiStr text, int append) {
     MiRes_int64_t r; r.val = 0;
     FILE* f = mi_fopen(mi_cstr(path), append ? "ab" : "wb");
@@ -1068,7 +1068,7 @@ static MiRes_MiStr mi_read_text(MiStr path) {
         r.err = mi_errmsg(path, errno);
         return r;
     }
-    /* 크기를 미리 묻지 않고 끝까지 읽습니다. /proc 파일이나 /dev/stdin 은 크기가 0으로 보입니다. */
+    /* Reads to the end without asking for the size first. /proc files and /dev/stdin report size 0. */
     int64_t cap = 4096, got = 0;
     char* data = (char*)malloc((size_t)cap);
     if (!data) mi_panic(MI_T("메모리가 부족합니다", "out of memory"));
@@ -1088,29 +1088,29 @@ static MiRes_MiStr mi_read_text(MiStr path) {
     r.ok = true; r.val = mi_mk(data, (int64_t)got); r.err = mi_str("");
     return r;
 }
-/* ------- 런타임 끝 ------- */
+/* ------- end of runtime ------- */
 
 "##;
 
 pub struct CGen {
     ty: Types,
-    /// 앞쪽 선언: `struct mu_X;`, `typedef struct MiOpt_.. MiOpt_..;`, 함수 포인터 typedef.
-    /// 포인터로만 쓰는 곳은 이것만 있으면 됩니다.
+    /// Forward declarations: `struct mu_X;`, `typedef struct MiOpt_.. MiOpt_..;`, function pointer typedefs.
+    /// These alone suffice where types are used only through pointers.
     decls: String,
-    /// 값으로 품는 타입 정의들(구조체·열거형·MiOpt_·MiRes_·MiTup_·클로저 묶음).
-    /// C 는 값으로 품는 타입이 먼저 완성돼 있어야 하므로, 끝에서 의존 순서대로 냅니다.
+    /// Type definitions held by value (structs·enums·MiOpt_·MiRes_·MiTup_·closure bundles).
+    /// C needs by-value types to be complete first, so they are emitted at the end in dependency order.
     tdefs: Vec<(String, String, Vec<String>)>,
-    /// 자기 자신을 (돌고 돌아) 품는 `?구조체`/`!구조체` 필드: (구조체, 필드).
-    /// 값으로 품으면 크기가 무한이라, 힙 상자(포인터)에 담고 복사할 때 상자도 새로 만듭니다.
+    /// `?Struct`/`!Struct` fields that (directly or indirectly) contain themselves: (struct, field).
+    /// Holding them by value would make the size infinite, so they go in a heap box (pointer), and the box is recreated on copy.
     boxed: HashSet<(String, String)>,
     protos: String,
-    /// 헤더에서 가져온 C 함수의 껍데기. `#include` 와 타입을 맞춘 함수들.
+    /// Shims for C functions imported from headers: functions that `#include` and match types.
     ffi: String,
-    /// 실제로 불린 C 함수 이름. 안 쓴 함수는 껍데기를 안 냅니다.
+    /// Names of C functions actually called. Unused functions get no shim.
     used_externs: HashSet<String>,
-    /// C++ 껍데기. 따로 파일로 빠져 C++ 컴파일러로 컴파일됩니다.
+    /// C++ shims. Split into a separate file and compiled with the C++ compiler.
     cpp_ffi: String,
-    /// 라이브러리에 넘겨주는 내 함수의 다리. protos 뒤에 놓입니다.
+    /// Bridges for my functions passed to a library. Placed after protos.
     cb_ffi: String,
     cb_done: HashSet<String>,
     body: String,
@@ -1119,44 +1119,44 @@ pub struct CGen {
     cur_fn: String,
     cur_ret: Ty,
     expect: Option<Ty>,
-    /// 이름 -> C 식. `?T` 좁히기(`if x != none:`)에 씁니다.
+    /// Name -> C expression. Used for `?T` narrowing (`if x != none:`).
     renames: Vec<HashMap<String, String>>,
-    /// 미리 계산해 둔 하위 식 (식 주소 → C 임시 변수). 계산 순서를 왼쪽→오른쪽으로 고정할 때 씁니다.
+    /// Precomputed subexpressions (expr address -> C temp variable). Used to pin evaluation order to left-to-right.
     pre: HashMap<usize, String>,
     opt_types: HashSet<String>,
     res_types: HashSet<String>,
     tup_types: HashSet<String>,
     fn_ptr_types: HashSet<String>,
-    /// 지금 만들고 있는 제네릭 특수화의 이름 꼬리표(`__int64_t` 등). 보통은 빈 문자열.
+    /// Name suffix of the generic specialization currently being generated (`__int64_t`, etc.). Usually empty.
     mono_suffix: String,
-    /// 아직 만들지 않은 제네릭 특수화 대기열: (선언, 타입 묶음, 이름 꼬리표).
+    /// Queue of generic specializations not yet generated: (declaration, type bindings, name suffix).
     mono_queue: Vec<(crate::ast::Shared<FnDecl>, HashMap<String, Ty>, String)>,
-    /// 이미 만든 특수화의 C 이름들(중복 생성 방지).
+    /// C names of specializations already generated (prevents duplicates).
     mono_done: HashSet<String>,
     tmp: usize,
-    /// `#line` 표시에 쓸 원본 경로. 오류와 디버거가 .skn 파일을 가리키게 합니다.
+    /// Source path for `#line` markers. Makes errors and the debugger point at the .skn file.
     src_path: String,
     last_line: usize,
-    /// 클로저 본문을 끌어올린 C 함수들과, 이름 붙은 함수를 값으로 쓸 때의 다리들.
+    /// C functions holding hoisted closure bodies, plus bridges for named functions used as values.
     lifted: String,
     thunks_done: HashSet<String>,
     lam_count: usize,
-    /// 구조체 이름 -> 복사할 때 속까지 새로 만들어야 하는가(리스트·사전을 품었는가).
+    /// Struct name -> whether copying must deep-copy (does it contain lists·dicts?).
     copy_needed: HashMap<String, bool>,
     copy_done: HashSet<String>,
     repr_done: HashSet<String>,
-    /// std.net 을 썼는가. 썼을 때만 네트워크 런타임을 붙입니다.
+    /// Whether std.net was used. The network runtime is linked in only if so.
     uses_net: bool,
-    /// `spawn`·`channel` 을 쓰면 동시성 런타임(rt_conc.c)을 넣고 pthread 를 링크합니다.
+    /// Using `spawn`·`channel` pulls in the concurrency runtime (rt_conc.c) and links pthread.
     uses_conc: bool,
-    /// 작업 결과 타입마다 하나씩 만드는 "작업 돌리개" 함수 이름들.
+    /// Names of "task runner" functions, one per task result type.
     task_runners: HashSet<String>,
     uses_case: bool,
-    /// `siskin debug` 용: 문장마다 멈출 자리(MI_DBG)를 넣습니다.
+    /// For `siskin debug`: inserts a breakpoint (MI_DBG) at every statement.
     dbg: bool,
-    /// 지금 함수의 지역 변수가 시작하는 타입 검사기 스코프 번호 (디버거용)
+    /// Type-checker scope number where the current function's locals begin (for the debugger)
     dbg_base: usize,
-    /// 최상위 상수 (전역 변수 선언, 채울 문장)
+    /// Top-level constants (global variable declaration, initializing statement)
     gvars: String,
     globals: Vec<Stmt>,
     has_globals: bool,
@@ -1166,8 +1166,8 @@ fn cerr(code: &'static str, msg: impl Into<String>, line: usize, col: usize) -> 
     SiskinError::new(code, msg, line, col)
 }
 
-/// 사용자 이름은 `mu_`, 런타임 내부 함수는 `mi_`.
-/// 이렇게 나눠야 사용자가 `fn find`를 만들어도 런타임 `mi_find`와 안 부딪힙니다.
+/// User names get `mu_`, runtime internals get `mi_`.
+/// This split keeps a user's `fn find` from colliding with the runtime's `mi_find`.
 fn mangle(name: &str) -> String {
     format!("mu_{}", name)
 }
@@ -1176,7 +1176,7 @@ fn local(name: &str) -> String {
     format!("v_{}", name)
 }
 
-/// 필드의 C 이름. 튜플의 `.0` 은 `f0`, 구조체 필드는 `v_이름`.
+/// C name of a field. Tuple `.0` becomes `f0`, struct fields become `v_name`.
 fn field_c(name: &str) -> String {
     if name.chars().all(|ch| ch.is_ascii_digit()) {
         format!("f{}", name)
@@ -1185,8 +1185,8 @@ fn field_c(name: &str) -> String {
     }
 }
 
-/// 타입마다 다른 C 이름 조각. `[[Int]]` 와 `[Str]` 은 C 로는 둘 다 MiList 라서
-/// 타입별로 만드는 함수(복사, 글자로 바꾸기)의 이름은 이걸로 가릅니다.
+/// A per-type C name fragment. `[[Int]]` and `[Str]` are both MiList in C, so
+/// this distinguishes the names of per-type functions (copy, to-string).
 fn ty_key(t: &Ty) -> String {
     match t {
         Ty::Int => "I".into(),
@@ -1208,7 +1208,7 @@ fn ty_key(t: &Ty) -> String {
     }
 }
 
-/// 디버거가 값을 보여 줄 수 있는 타입인가 (C 로 만든 변수가 실제로 있는 것).
+/// Whether the debugger can display values of this type (i.e. a C variable actually exists).
 fn dbg_showable(t: &Ty) -> bool {
     match t {
         Ty::Int | Ty::Float | Ty::Bool | Ty::Str | Ty::Json | Ty::Task(_) | Ty::Chan(_) | Ty::Struct(_) | Ty::Enum(_) => true,
@@ -1240,9 +1240,9 @@ fn c_string(s: &str) -> String {
     out
 }
 
-/// C 소스와, 함께 링크해야 할 라이브러리 이름 목록을 냅니다.
-/// `upper()`/`lower()` 의 C 쪽. 인터프리터가 쓰는 Rust 표준 라이브러리의 대소문자 표를
-/// 그대로 C 배열로 옮겨서, 두 실행 방식의 결과가 글자 하나까지 같게 합니다.
+/// Produces the C source and a list of libraries to link with.
+/// The C side of `upper()`/`lower()`. Copies the case tables of Rust's standard library, used by
+/// the interpreter, into C arrays so both execution modes agree down to every character.
 fn case_runtime() -> String {
     fn table(name: &str, upper: bool) -> String {
         let mut rows = Vec::new();
@@ -1309,7 +1309,7 @@ static MiStr mi_casemap(MiStr s, int upper) {
         const uint32_t* row = upper ? mi_case_find(mi_up_tab, MI_TAB_N(mi_up_tab), u)
                                     : mi_case_find(mi_lo_tab, MI_TAB_N(mi_lo_tab), u);
         if (!upper && u == 0x3A3) {
-            /* 그리스어 시그마: 낱말 끝이면 ς (Rust 와 같은 규칙) */
+            /* Greek sigma: ς at the end of a word (same rule as Rust) */
             bool next_cased = false;
             if (i + n < s.len) { uint32_t v; mi_utf8_dec(s, i + n, &v); next_cased = mi_is_cased(v); }
             at += mi_utf8_enc(prev_cased && !next_cased ? 0x3C2 : 0x3C3, buf + at);
@@ -1333,7 +1333,7 @@ pub fn generate(prog: &Program, src_path: &str) -> Result<(String, Vec<String>, 
     generate_opts(prog, src_path, false)
 }
 
-/// `siskin debug` 용: 문장마다 멈출 자리를 넣은 C 를 만듭니다(`rt_dbg.c`).
+/// For `siskin debug`: builds C with a breakpoint at every statement (`rt_dbg.c`).
 pub fn generate_debug(prog: &Program, src_path: &str) -> Result<(String, Vec<String>, Option<String>), Vec<SiskinError>> {
     generate_opts(prog, src_path, true)
 }
@@ -1341,7 +1341,7 @@ pub fn generate_debug(prog: &Program, src_path: &str) -> Result<(String, Vec<Str
 fn generate_opts(prog: &Program, src_path: &str, dbg: bool) -> Result<(String, Vec<String>, Option<String>), Vec<SiskinError>> {
     let mut ty = Types::new(prog);
     ty.errors.clear();
-    // 익명 함수의 인자 타입(적지 않은 것)을 알려면 타입 검사를 한 번 돌려야 합니다.
+    // To learn the (unannotated) parameter types of anonymous functions, run the type checker once.
     {
         let mut chk = Types::new(prog);
         chk.check_program(prog);
@@ -1405,7 +1405,7 @@ fn generate_opts(prog: &Program, src_path: &str, dbg: bool) -> Result<(String, V
     };
     g.run(prog);
     g.emit_ffi_shims(prog);
-    // `fn main() -> !Unit` 이면 실패했을 때 오류를 알리고 1로 끝냅니다.
+    // For `fn main() -> !Unit`, on failure report the error and exit with 1.
     let main_call = match g.ty.fns.get("main").map(|m| m.ret.clone()) {
         Some(Ty::Fallible(inner, et)) => {
             let rn = g.res_name(&inner, &et, 0);
@@ -1417,10 +1417,10 @@ fn generate_opts(prog: &Program, src_path: &str, dbg: bool) -> Result<(String, V
         }
         _ => "mu_main();".to_string(),
     };
-    // 동시성을 쓰면 main 이 끝난 뒤 남은 작업을 모두 기다립니다(인터프리터와 같게).
+    // When concurrency is used, wait for all remaining tasks after main ends (same as the interpreter).
     let main_call = if g.uses_conc { format!("{} mi_tasks_finish();", main_call) } else { main_call };
     if g.errors.is_empty() {
-        // 진단 언어를 굳혀 넣습니다. 런타임의 `MI_T(한국어, 영어)` 가 이걸 봅니다.
+        // Bake in the diagnostic language. The runtime's `MI_T(Korean, English)` reads this.
         let mut out = format!("#define MI_KO {}\n#define MI_T(ko, en) (MI_KO ? (ko) : (en))\n", if crate::lang::ko() { 1 } else { 0 });
         out.push_str(RUNTIME);
         out.push_str(include_str!("rt_sys.c"));
@@ -1470,7 +1470,7 @@ fn generate_opts(prog: &Program, src_path: &str, dbg: bool) -> Result<(String, V
         );
         let mut links = g.ty.links.clone();
         if g.uses_net && cfg!(windows) {
-            // 윈도우: 소켓(ws2_32)과 인증서 목록(crypt32).
+            // Windows: sockets (ws2_32) and the certificate store (crypt32).
             links.push("ws2_32".into());
             links.push("crypt32".into());
         } else if g.uses_net && !links.iter().any(|l| l == "dl") {
@@ -1495,8 +1495,8 @@ impl CGen {
         self.body.push('\n');
     }
 
-    /// 생성된 C의 이 지점이 원본 .skn 몇 번째 줄인지 알려 줍니다.
-    /// 이게 있어야 C 컴파일러 오류와 디버거가 .skn 파일을 가리킵니다.
+    /// Tells which line of the original .skn this point in the generated C corresponds to.
+    /// Needed so that C compiler errors and the debugger point at the .skn file.
     fn line_mark(&mut self, line: usize) {
         if line == 0 || line == self.last_line {
             return;
@@ -1507,7 +1507,7 @@ impl CGen {
         let _ = writeln!(self.body, "#line {} \"{}\"", l, path);
     }
 
-    /// 합친 파일의 줄 번호를 (파일 이름, 그 파일 안의 줄) 로.
+    /// Maps a line number in the merged file to (file name, line within that file).
     fn src_of(&self, line: usize) -> (String, usize) {
         match crate::error::locate(line) {
             Some((f, _, l)) => (f, l),
@@ -1530,7 +1530,7 @@ impl CGen {
         self.ty.pop_scope();
     }
 
-    /// 이름을 실제 C 식으로. 좁혀진 `?T` 변수는 `.val`이 붙습니다.
+    /// Turns a name into the actual C expression. Narrowed `?T` variables get `.val` appended.
     fn cname(&self, n: &str) -> String {
         for s in self.renames.iter().rev() {
             if let Some(c) = s.get(n) {
@@ -1546,7 +1546,7 @@ impl CGen {
         t
     }
 
-    // ------------------------------------------------------------- 타입 이름
+    // ------------------------------------------------------------- type names
 
     fn ctype(&mut self, t: &Ty, line: usize) -> String {
         match t {
@@ -1597,12 +1597,12 @@ impl CGen {
         }
     }
 
-    /// C 쪽 시그니처에 쓸 타입. Str은 `const char*`, `*T`는 진짜 `T*`입니다.
-    /// 내 Siskin 함수를 C 라이브러리가 부를 수 있는 모양으로 감쌉니다.
+    /// Type used in C-side signatures. Str is `const char*`, `*T` is a real `T*`.
+    /// Wraps my Siskin function in a shape a C library can call.
     ///
-    /// C 라이브러리는 자기가 정한 생김새(`int (*)(void*, int)`)로 부릅니다.
-    /// Siskin 쪽은 모든 정수를 64비트로 다루므로 그대로는 안 맞습니다.
-    /// 그래서 가운데 다리를 하나 놓고, 거기서 값을 옮겨 담아 부릅니다.
+    /// A C library calls it with its own signature (`int (*)(void*, int)`).
+    /// Siskin treats every integer as 64-bit, so it doesn't match as-is.
+    /// So we put a bridge in between that converts the values and makes the call.
     fn make_callback(
         &mut self,
         fname: &str,
@@ -1653,7 +1653,7 @@ impl CGen {
         let plist = if ps.is_empty() { "void".to_string() } else { ps.join(", ") };
         let _ = write!(
             self.cb_ffi,
-            "/* {} 를 C 쪽에 넘기기 위한 다리 */\nstatic {} {}({}) {{\n{}}}\n",
+            "/* bridge for passing {} to the C side */\nstatic {} {}({}) {{\n{}}}\n",
             fname,
             if cret.trim().is_empty() { "void" } else { cret },
             tramp,
@@ -1664,12 +1664,12 @@ impl CGen {
         Some(tramp)
     }
 
-    /// 헤더에서 가져온 C 함수의 껍데기를 냅니다.
+    /// Emits shims for C functions imported from headers.
     ///
-    /// 예전에는 `extern int64_t mx_crc32(...) __asm__("crc32")` 처럼 심볼에
-    /// 바로 붙였는데, 그러면 C 함수가 32비트 `int` 를 돌려줄 때 위쪽 32비트가
-    /// 쓰레기값이 됩니다. 헤더를 include 하고 진짜 타입으로 부른 뒤 옮겨 담으면
-    /// C 컴파일러가 타입을 대신 검사해 주기도 합니다.
+    /// Previously these were bound straight to the symbol, as in `extern int64_t mx_crc32(...) __asm__("crc32")`,
+    /// but then when the C function returns a 32-bit `int`, the upper 32 bits
+    /// are garbage. Including the header, calling with the real types, and converting
+    /// also lets the C compiler type-check for us.
     fn emit_ffi_shims(&mut self, prog: &Program) {
         let mut decls: Vec<crate::ast::Shared<FnDecl>> = Vec::new();
         for s in &prog.stmts {
@@ -1705,11 +1705,11 @@ impl CGen {
         if !self.cpp_ffi.is_empty() {
             self.cpp_ffi.insert_str(
                 0,
-                "// Siskin이 자동으로 만든 C++ 다리 파일입니다. 고치지 마세요.\n\
+                "// C++ bridge file generated automatically by Siskin. Do not edit.\n\
                  #include <cstdint>\n#include <string>\n",
             );
             self.cpp_ffi.push_str(
-                "\n// std::string 을 글자열로 넘길 때 잠깐 담아 두는 칸입니다.\n\
+                "\n// Slots that temporarily hold a std::string when passing it as a C string.\n\
                  static const char* mi_cpp_hold(const std::string& s) {\n\
                  \x20   static std::string pool[16];\n\
                  \x20   static int at = 0;\n\
@@ -1722,7 +1722,7 @@ impl CGen {
         self.ffi.push('\n');
         for f in &decls {
             let cs = f.c_sig.as_ref().unwrap().clone();
-            // C++ 은 껍데기를 이미 만들어 뒀습니다. C 쪽에는 "있다"고만 알립니다.
+            // C++ shims were already generated. Just tell the C side they exist.
             if let Some(shim) = &cs.shim {
                 self.cpp_ffi.push_str(shim);
                 self.cpp_ffi.push('\n');
@@ -1759,8 +1759,8 @@ impl CGen {
                 };
                 let c = self.cty_ffi(&t, f.line);
                 if p.conv == Convention::Inout {
-                    // `T**` 자리. 진짜 C 변수를 하나 두고, 부르기 전에 채워 넣고
-                    // 부른 뒤에 Siskin 쪽 변수로 옮겨 담습니다.
+                    // A `T**` slot. Keep a real C variable, fill it before the call,
+                    // and copy it back into the Siskin-side variable afterwards.
                     let ct = cs.params.get(i).cloned().unwrap_or_else(|| "void**".into());
                     let inner = ct.trim_end().strip_suffix('*').unwrap_or("void*").trim().to_string();
                     ps.push(format!("{}* a{}", c, i));
@@ -1770,7 +1770,7 @@ impl CGen {
                     continue;
                 }
                 ps.push(format!("{} a{}", c, i));
-                // 원래 C 타입으로 되돌려서 넘깁니다.
+                // Convert back to the original C type before passing.
                 match cs.params.get(i) {
                     Some(ct) => args.push(format!("({})a{}", ct, i)),
                     None => args.push(format!("a{}", i)),
@@ -1811,14 +1811,14 @@ impl CGen {
                 let c = self.ctype(inner, line);
                 format!("{}*", c)
             }
-            // 라이브러리에 넘기는 함수 자리: 다리 함수(mi_cb_*)의 주소가 들어옵니다.
+            // A function-typed argument for a library: receives the address of a bridge function (mi_cb_*).
             Ty::Fn(..) => "void*".into(),
             other => self.ctype(other, line),
         }
     }
 
-    /// 값으로 품는 타입 정의를 모아 둡니다. `deps` 는 속에 값으로 든 C 타입들입니다.
-    /// typedef 이름(MiOpt_ 등)은 앞쪽에 `typedef struct 이름 이름;` 을 먼저 냅니다.
+    /// Collects a by-value type definition. `deps` are the C types held by value inside it.
+    /// For typedef names (MiOpt_ etc.), `typedef struct Name Name;` is emitted up front first.
     fn add_tdef(&mut self, name: &str, text: String, deps: &[String]) {
         if !name.starts_with("struct ") {
             let _ = writeln!(self.decls, "typedef struct {} {};", name, name);
@@ -1827,7 +1827,7 @@ impl CGen {
         self.tdefs.push((name.to_string(), text, deps));
     }
 
-    /// 모아 둔 타입 정의를 "속에 든 것 먼저" 순서로 냅니다.
+    /// Emits the collected type definitions in "contents first" order.
     fn ordered_tdefs(&self) -> String {
         let idx: HashMap<&str, usize> = self.tdefs.iter().enumerate().map(|(i, t)| (t.0.as_str(), i)).collect();
         let mut state = vec![0u8; self.tdefs.len()];
@@ -1854,7 +1854,7 @@ impl CGen {
         out
     }
 
-    /// 이 타입의 값이 (포인터를 거치지 않고) 구조체 `target` 을 품을 수 있는가.
+    /// Whether a value of this type can contain struct `target` (not through a pointer).
     fn reaches_by_value(&mut self, t: &Ty, target: &str, seen: &mut HashSet<String>) -> bool {
         match t {
             Ty::Struct(n) => {
@@ -1891,7 +1891,7 @@ impl CGen {
                     v.fields.iter().any(|f| match &f.ty {
                         Some(te) => {
                             let ft = self.ty.resolve(te, ed.line);
-                            // 열거형 필드는 원래 포인터로 담습니다.
+                            // Enum fields are stored as pointers to begin with.
                             !matches!(ft, Ty::Enum(_)) && self.reaches_by_value(&ft, target, seen)
                         }
                         None => false,
@@ -1905,7 +1905,7 @@ impl CGen {
         }
     }
 
-    /// 식 `obj.field` 의 필드가 힙 상자에 담긴 필드인가.
+    /// Whether the field in expression `obj.field` is stored in a heap box.
     fn field_boxed(&mut self, obj: &Expr, field: &str) -> bool {
         if self.boxed.is_empty() {
             return false;
@@ -1916,7 +1916,7 @@ impl CGen {
         }
     }
 
-    /// 결과 타입이 `rt` 인 작업을 돌리는 C 함수. 클로저를 부르고 결과를 작업 칸에 담습니다.
+    /// C function that runs a task with result type `rt`. Calls the closure and stores the result in the task slot.
     fn task_runner(&mut self, rt: &Ty, line: usize) -> String {
         let name = format!("mi_trun_{}", ty_key(rt));
         if self.task_runners.insert(name.clone()) {
@@ -1943,8 +1943,8 @@ impl CGen {
         name
     }
 
-    /// 결과 구조체 이름. 오류 타입이 Str 이면 예전과 같은 `MiRes_T`,
-    /// enum 이면 `MiRes_T_E_이름` 이고 `err` 칸에 그 enum 값이 들어갑니다.
+    /// Result struct name. If the error type is Str, it's the usual `MiRes_T`;
+    /// if it's an enum, it's `MiRes_T_E_Name` and the `err` slot holds that enum value.
     fn res_name(&mut self, inner: &Ty, err: &Ty, line: usize) -> String {
         let c = if *inner == Ty::Unit || *inner == Ty::Unknown {
             "int64_t".to_string()
@@ -1971,8 +1971,8 @@ impl CGen {
         }
     }
 
-    /// 튜플 C 구조체 이름. 원소 C타입들을 이어 붙여 이름을 만들고,
-    /// 없으면 aux에 typedef를 냅니다(구조체 선언 뒤에 옵니다).
+    /// Tuple C struct name. Built by concatenating the element C types;
+    /// if missing, emits a typedef into aux (placed after the struct declarations).
     fn tup_name(&mut self, elems: &[Ty], line: usize) -> String {
         let ctypes: Vec<String> = elems.iter().map(|e| self.ctype(e, line)).collect();
         let sanitized: Vec<String> = ctypes.iter().map(|c| sanitize(c)).collect();
@@ -1988,8 +1988,8 @@ impl CGen {
         name
     }
 
-    /// 함수 값의 C 타입(함수 포인터). 이름이 가운데 들어가는 C 문법 때문에
-    /// typedef로 만들어 이름 하나로 씁니다: `typedef R (*MiFn_...)(A, B);`
+    /// C type of a function value (function pointer). Because C syntax puts the name in the middle,
+    /// we make a typedef and use a single name: `typedef R (*MiFn_...)(A, B);`
     fn fn_ptr_name(&mut self, params: &[Ty], ret: &Ty, line: usize) -> String {
         let pcs: Vec<String> = params.iter().map(|p| self.ctype(p, line)).collect();
         let rc = self.ctype(ret, line);
@@ -2001,7 +2001,7 @@ impl CGen {
         let name = format!("MiFn_{}", key);
         if !self.fn_ptr_types.contains(&name) {
             self.fn_ptr_types.insert(name.clone());
-            // 첫 자리는 언제나 붙잡은 값 묶음(env)입니다.
+            // The first parameter is always the captured-value bundle (env).
             let mut all = vec!["void*".to_string()];
             all.extend(pcs);
             let _ = writeln!(self.decls, "typedef {} (*{})({});", rc, name, all.join(", "));
@@ -2009,7 +2009,7 @@ impl CGen {
         name
     }
 
-    /// 사전의 키/값 C 타입과 키 종류(0=바이트 비교, 1=문자열)를 냅니다.
+    /// Returns the dict's key/value C types and key kind (0 = byte compare, 1 = string).
     fn dict_parts(&mut self, t: &Ty, line: usize) -> (String, String, i32) {
         match t {
             Ty::Dict(k, v) => {
@@ -2029,10 +2029,10 @@ impl CGen {
         }
     }
 
-    // -------------------------------------------------------------- 최상위
+    // -------------------------------------------------------------- top level
 
     fn run(&mut self, prog: &Program) {
-        // 모든 구조체·열거형을 먼저 알려 둡니다(포인터·함수 원형에서 쓸 수 있게).
+        // Declare all structs·enums first (so pointers and function prototypes can use them).
         for s in &prog.stmts {
             match s {
                 Stmt::Struct(sd) => {
@@ -2044,7 +2044,7 @@ impl CGen {
                 _ => {}
             }
         }
-        // 자기 자신을 품는 `?구조체`/`!구조체` 필드는 상자에 담습니다(`next: ?Node`).
+        // `?Struct`/`!Struct` fields that contain themselves go in a box (`next: ?Node`).
         for s in &prog.stmts {
             if let Stmt::Struct(sd) = s {
                 if !sd.generics.is_empty() {
@@ -2088,7 +2088,7 @@ impl CGen {
                     self.add_tdef(&format!("struct {}", mangle(&sd.name)), d, &deps);
                 }
                 Stmt::Enum(ed) => {
-                    // 태그 + 공용체. 변형마다 자기 데이터를 가집니다.
+                    // Tag + union. Each variant has its own data.
                     let mut d = String::new();
                     for (i, v) in ed.variants.iter().enumerate() {
                         let _ = writeln!(self.decls, "#define {}_{} {}", mangle(&ed.name), v.name, i);
@@ -2107,8 +2107,8 @@ impl CGen {
                                 Some(te) => self.ty.resolve(te, ed.line),
                                 None => Ty::Int,
                             };
-                            // 재귀 가능성이 있는 열거형 필드는 포인터로 담습니다.
-                            // 값으로 담으면 자기 자신을 품어 크기가 무한이 됩니다.
+                            // Enum fields that may be recursive are stored as pointers.
+                            // Storing them by value would make them contain themselves, giving infinite size.
                             let t = if matches!(r, Ty::Enum(_)) {
                                 format!("{}*", self.ctype(&r, ed.line))
                             } else {
@@ -2126,7 +2126,7 @@ impl CGen {
             }
         }
 
-        // 최상위 `let` 상수: C 전역 변수로 두고, main 전에 한 번 채웁니다(`mi_init_globals`).
+        // Top-level `let` constants: kept as C globals, filled once before main (`mi_init_globals`).
         for s in &prog.stmts {
             if let Stmt::Let { name, ty, value, line, .. } = s {
                 let target = match ty {
@@ -2142,18 +2142,18 @@ impl CGen {
         for s in &prog.stmts {
             match s {
                 Stmt::Fn(f) => {
-                    // 제네릭 함수는 지금 원형을 못 냅니다(C에 `T`가 없음).
-                    // 호출될 때 실제 타입으로 특수화해서 냅니다.
+                    // Generic functions can't get a prototype yet (C has no `T`).
+                    // They are specialized to concrete types and emitted when called.
                     if !f.generics.is_empty() {
                         continue;
                     }
                     if f.is_extern {
-                        // 헤더에서 자동으로 가져온 함수는 껍데기를 따로 냅니다
-                        // (호출된 것만, 아래 `emit_ffi_shims` 에서).
+                        // Functions auto-imported from headers get separate shims
+                        // (only the ones called, in `emit_ffi_shims` below).
                         if f.c_sig.is_some() {
                             continue;
                         }
-                        // 손으로 적은 `extern "C" fn` 은 예전처럼 심볼에 바로 붙입니다.
+                        // Hand-written `extern "C" fn` is bound straight to the symbol as before.
                         let rt = match &f.ret {
                             Some(te) => {
                                 let r = self.ty.resolve(te, f.line);
@@ -2207,7 +2207,7 @@ impl CGen {
         for s in &prog.stmts {
             match s {
                 Stmt::Fn(f) => {
-                    // 제네릭 함수 본문은 호출될 때 특수화해서 냅니다(아래 대기열).
+                    // Generic function bodies are specialized and emitted when called (queue below).
                     if !f.is_extern && f.generics.is_empty() {
                         self.gen_fn(f, None);
                     }
@@ -2238,8 +2238,8 @@ impl CGen {
             self.gen_globals_init();
         }
 
-        // 제네릭 특수화 대기열을 비웁니다. 특수화 본문을 내는 동안 또 다른
-        // 특수화가 필요해질 수 있으므로(중첩 제네릭 호출), 빌 때까지 돕니다.
+        // Drain the generic specialization queue. Emitting a specialization body may
+        // require further specializations (nested generic calls), so loop until empty.
         while let Some((decl, subst, suffix)) = self.mono_queue.pop() {
             self.mono_suffix = suffix;
             self.ty.enter_mono(&decl.generics, subst);
@@ -2256,7 +2256,7 @@ impl CGen {
             Some(o) => format!("mu_{}_{}", o, f.name),
             None => mangle(&f.name),
         };
-        // 제네릭 함수는 특수화마다 이름 꼬리표를 붙입니다(mu_first__int64_t 등).
+        // Generic functions get a name suffix per specialization (mu_first__int64_t, etc.).
         if f.generics.is_empty() {
             base
         } else {
@@ -2264,8 +2264,8 @@ impl CGen {
         }
     }
 
-    /// 제네릭 특수화의 이름 꼬리표를 타입 묶음에서 만듭니다.
-    /// 예: `first`를 T=Int로 부르면 `__int64_t`.
+    /// Builds the name suffix of a generic specialization from its type bindings.
+    /// E.g. calling `first` with T=Int gives `__int64_t`.
     fn mono_suffix_of(&mut self, decl: &FnDecl, subst: &HashMap<String, Ty>) -> String {
         let mut parts = Vec::new();
         for g in &decl.generics {
@@ -2289,7 +2289,7 @@ impl CGen {
         let name = format!("{}{}", self.fn_cname(f, &owner), suffix);
         let mut params = Vec::new();
         for p in &f.params {
-            // `inout` 인자는 포인터로 받습니다. 그래야 호출한 쪽 변수를 바꿀 수 있습니다.
+            // `inout` parameters are taken by pointer, so the caller's variable can be modified.
             let star = if p.conv == Convention::Inout { "*" } else { "" };
             if p.is_self {
                 let o = owner.clone().unwrap_or_default();
@@ -2318,7 +2318,7 @@ impl CGen {
                 };
                 self.ty.declare("self", t);
                 if p.conv == Convention::Inout {
-                    // `inout self`는 포인터로 들어오므로 본문에서 쓸 때 역참조합니다.
+                    // `inout self` comes in as a pointer, so dereference it when used in the body.
                     self.renames
                         .last_mut()
                         .unwrap()
@@ -2356,7 +2356,7 @@ impl CGen {
             self.proto(f, owner.clone())
         };
 
-        // --- 본문 ---
+        // --- body ---
         self.body.push_str(&body_proto);
         self.body.push_str(" {\n");
         self.indent = 1;
@@ -2366,7 +2366,7 @@ impl CGen {
         if self.dbg {
             self.w(&format!("MI_DBG_FN({});", c_string(&crate::ns::shown(&f.name))));
         }
-        // `owned` 인자는 받은 쪽이 자기 복사본을 가집니다(값 의미론).
+        // For `owned` parameters, the callee holds its own copy (value semantics).
         for p in &f.params {
             if p.conv == Convention::Owned && !p.is_self {
                 if let Some(te) = &p.ty {
@@ -2385,8 +2385,8 @@ impl CGen {
         for s in &f.body {
             self.stmt(s);
         }
-        // `!T` 함수가 명시적 return 없이 끝나면 성공 결과를 채웁니다.
-        // C에서 구조체를 돌려주는 함수가 그냥 끝나면 .ok가 쓰레기값이 됩니다.
+        // If a `!T` function ends without an explicit return, fill in a success result.
+        // In C, a struct-returning function that just falls off the end leaves .ok as garbage.
         if let Ty::Fallible(inner, et) = self.cur_ret.clone() {
             let rn = self.res_name(&inner, &et, f.line);
             self.w(&format!("return ({}){{ .ok = true }};", rn));
@@ -2395,7 +2395,7 @@ impl CGen {
         self.indent = 0;
         self.body.push_str("}\n\n");
 
-        // --- 계약 검사용 겉껍데기 ---
+        // --- outer wrapper for contract checks ---
         if has_ensures {
             let wrapper = self.proto(f, owner.clone());
             self.body.push_str(&wrapper);
@@ -2440,8 +2440,8 @@ impl CGen {
         }
     }
 
-    /// 계약이 깨졌을 때 보여 줄 문구를 컴파일 시점에 통째로 만들어 둡니다.
-    /// 인터프리터(`siskin run`)와 한 글자도 다르지 않아야 합니다.
+    /// Builds the full message shown when a contract is violated, at compile time.
+    /// It must match the interpreter (`siskin run`) character for character.
     fn contract_message(
         &self,
         fname: &str,
@@ -2489,9 +2489,9 @@ impl CGen {
         self.body.push_str("#endif\n");
     }
 
-    // ------------------------------------------------------------- 값 맞추기
+    // ------------------------------------------------------------- value coercion
 
-    /// `from` 타입의 C 식을 `to` 타입 자리에 넣을 수 있게 감쌉니다.
+    /// Wraps a C expression of type `from` so it fits where type `to` is expected.
     fn coerce(&mut self, code: String, from: &Ty, to: &Ty, line: usize) -> String {
         if from == to {
             return code;
@@ -2516,10 +2516,10 @@ impl CGen {
         }
     }
 
-    /// `if x != none:` 의 참쪽에서 x를 벗겨진 값으로 보게 합니다.
-    /// 무엇을 좁힐지는 타입 검사기와 같은 규칙(`Types::narrowing`)으로 정합니다.
-    /// 변수는 `(x).val` 로 이름을 바꾸고, 구조체 필드(`t.due`)는 식을 만들 때
-    /// `narrowed_expr` 로 알아보고 `.val` 을 붙입니다.
+    /// In the true branch of `if x != none:`, treats x as the unwrapped value.
+    /// What gets narrowed follows the same rule as the type checker (`Types::narrowing`).
+    /// Variables are renamed to `(x).val`; struct fields (`t.due`) are recognized via
+    /// `narrowed_expr` when building expressions, and get `.val` appended.
     fn narrow(&mut self, cond: &Expr, positive: bool, region: &Region) -> Vec<(String, String, Ty)> {
         let found = self.ty.narrowing(cond, positive, region);
         found
@@ -2540,10 +2540,10 @@ impl CGen {
         }
     }
 
-    // ------------------------------------------------------------------ 문장
+    // ------------------------------------------------------------------ statements
 
     fn stmt(&mut self, s: &Stmt) {
-        // 필드 좁히기는 대입을 따라 풀립니다(타입 검사기와 같은 자리에서).
+        // Field narrowing is undone by assignment (at the same points as in the type checker).
         if let Stmt::Assign { target, value, .. } = s {
             self.ty.before_assign(target, value);
             self.stmt_body(s);
@@ -2580,7 +2580,7 @@ impl CGen {
             Stmt::Link(_, _) | Stmt::CHeader { .. } => {}
 
             Stmt::Arena { name, body, line } => {
-                // 블록을 어떻게 빠져나가든(return, break 포함) 아레나는 통째로 풀립니다.
+                // However the block is exited (including return and break), the arena is freed as a whole.
                 self.w("{");
                 self.indent += 1;
                 self.push_scope();
@@ -2615,7 +2615,7 @@ impl CGen {
                 let vt_raw = self.infer(value);
 
                 if let Some(c) = catch {
-                    // `let x = <!T 식> catch e:` 형태
+                    // The `let x = <!T expr> catch e:` form
                     let (inner, err_ty) = match &vt_raw {
                         Ty::Fallible(i, e) => ((**i).clone(), (**e).clone()),
                         other => (other.clone(), Ty::Str),
@@ -2636,7 +2636,7 @@ impl CGen {
                     self.w(&format!("{} {} = {}.err;", ec, local(&c.name), tmp));
                     self.w(&format!("(void){};", local(&c.name)));
                     self.ty.declare(&c.name, err_ty.clone());
-                    // 마지막 줄이 값이면(`catch e:` 아래 `0` 같은) 실패했을 때 그 값을 넣습니다.
+                    // If the last line is a value (like `0` under `catch e:`), use that value on failure.
                     let fallback = crate::ast::catch_fallback(c)
                         .filter(|fe| !matches!(self.ty.infer_quiet_pub(fe), Ty::Unit));
                     let n = c.body.len() - if fallback.is_some() { 1 } else { 0 };
@@ -2706,7 +2706,7 @@ impl CGen {
             }
 
             Stmt::Assign { target, op, value, line, catch, .. } => {
-                // 사전 대입은 자리에 쓰는 게 아니라 넣는 함수를 부릅니다.
+                // Dict assignment doesn't write to a slot; it calls the insert function.
                 if let (Expr::Index(o, k, il, _), None, None) = (target, op, catch) {
                     let dt = self.infer(o);
                     if let Ty::Dict(_, v) = dt.clone() {
@@ -2725,7 +2725,7 @@ impl CGen {
                     }
                 }
                 if let Some(c) = catch {
-                    // `x = f() catch e: ...` 는 `let 임시 = f() catch e: ...` 다음 `x = 임시` 로 풉니다.
+                    // `x = f() catch e: ...` is lowered to `let tmp = f() catch e: ...` followed by `x = tmp`.
                     let (l, col) = target.pos();
                     let tmpname = format!("__cv{}", self.next_tmp());
                     self.stmt(&Stmt::Let {
@@ -2840,7 +2840,7 @@ impl CGen {
                     self.indent -= 1;
                 }
                 self.w("}");
-                // 가드 절: 유일한 arm이 반드시 빠져나가면 그 뒤를 반대로 좁힙니다.
+                // Guard clause: if the only arm always exits, narrow the opposite way after it.
                 if els.is_none() && arms.len() == 1 && block_diverges(&arms[0].1) {
                     let line = arms[0].0.pos().0;
                     let n = self.narrow(&arms[0].0, false, &Region::After(line));
@@ -2864,7 +2864,7 @@ impl CGen {
 
             Stmt::For { var, var2, iter, body, line } => {
                 self.ty.loop_forget(body);
-                // `for k, v in d:` — 사전을 넣은 순서대로 돕니다.
+                // `for k, v in d:` iterates the dict in insertion order.
                 if let Some(v2) = var2 {
                     let it = self.infer(iter);
                     let (kc, vc) = match &it {
@@ -2910,7 +2910,7 @@ impl CGen {
                     self.w("}");
                     return;
                 }
-                // `for x in range(a, b):` 는 리스트를 만들지 않고 바로 C 루프로 냅니다.
+                // `for x in range(a, b):` emits a C loop directly without building a list.
                 if let Expr::Call { callee, args, .. } = iter {
                     if let Expr::Ident(n, _, _) = callee.as_ref() {
                         if n == "range" && !args.is_empty() && args.len() <= 2 {
@@ -2946,7 +2946,7 @@ impl CGen {
                     }
                 }
                 let it = self.infer(iter);
-                // `for x in ch:` — 통로가 닫히고 빌 때까지 하나씩 받습니다.
+                // `for x in ch:` receives one at a time until the channel is closed and empty.
                 if let Ty::Chan(et) = &it {
                     let ec = self.ctype(et, *line);
                     let src = self.expr(iter);
@@ -2997,7 +2997,7 @@ impl CGen {
                     self.indent += 1;
                     self.w(&format!("MiJson* {} = {}->items[{}];", local(var), lv, iv));
                 } else if it == Ty::Str {
-                    // 한 글자씩(UTF-8) 돕니다. 바이트 단위로 돌면 한글에서 범위를 넘습니다.
+                    // Iterate one character (UTF-8) at a time. Iterating by byte would overrun on Korean text.
                     let nx = self.next_tmp();
                     self.w(&format!("MiStr {} = {};", lv, src));
                     self.w(&format!(
@@ -3045,9 +3045,9 @@ impl CGen {
                     self.w(&format!("return {};", c));
                 }
                 None => match self.cur_ret.clone() {
-                    // `!Unit`(그리고 모든 `!T`)는 결과 구조체를 돌려주므로
-                    // 값 없는 `return`도 성공 결과를 채워야 합니다. 안 그러면
-                    // 구조체 반환 함수가 아무것도 안 돌려줘 .ok가 쓰레기값이 됩니다.
+                    // `!Unit` (and every `!T`) returns a result struct, so
+                    // a bare `return` must also fill in a success result. Otherwise
+                    // the struct-returning function returns nothing and .ok is garbage.
                     Ty::Fallible(inner, et) => {
                         let rn = self.res_name(&inner, &et, *l);
                         self.w(&format!("return ({}){{ .ok = true }};", rn));
@@ -3060,7 +3060,7 @@ impl CGen {
             Stmt::Continue(_, _) => self.w("continue;"),
 
             Stmt::Fn(f) => {
-                // 함수 안의 `fn` 은 지역 클로저 변수가 됩니다.
+                // A `fn` inside a function becomes a local closure variable.
                 let sig_ps: Vec<Ty> = f
                     .params
                     .iter()
@@ -3083,9 +3083,9 @@ impl CGen {
         }
     }
 
-    /// match는 switch가 아니라 if/else 사슬로 냅니다.
-    /// switch를 쓰면 case 안의 `break`가 바깥 반복문이 아니라 switch를 빠져나가
-    /// 뜻이 달라집니다. gcc는 어차피 이 사슬을 점프 테이블로 바꿉니다.
+    /// match is emitted as an if/else chain, not a switch.
+    /// With switch, a `break` inside a case would exit the switch instead of the enclosing loop,
+    /// changing the meaning. gcc turns this chain into a jump table anyway.
     fn gen_match(&mut self, subject: &Expr, cases: &[MatchCase], line: usize) {
         let st = self.infer(subject);
         let sc = self.ctype(&st, line);
@@ -3157,7 +3157,7 @@ impl CGen {
                                             None => Ty::Unknown,
                                         };
                                         let fc = self.ctype(&ft, c.line);
-                                        // 열거형 필드는 포인터로 담겨 있으니 꺼낼 때 역참조합니다.
+                                        // Enum fields are stored as pointers, so dereference when extracting.
                                         let rhs = if matches!(ft, Ty::Enum(_)) {
                                             format!("*({}.u.{}.{})", tmp, name, local(&f.name))
                                         } else {
@@ -3194,8 +3194,8 @@ impl CGen {
         self.w("}");
     }
 
-    /// `inout` 자리에 넘길 주소. 변수·필드·원소 사슬이면 그 자리를 그대로 가리킵니다
-    /// (`self.xs[0].bump()` 처럼 필드 안 리스트 원소도).
+    /// Address to pass to an `inout` slot. For a chain of variables·fields·elements, points at that exact place
+    /// (including list elements inside fields, like `self.xs[0].bump()`).
     fn inout_ref(&mut self, e: &Expr) -> String {
         fn rooted(e: &Expr) -> bool {
             match e {
@@ -3250,15 +3250,15 @@ impl CGen {
         }
     }
 
-    // ---------------------------------------------------------------- 표현식
+    // ---------------------------------------------------------------- expressions
 
-    /// 값 하나를 보기 좋은 문자열로 바꾸는 C 식.
+    /// C expression that turns a value into a display string.
     fn piece_of(&mut self, t: &Ty, item: &str, line: usize) -> String {
         self.repr_of(t, item.to_string(), line)
     }
 
-    /// f-string 서식 조각(`{x:.2f}`)을 MiStr를 만드는 C 식으로 바꿉니다.
-    /// 스펙은 컴파일 시점에 이미 알고 있어 정적으로 풀어냅니다.
+    /// Turns an f-string format piece (`{x:.2f}`) into a C expression that builds a MiStr.
+    /// The spec is already known at compile time, so it is resolved statically.
     fn fmt_piece(&mut self, inner: &Expr, spec: &str) -> String {
         let fs = crate::value::parse_spec(spec);
         let t = self.infer(inner);
@@ -3297,9 +3297,9 @@ impl CGen {
         }
     }
 
-    /// 값을 인터프리터의 repr 과 똑같은 글자로 바꾸는 C 식.
-    /// 리스트 안의 리스트, 구조체, 열거형처럼 겹친 값은 타입마다 함수를 만들어 씁니다.
-    /// `static void mi_init_globals(void)` — 최상위 상수를 적힌 순서대로 채웁니다.
+    /// C expression that turns a value into exactly the same text as the interpreter's repr.
+    /// For nested values like lists of lists, structs, and enums, a per-type function is generated.
+    /// `static void mi_init_globals(void)` — fills top-level constants in the order they are written.
     fn gen_globals_init(&mut self) {
         let lets = std::mem::take(&mut self.globals);
         self.cur_fn = String::new();
@@ -3329,7 +3329,7 @@ impl CGen {
         self.has_globals = true;
     }
 
-    /// `MI_DBG(줄, {"x", &v_x, 글자로}, ...)` — 멈추면 보여 줄 지역 변수들과 함께.
+    /// `MI_DBG(line, {"x", &v_x, to_str}, ...)` — with the local variables to show when stopped.
     fn dbg_hook(&mut self, line: usize) -> String {
         let mut vars = Vec::new();
         for (n, t) in self.ty.locals_from(self.dbg_base) {
@@ -3342,7 +3342,7 @@ impl CGen {
         format!("MI_DBG({}, {});", line, vars.join(", "))
     }
 
-    /// 디버거가 변수 값을 글자로 바꿀 때 부르는 함수 `MiStr f(void* p)`.
+    /// Function `MiStr f(void* p)` the debugger calls to turn a variable's value into text.
     fn dbg_repr_fn(&mut self, t: &Ty, line: usize) -> String {
         let name = format!("mi_dbgr_{}", ty_key(t));
         if self.repr_done.contains(&name) {
@@ -3352,7 +3352,7 @@ impl CGen {
         let c = self.ctype(t, line);
         let before = self.errors.len();
         let r = self.repr_of(t, format!("(*({}*)p)", c), line);
-        // 글자로 못 바꾸는 값(함수 등)은 조용히 `?` 로 보여 줍니다.
+        // Values that can't be turned into text (functions, etc.) are quietly shown as `?`.
         let r = if self.errors.len() > before {
             self.errors.truncate(before);
             "mi_str(\"?\")".to_string()
@@ -3389,7 +3389,7 @@ impl CGen {
         }
     }
 
-    /// 두 값이 같은지 보는 C 식 (bool).
+    /// C expression (bool) testing whether two values are equal.
     fn eq_of(&mut self, t: &Ty, a: String, b: String, line: usize) -> String {
         match t {
             Ty::Int | Ty::Float | Ty::Bool => format!("(({}) == ({}))", a, b),
@@ -3443,7 +3443,7 @@ impl CGen {
                 let _ = writeln!(body, "    if (a.has != b.has) return false;\n    return !a.has || {};", e);
             }
             Ty::Dict(_, vt) => {
-                // 순서와 상관없이: 개수가 같고, a 의 모든 키가 b 에 같은 값으로 있으면 같습니다.
+                // Order-independent: equal if the counts match and every key of a is in b with an equal value.
                 let (kc, vc, _) = self.dict_parts(t, line);
                 let e = self.eq_of(vt, format!("*({}*)(a.vals + i * a.vsz)", vc), format!("*({}*)bv", vc), line);
                 let _ = writeln!(
@@ -3604,9 +3604,9 @@ impl CGen {
         Some(name)
     }
 
-    /// C 는 함수 인자·연산자 양쪽을 어떤 순서로 계산할지 정하지 않습니다(gcc 는 대개 오른쪽부터).
-    /// 인터프리터는 왼쪽부터 계산하므로, 부작용이 있을 수 있는 하위 식(함수 호출을 품은 것)이
-    /// 둘 이상이면 왼쪽부터 임시 변수에 담아 두고 원래 식을 만듭니다.
+    /// C doesn't specify the evaluation order of function arguments or operator operands (gcc usually goes right to left).
+    /// The interpreter evaluates left to right, so if two or more subexpressions may have side effects (contain function calls),
+    /// they are stored in temporaries from left to right before building the original expression.
     fn expr(&mut self, e: &Expr) -> String {
         if let Some(t) = self.pre.get(&(e as *const Expr as usize)) {
             return t.clone();
@@ -3688,7 +3688,7 @@ impl CGen {
         match e {
             Expr::Lambda(f, l, _) => self.gen_closure(f, *l),
             Expr::Spawn(f, l, _) => {
-                // 붙잡은 값을 복사한 클로저를 만들고, 결과 타입에 맞는 돌리개로 새 스레드에서 부릅니다.
+                // Build a closure with copies of the captured values, and call it on a new thread via the runner for its result type.
                 self.uses_conc = true;
                 let rt = match self.infer(e) {
                     Ty::Task(r) => *r,
@@ -3730,7 +3730,7 @@ impl CGen {
             }
 
             Expr::Ident(n, _, _) => {
-                // 값을 담지 않는 열거형 변형은 괄호 없이 그냥 써서 만듭니다.
+                // Enum variants that carry no value are constructed by name alone, without parentheses.
                 if let Some(ename) = self.ty.variant_of.get(n).cloned() {
                     let ed = self.ty.enums.get(&ename).cloned().unwrap();
                     if let Some(vd) = ed.variants.iter().find(|v| &v.name == n) {
@@ -3744,7 +3744,7 @@ impl CGen {
                         }
                     }
                 }
-                // 최상위 함수 이름을 값으로 쓰면 그 함수 포인터입니다.
+                // A top-level function name used as a value is that function's pointer.
                 if self.ty.lookup(n).is_none() && self.ty.fns.contains_key(n) {
                     let (l, _) = e.pos();
                     return self.fn_value(n, l);
@@ -3785,7 +3785,7 @@ impl CGen {
                 };
                 let mut s = format!("({{ MiList _t = mi_list_new((int64_t)sizeof({})); ", ec);
                 for it in items {
-                    // 원소 자리의 타입을 알려 줘야 `[]`, `none`, 익명 함수 원소가 제 타입을 압니다.
+                    // The element type must be passed down so `[]`, `none`, and anonymous-function elements know their type.
                     self.expect = et.clone();
                     let vt = self.infer(it);
                     let v = self.expr(it);
@@ -3803,8 +3803,8 @@ impl CGen {
             Expr::Tuple(items) => {
                 let inferred = self.infer(e);
                 let exp = self.expect.clone();
-                // 반환/대입에서 기대 타입이 튜플이면 그쪽 원소 타입을 씁니다
-                // (none 같은 원소의 타입을 정확히 잡기 위해서).
+                // If the expected type in a return/assignment is a tuple, use its element types
+                // (to get the exact type of elements like none).
                 let elems: Vec<Ty> = match (&inferred, &exp) {
                     (_, Some(Ty::Tuple(es))) => es.clone(),
                     (Ty::Tuple(es), _) => es.clone(),
@@ -3840,7 +3840,7 @@ impl CGen {
                     let target = if matches!(b.as_ref(), Expr::NoneLit) { a } else { b };
                     let tt = self.infer(target);
                     if let Ty::Optional(_) = tt {
-                        // 좁히기 이름이 걸려 있으면 원래 변수를 봐야 합니다.
+                        // If a narrowing name is registered, we need to look at the original variable.
                         let c = match target.as_ref() {
                             Expr::Ident(n, _, _) => local(n),
                             other => self.expr(other),
@@ -3856,7 +3856,7 @@ impl CGen {
                 let at = self.infer(a);
                 let saved = self.expect.take();
                 let ca = self.expr(a);
-                // `a and b`: 오른쪽은 왼쪽이 참일 때만 평가되므로 좁혀서 냅니다.
+                // `a and b`: the right side is evaluated only when the left is true, so emit it narrowed.
                 let cb = if *op == BinOp::And {
                     let n = self.narrow(a, true, &Region::Expr(b));
                     self.push_scope();
@@ -3869,7 +3869,7 @@ impl CGen {
                 };
                 self.expect = saved;
                 use BinOp::*;
-                // 포인터 산술: `p + 1` 은 한 칸 뒤를 가리킵니다.
+                // Pointer arithmetic: `p + 1` points one element further.
                 if let Ty::Raw(inner) = &at {
                     let ec = self.ctype(inner, *line);
                     return match op {
@@ -3906,7 +3906,7 @@ impl CGen {
                         }
                     };
                 }
-                // 리스트·구조체·enum·튜플·사전·`?T` 의 `==` 는 안쪽까지 비교합니다 (인터프리터와 같게).
+                // `==` on lists·structs·enums·tuples·dicts·`?T` compares deeply (same as the interpreter).
                 if matches!(op, Eq | Ne) {
                     let bt = self.infer(b);
                     let deep = |t: &Ty| {
@@ -3967,7 +3967,7 @@ impl CGen {
                 let idx = self.expr(i);
                 let r = match &ot {
                     Ty::Dict(_, v) => {
-                        // 없는 키를 물으면 `none`이 나옵니다. 그래서 `?V` 입니다.
+                        // Looking up a missing key yields `none`, hence `?V`.
                         let (kc, vc, _) = self.dict_parts(&ot, *line);
                         let on = self.opt_name(v, *line);
                         let base = self.expr(o);
@@ -4020,7 +4020,7 @@ impl CGen {
 
             Expr::Field(o, n, _, _) => {
                 let base = self.expr(o);
-                // 좁혀진 `?T` 필드(`if t.due != none:` 안)는 값 쪽을 꺼냅니다.
+                // A narrowed `?T` field (inside `if t.due != none:`) extracts the value.
                 let val = if self.ty.narrowed_expr(e).is_some() { ".val" } else { "" };
                 if self.field_boxed(o, n) {
                     return format!("(*({}).{}){}", base, field_c(n), val);
@@ -4029,7 +4029,7 @@ impl CGen {
             }
 
             Expr::Try(inner, l, _) => {
-                // 실패하면 현재 함수에서 그 에러를 그대로 반환합니다.
+                // On failure, return that error from the current function as-is.
                 let it = self.infer(inner);
                 let (ok_ty, err_in) = match &it {
                     Ty::Fallible(x, e) => ((**x).clone(), (**e).clone()),
@@ -4055,7 +4055,7 @@ impl CGen {
                 let c = self.expr(inner);
                 self.expect = saved;
                 let tmp = self.next_tmp();
-                // enum 오류를 글자 오류 함수로 올릴 때는 `NoFunds(need: 5)` 같은 글자로 바꿉니다.
+                // When propagating an enum error into a string-error function, convert it to text like `NoFunds(need: 5)`.
                 let err_val = if matches!(err_in, Ty::Enum(_)) && !matches!(err_out, Ty::Enum(_)) {
                     self.repr_of(&err_in, format!("{}.err", tmp), *l)
                 } else {
@@ -4067,7 +4067,7 @@ impl CGen {
                 )
             }
 
-            // `a else 기본값` — a가 none이면 기본값을 냅니다.
+            // `a else default` — yields default if a is none.
             Expr::OrElse(a, b, l, _) => {
                 let at = self.infer(a);
                 let inner = match &at {
@@ -4094,8 +4094,8 @@ impl CGen {
             }
 
             Expr::Dict(pairs) => {
-                // 빈 사전 `{}` 은 그 자체로는 타입을 알 수 없으니
-                // 받는 쪽에 적힌 타입을 씁니다.
+                // An empty dict `{}` has no type on its own,
+                // so use the type declared on the receiving side.
                 let t = match (self.infer(e), self.expect.clone()) {
                     (Ty::Dict(k, v), Some(Ty::Dict(ek, ev)))
                         if *k == Ty::Unknown || *v == Ty::Unknown =>
@@ -4128,8 +4128,8 @@ impl CGen {
         }
     }
 
-    /// 함수 값(함수 포인터)을 부르는 코드를 냅니다. 인자를 매개변수 타입에 맞춰
-    /// 냅니다. inout은 함수 타입에 없으므로 모두 값으로 넘깁니다.
+    /// Emits code that calls a function value (function pointer). Arguments are converted to
+    /// the parameter types. inout isn't part of function types, so everything is passed by value.
     fn emit_indirect_call(&mut self, cexpr: String, params: &[Ty], ret: &Ty, args: &[Arg], l: usize) -> String {
         let fp = self.fn_ptr_name(params, ret, l);
         let saved = self.expect.take();
@@ -4153,7 +4153,7 @@ impl CGen {
         format!("({{ MiClo {} = {}; (({}){}.fn)({}); }})", t, cexpr, fp, t, all.join(", "))
     }
 
-    /// 이름 붙은 최상위 함수를 값으로 쓸 때의 다리. 첫 자리(env)를 받고 버립니다.
+    /// Bridge used when a named top-level function is used as a value. Takes the first parameter (env) and discards it.
     fn fn_value(&mut self, name: &str, line: usize) -> String {
         let sig = match self.ty.fns.get(name).cloned() {
             Some(s) => s,
@@ -4189,8 +4189,8 @@ impl CGen {
         format!("((MiClo){{ (void*){}, NULL }})", th)
     }
 
-    /// 익명 함수·중첩 함수를 C로 냅니다. 본문은 최상위 C 함수로 끌어올리고,
-    /// 붙잡은 값은 힙에 복사해 둔 묶음(env)으로 넘깁니다. 결과는 MiClo 값 식입니다.
+    /// Emits anonymous/nested functions as C. The body is hoisted into a top-level C function,
+    /// and captured values are passed as a heap-copied bundle (env). The result is a MiClo value expression.
     fn gen_closure(&mut self, f: &crate::ast::Shared<FnDecl>, line: usize) -> String {
         self.lam_count += 1;
         let k = self.lam_count;
@@ -4219,7 +4219,7 @@ impl CGen {
             ptys.push(t);
         }
 
-        // 무엇을 붙잡는가: 본문이 쓰는 바깥 이름 중 지금 보이는 지역 변수.
+        // What gets captured: outer names used by the body that are currently visible locals.
         let mut caps: Vec<(String, Ty, String)> = Vec::new();
         for n in free_vars(f) {
             if let Some(t) = self.ty.lookup(&n) {
@@ -4228,7 +4228,7 @@ impl CGen {
             }
         }
 
-        // 반환 타입. 적지 않은 익명 함수는 본문 식에서 추론합니다.
+        // Return type. For anonymous functions without one, infer it from the body expression.
         self.ty.push_scope();
         for (p, t) in f.params.iter().zip(&ptys) {
             self.ty.declare(&p.name, t.clone());
@@ -4253,7 +4253,7 @@ impl CGen {
             self.add_tdef(&format!("struct {}", env_name), d, &deps);
         }
 
-        // --- 끌어올린 함수 본문 ---
+        // --- hoisted function body ---
         let rc = self.ctype(&ret, line);
         let mut plist = vec!["void* _envp".to_string()];
         for (p, t) in f.params.iter().zip(&ptys) {
@@ -4278,7 +4278,7 @@ impl CGen {
         self.indent = 1;
         let saved_base = std::mem::replace(&mut self.dbg_base, self.ty.scope_depth());
         self.ty.push_scope();
-        // `spawn f(x)` 을 감싼 익명 함수는 호출 경로에 보이지 않게 합니다(작업은 f 부터 보임).
+        // Hide the anonymous function wrapping `spawn f(x)` from the call path (the task appears starting at f).
         if self.dbg && !f.name.starts_with("λspawn") {
             self.w(&format!("MI_DBG_FN({});", c_string(&f.shown_name())));
         }
@@ -4293,7 +4293,7 @@ impl CGen {
             }
         }
         if !f.is_lambda() {
-            // 자기 이름으로 자기를 부를 수 있게(재귀).
+            // So it can call itself by its own name (recursion).
             self.w(&format!(
                 "MiClo {} = {{ (void*){}, _envp }}; (void){};",
                 local(&f.name),
@@ -4335,7 +4335,7 @@ impl CGen {
         self.cur_ret = saved_ret;
         self.renames = saved_renames;
         self.expect = saved_expect;
-        // 바깥 함수로 돌아왔으니 다음 문장에서 `#line` 을 다시 찍게 합니다.
+        // Back in the outer function, so make the next statement emit `#line` again.
         self.last_line = if saved_line == 0 { 0 } else { usize::MAX };
         if !f.ensures.is_empty() {
             self.errors.push(
@@ -4344,7 +4344,7 @@ impl CGen {
             );
         }
 
-        // --- 만드는 자리 ---
+        // --- construction site ---
         if caps.is_empty() {
             return format!("((MiClo){{ (void*){}, NULL }})", fname);
         }
@@ -4359,8 +4359,8 @@ impl CGen {
         )
     }
 
-    /// 값 의미론을 지키기 위한 복사. 리스트·사전처럼 속을 가리키는 값은
-    /// 속까지 새로 만들어야 복사본을 고쳐도 원본이 그대로입니다.
+    /// Copy to preserve value semantics. Values that point to contents, like lists·dicts,
+    /// must be deep-copied so modifying the copy leaves the original intact.
     fn copy_value(&mut self, code: String, t: &Ty, line: usize) -> String {
         if !self.needs_copy(t) {
             return code;
@@ -4375,7 +4375,7 @@ impl CGen {
         }
     }
 
-    /// 이 타입의 값을 복사할 때 속까지 새로 만들어야 하는가.
+    /// Whether copying a value of this type requires a deep copy.
     fn needs_copy(&mut self, t: &Ty) -> bool {
         match t {
             Ty::List(_) | Ty::Dict(_, _) => true,
@@ -4385,7 +4385,7 @@ impl CGen {
                 if let Some(b) = self.copy_needed.get(n) {
                     return *b;
                 }
-                // 자기 자신을 품는 구조체를 위해 먼저 false 로 적어 둡니다.
+                // Record false first, for structs that contain themselves.
                 self.copy_needed.insert(n.clone(), false);
                 let sd = match self.ty.structs.get(n).cloned() {
                     Some(sd) => sd,
@@ -4410,7 +4410,7 @@ impl CGen {
         }
     }
 
-    /// 속까지 복사하는 C 함수를 (한 번만) 만들고 그 이름을 냅니다.
+    /// Generates (once) a C function that deep-copies, and returns its name.
     fn copy_fn(&mut self, t: &Ty, line: usize) -> String {
         let c = self.ctype(t, line);
         let name = format!("mi_cp_{}", ty_key(t));
@@ -4462,7 +4462,7 @@ impl CGen {
                         if let Some(te) = &f.ty {
                             let ft = self.ty.resolve(te, sd.line);
                             if self.boxed.contains(&(n.clone(), f.name.clone())) {
-                                // 상자에 든 필드: 새 상자를 만들어 속까지 복사합니다(값 의미론).
+                                // Boxed field: make a new box and deep-copy (value semantics).
                                 let fc = self.ctype(&ft, line);
                                 let e = self.copy_value(format!("(*v.{})", local(&f.name)), &ft, line);
                                 let _ = writeln!(
@@ -4490,13 +4490,13 @@ impl CGen {
         name
     }
 
-    /// 새로 만든 값이라 복사할 필요가 없는가(원소가 리스트가 아닌 리스트·사전 리터럴).
+    /// Whether the value is freshly created and needs no copy (list·dict literals whose elements are not lists).
     fn is_fresh(&mut self, e: &Expr, t: &Ty) -> bool {
         match (e, t) {
             (Expr::List(_), Ty::List(inner)) => !self.needs_copy(inner),
             (Expr::Dict(_), Ty::Dict(_, v)) => !self.needs_copy(v),
-            // 언제나 새 리스트를 만들어 돌려주는 내장 함수들. 아레나 리스트는
-            // 복사하면 아레나를 떠나 버리므로 특히 복사하면 안 됩니다.
+            // Built-ins that always return a new list. Arena lists in particular
+            // must not be copied, since copying moves them out of the arena.
             (Expr::Call { callee, .. }, _) => match callee.as_ref() {
                 Expr::Field(o, m, _, _) => {
                     (m == "list" && self.infer(o) == Ty::Arena)
@@ -4511,7 +4511,7 @@ impl CGen {
         }
     }
 
-    /// 대입·바인딩 자리에 들어가는 값을 값 의미론대로 복사합니다.
+    /// Copies a value going into an assignment·binding according to value semantics.
     fn bind_copy(&mut self, code: String, e: &Expr, t: &Ty, line: usize) -> String {
         if self.is_fresh(e, t) {
             code
@@ -4580,10 +4580,10 @@ impl CGen {
                     let non_self: Vec<Convention> =
                         decl.params.iter().filter(|p| !p.is_self).map(|p| p.conv).collect();
                     let saved = self.expect.take();
-                    // `inout self` 메서드는 수신자를 포인터로 넘깁니다.
+                    // `inout self` methods pass the receiver as a pointer.
                     let recv = if self_inout { self.inout_ref(obj) } else { self.expr(obj) };
                     let mut a = vec![recv];
-                    // 매개변수 타입을 알려 줘야 `{}` 나 `[]` 같은 빈 값도 제 타입으로 만들어집니다.
+                    // Parameter types must be passed down so empty values like `{}` or `[]` get the right type.
                     let want: Vec<Ty> =
                         sig.params.iter().filter(|(n, _)| n != "self").map(|(_, t)| t.clone()).collect();
                     for (i, x) in args.iter().enumerate() {
@@ -4609,14 +4609,14 @@ impl CGen {
         }
 
         if let Expr::Ident(name, l, _) = callee {
-            // 함수 값(지역 변수·인자로 받은 함수)을 부르면 간접 호출입니다.
+            // Calling a function value (a local variable or parameter holding a function) is an indirect call.
             if self.ty.fns.get(name).is_none() {
                 if let Some(Ty::Fn(params, ret)) = self.ty.lookup(name) {
                     let cexpr = self.cname(name);
                     return self.emit_indirect_call(cexpr, &params, &ret, args, *l);
                 }
             }
-            // `channel[T]()` / `channel[T](크기)`
+            // `channel[T]()` / `channel[T](capacity)`
             if name == "channel" && self.ty.fns.get(name).is_none() {
                 self.uses_conc = true;
                 let et = match self.infer(&Expr::Call { callee: Box::new(callee.clone()), targs: targs.to_vec(), args: args.to_vec(), line, col: _col }) {
@@ -4632,7 +4632,7 @@ impl CGen {
                     None => format!("mi_chan_new((int64_t)sizeof({}), 0, false)", c),
                 };
             }
-            // 메모리 Level 2 내장 함수
+            // Memory Level 2 built-ins
             if name == "alloc" {
                 let elem = match targs.first() {
                     Some(te) => self.ty.resolve(te, *l),
@@ -4678,7 +4678,7 @@ impl CGen {
                 };
                 return format!("MI_FREE({})", p);
             }
-            // 구조체 생성
+            // Struct construction
             if let Some(sd) = self.ty.structs.get(name).cloned() {
                 let mut inits = Vec::new();
                 let mut pi = 0usize;
@@ -4713,7 +4713,7 @@ impl CGen {
                         };
                         inits.push(format!(".{} = {}", local(&f.name), c));
                     } else if self.boxed.contains(&(sd.name.clone(), f.name.clone())) {
-                        // 적지 않은 상자 필드도 빈 상자(none)를 달아 둡니다.
+                        // Boxed fields that weren't given also get an empty box (none).
                         let ft = f.ty.as_ref().map(|te| self.ty.resolve(te, *l)).unwrap_or(Ty::Unknown);
                         let fc = self.ctype(&ft, *l);
                         inits.push(format!(
@@ -4726,7 +4726,7 @@ impl CGen {
                 self.expect = saved;
                 return format!("((struct {}){{ {} }})", mangle(&sd.name), inits.join(", "));
             }
-            // 열거형 변형 생성
+            // Enum variant construction
             if let Some(ename) = self.ty.variant_of.get(name).cloned() {
                 let ed = self.ty.enums.get(&ename).cloned().unwrap();
                 let vd = ed.variants.iter().find(|v| &v.name == name).unwrap().clone();
@@ -4748,7 +4748,7 @@ impl CGen {
                         self.expect = Some(ft.clone());
                         let c = self.expr(v);
                         let c = self.bind_copy(c, v, &ft, *l);
-                        // 열거형 필드는 포인터로 담으므로 힙에 올려 주소를 넣습니다.
+                        // Enum fields are stored as pointers, so allocate on the heap and store the address.
                         let c = if let Ty::Enum(en2) = &ft {
                             let m = mangle(en2);
                             format!(
@@ -4775,7 +4775,7 @@ impl CGen {
                     payload
                 );
             }
-            // C 함수
+            // C functions
             if self.ty.externs.contains(name) {
                 let sig = self.ty.fns.get(name).cloned().unwrap();
                 let saved = self.expect.take();
@@ -4787,13 +4787,13 @@ impl CGen {
                         Some(a) => &a.value,
                         None => continue,
                     };
-                    // `inout` 자리는 변수의 자리를 넘겨야 C가 거기에 써 넣습니다.
+                    // An `inout` slot must pass the variable's address so C can write into it.
                     if convs.get(i) == Some(&Convention::Inout) {
                         out.push(self.inout_ref(v));
                         continue;
                     }
                     let c = self.expr(v);
-                    // 내 함수를 라이브러리에 넘겨주는 자리.
+                    // Where my function is passed to a library.
                     if let Some(Some((cps, cret))) = cbs.get(i) {
                         if let Expr::Ident(fname, fl, _) = &v {
                             if let Some(t) = self.make_callback(fname, cps, cret, *fl) {
@@ -4819,7 +4819,7 @@ impl CGen {
                         continue;
                     }
                     out.push(match wt {
-                        // C는 "0으로 끝나는 문자열"을 기대하므로 맞춰 줍니다.
+                        // C expects a "NUL-terminated string", so provide one.
                         Ty::Str => format!("mi_cstr({})", c),
                         Ty::Raw(inner) => {
                             let ec = self.ctype(inner, *l);
@@ -4836,14 +4836,14 @@ impl CGen {
                     _ => call,
                 };
             }
-            // 사용자 함수
+            // User functions
             if self.ty.fns.contains_key(name) {
                 let sig = self.ty.fns.get(name).cloned().unwrap();
                 let want: Vec<(String, Ty)> =
                     sig.params.iter().filter(|(n, _)| n != "self").cloned().collect();
 
-                // 제네릭 함수면 타입 매개변수를 채웁니다. 명시한 타입(`f[Int](...)`)이
-                // 있으면 그걸 쓰고, 없으면 인자 타입에서 알아냅니다.
+                // For generic functions, fill in the type parameters. Use explicit types (`f[Int](...)`)
+                // if given; otherwise infer them from the argument types.
                 let is_generic = !sig.decl.generics.is_empty();
                 let mut subst: HashMap<String, Ty> = HashMap::new();
                 if is_generic {
@@ -4873,7 +4873,7 @@ impl CGen {
                     }
                 }
 
-                // 제네릭이면 특수화 이름을 쓰고 대기열에 올립니다.
+                // If generic, use the specialization name and enqueue it.
                 let cname = if is_generic {
                     let suffix = self.mono_suffix_of(&sig.decl, &subst);
                     let full = format!("{}{}", mangle(name), suffix);
@@ -4892,7 +4892,7 @@ impl CGen {
                 let mut pi = 0usize;
                 let saved = self.expect.take();
                 for (wn, wt) in &want {
-                    // 제네릭 매개변수 타입(T 등)은 실제 타입으로 바꿉니다.
+                    // Replace generic parameter types (T, etc.) with concrete types.
                     let wt: Ty = if is_generic { self.ty.substitute(wt, &subst) } else { wt.clone() };
                     let v = args
                         .iter()
@@ -4914,7 +4914,7 @@ impl CGen {
                     match v {
                         Some(v) => {
                             if is_inout {
-                                // 포인터로 넘깁니다. 인자가 lvalue임은 타입검사기가 보장합니다.
+                                // Pass by pointer. The type checker guarantees the argument is an lvalue.
                                 self.expect = None;
                                 out.push(self.inout_ref(v));
                             } else {
@@ -4935,7 +4935,7 @@ impl CGen {
             return self.builtin(name, args, *l);
         }
 
-        // 함수 값을 돌려주는 식을 바로 부르기: `구하기()(x)` 등.
+        // Directly calling an expression that returns a function value: `get()(x)`, etc.
         if let Ty::Fn(params, ret) = self.infer(callee) {
             let cexpr = self.expr(callee);
             return self.emit_indirect_call(cexpr, &params, &ret, args, line);
@@ -4953,7 +4953,7 @@ impl CGen {
                 if matches!(**t, Ty::Unit) {
                     format!("((void)mi_task_wait({}))", b)
                 } else {
-                    // 결과는 복사해서 줍니다(여러 번 기다려도 서로 다른 값).
+                    // Return a copy of the result (waiting several times yields distinct values).
                     let c = self.ctype(t, line);
                     let v = format!("(*({}*)mi_task_wait({}))", c, b);
                     self.copy_value(v, t, line)
@@ -4988,7 +4988,7 @@ impl CGen {
                 format!("(({}).len)", b)
             }
             (Ty::Str, "len") => {
-                // 글자 수입니다. 바이트 수가 아닙니다.
+                // Character count, not byte count.
                 let b = self.expr(obj);
                 let t = self.next_tmp();
                 format!("({{ MiStr {} = {}; mi_utf8_len({}.p, {}.len); }})", t, b, t, t)
@@ -5088,7 +5088,7 @@ impl CGen {
                 let dv = self.next_tmp();
                 let kv = self.next_tmp();
                 let pv = self.next_tmp();
-                // 키가 있으면 그 값을, 없으면 기본값을 냅니다.
+                // If the key exists, yield its value; otherwise the default.
                 format!(
                     "({{ MiDict {d} = {b}; {kc} {kv} = {kk}; {vc}* {pv} = ({vc}*)mi_dict_at(&{d}, &{kv}); {pv} ? *{pv} : ({def}); }})",
                     d = dv, b = b, kc = kc, kv = kv, kk = kk, vc = vc, pv = pv, def = def
@@ -5177,7 +5177,7 @@ impl CGen {
                 let vt = self.next_tmp();
                 let it = self.next_tmp();
                 let rt = self.next_tmp();
-                // 구조체·리스트 원소도 run 과 같게 깊이 비교합니다.
+                // Struct·list elements are also compared deeply, same as run.
                 let eq = self.eq_of(t, format!("(*({}*)mi_list_at(&{}, {}))", ec, lt, it), vt.clone(), line);
                 let found = format!(
                     "({{ MiList {} = {}; {} {} = {}; int64_t {} = -1; for (int64_t {} = 0; {} < {}.len; {}++) {{ if ({}) {{ {} = {}; break; }} }} {}; }})",
@@ -5319,7 +5319,7 @@ impl CGen {
                 let at = self.infer(&args[0].value);
                 let a = self.expr(&args[0].value);
                 if at == Ty::Str {
-                    // 글자 수입니다. 바이트 수가 아닙니다.
+                    // Character count, not byte count.
                     let t = self.next_tmp();
                     format!("({{ MiStr {} = {}; mi_utf8_len({}.p, {}.len); }})", t, a, t, t)
                 } else {
@@ -5356,7 +5356,7 @@ impl CGen {
             "error" => {
                 let at = self.infer(&args[0].value);
                 let msg = if matches!(at, Ty::Enum(_)) {
-                    // enum 오류는 값을 그대로 담습니다.
+                    // Enum errors hold the value as-is.
                     let v = self.expr(&args[0].value);
                     self.copy_value(v, &at, line)
                 } else {
@@ -5447,7 +5447,7 @@ impl CGen {
                 format!("mi_set_cwd({})", a)
             }
             "pid" => "((int64_t)getpid())".into(),
-            // ---- std.net (네이티브 전용) ----
+            // ---- std.net (native only) ----
             n if n.starts_with("__net_") || n.starts_with("__http") || n == "__url_encode" => {
                 self.uses_net = true;
                 let mut v: Vec<String> = Vec::new();
@@ -5568,7 +5568,7 @@ impl CGen {
                 format!("mi_remove({})", a)
             }
 
-            // ---- 프렐류드 ----
+            // ---- prelude ----
             "sum" => {
                 let lt = self.infer(&args[0].value);
                 let ec = self.elem_ctype(&lt, line);
@@ -5615,8 +5615,8 @@ impl CGen {
             "min" | "max" => {
                 let a = self.expr(&args[0].value);
                 let b = self.expr(&args[1].value);
-                // 인자를 한 번씩만 계산합니다 (부작용이 두 번 일어나지 않게). 인터프리터와 같은 규칙:
-                // min 은 a < b 면 a, max 는 a < b 가 아니면 a.
+                // Evaluate each argument only once (so side effects don't happen twice). Same rule as the interpreter:
+                // min is a if a < b; max is a unless a < b.
                 let ct = if self.infer(&args[0].value) == Ty::Float { "double" } else { "int64_t" };
                 let (ta, tb) = (self.next_tmp(), self.next_tmp());
                 let cond = if name == "min" {
@@ -5643,10 +5643,10 @@ impl CGen {
     }
 }
 
-/// 정규식 엔진의 C판. `src/regex.rs` 와 같은 알고리즘이어야 합니다.
-/// 그래야 `siskin run` 과 `siskin build` 가 같은 답을 냅니다.
+/// C version of the regex engine. Must use the same algorithm as `src/regex.rs`,
+/// so that `siskin run` and `siskin build` give the same answer.
 const RUNTIME_RE: &str = r##"
-/* ---------------- 정규식 ---------------- */
+/* ---------------- Regex ---------------- */
 #define MI_RE_RANGES 64
 #define MI_RE_GROUPS 10
 #define MI_RE_STEPS  2000000
@@ -5707,7 +5707,7 @@ static uint32_t mi_re_escchar(uint32_t e) {
     }
 }
 
-/* \d \w \s 와 그 대문자. 아니면 0을 냅니다. */
+/* \d \w \s and their uppercase forms. Otherwise returns 0. */
 static int mi_re_escclass(uint32_t e, MiClass* out) {
     MiClass c; c.neg = 0; c.n = 0;
     int lower = (e == 'd' || e == 'w' || e == 's');
@@ -5734,7 +5734,7 @@ static int mi_re_escclass(uint32_t e, MiClass* out) {
 
 static void mi_re_alt(MiReP* q);
 
-/* Jmp/Split 의 목적지를 옮깁니다. */
+/* Relocates the targets of Jmp/Split. */
 static MiInst mi_re_shift(MiInst i, int64_t by) {
     if (i.op == 4) i.a += by;
     else if (i.op == 5) { i.a += by; i.b += by; }
@@ -5912,7 +5912,7 @@ static void mi_re_alt(MiReP* q) {
     }
 }
 
-/* MiStr 을 코드포인트 배열로. 한글도 한 글자로 셉니다. */
+/* Converts a MiStr to an array of code points. Each Hangul syllable counts as one character. */
 static int64_t mi_utf8_decode(MiStr s, uint32_t** out) {
     int64_t n = mi_utf8_len(s.p, s.len);
     uint32_t* buf = (uint32_t*)malloc((size_t)(n > 0 ? n : 1) * sizeof(uint32_t));
@@ -5989,7 +5989,7 @@ static int mi_class_has(const MiClass* c, uint32_t ch) {
 
 typedef struct { int64_t pc, sp; int64_t saves[MI_RE_GROUPS * 2]; } MiReFrame;
 
-/* start 자리에서 시작하는 일치. 찾으면 1을 내고 saves 를 채웁니다. */
+/* A match starting at position start. Returns 1 on success and fills saves. */
 static int mi_re_match_at(const MiProg* p, const uint32_t* in, int64_t n,
                           int64_t start, int64_t* saves) {
     int64_t cur[MI_RE_GROUPS * 2];
@@ -6053,7 +6053,7 @@ static int mi_re_search(const MiProg* p, const uint32_t* in, int64_t n,
 
 static void mi_re_free(MiProg* p) { free(p->insts); free(p->cls); }
 
-/* ---- 바깥에서 부르는 여섯 가지 ---- */
+/* ---- the six externally called functions ---- */
 
 static bool mi_re_test(MiStr pat, MiStr text) {
     MiProg p = mi_re_compile(pat);
@@ -6148,7 +6148,7 @@ static MiList mi_re_split(MiStr pat, MiStr text) {
 }
 "##;
 
-/// JSON 의 C판. `src/json.rs` 와 같은 규칙이어야 합니다.
+/// C version of JSON. Must follow the same rules as `src/json.rs`.
 const RUNTIME_JSON: &str = r##"
 /* ---------------- JSON ---------------- */
 /* kind: 0 null, 1 bool, 2 int, 3 float, 4 str, 5 list, 6 dict */
@@ -6267,9 +6267,9 @@ static MiOpt_bool mi_json_as_bool(MiJson* j) {
     return o;
 }
 
-/* ---- 쓰기 ---- */
+/* ---- writing ---- */
 static MiStr mi_json_escape(MiStr s) {
-    /* 최악의 경우 한 글자가 여섯 글자(\u00XX)가 되고, 양 끝에 따옴표가 붙습니다. */
+    /* In the worst case one character becomes six (\u00XX), plus quotes at both ends. */
     char* buf = mi_alloc(s.len * 6 + 2);
     int64_t k = 0;
     buf[k++] = '"';
@@ -6316,7 +6316,7 @@ static MiStr mi_json_write(MiJson* j) {
     }
 }
 
-/* ---- 읽기 ---- */
+/* ---- reading ---- */
 typedef struct {
     const uint32_t* s; int64_t n, i;
     int failed; char msg[160];
@@ -6345,7 +6345,7 @@ static int mi_jp_lit(MiJP* q, const char* w) {
 static MiJson* mi_jp_value(MiJP* q);
 
 static MiStr mi_jp_string(MiJP* q) {
-    q->i++;                                  /* 여는 따옴표 */
+    q->i++;                                  /* opening quote */
     uint32_t* buf = (uint32_t*)malloc((size_t)(q->n + 1) * sizeof(uint32_t));
     if (!buf) mi_panic(MI_T("메모리가 부족합니다", "out of memory"));
     int64_t k = 0;

@@ -1,8 +1,8 @@
-//! 인터프리터가 운영체제와 이야기하는 부분: 날짜, 프로세스, 파일 폴더.
+//! The part of the interpreter that talks to the operating system: dates, processes, files and folders.
 //!
-//! 네이티브 쪽 짝은 `rt_sys.c` 입니다. 두 쪽이 같은 C 함수(localtime_r, mktime …)를
-//! 부르고, 오류 문구도 글자까지 같게 만듭니다. `siskin run` 과 `siskin build` 가
-//! 같은 답을 내야 하기 때문입니다.
+//! Its native counterpart is `rt_sys.c`. Both call the same C functions (localtime_r, mktime …)
+//! and produce error text identical down to the character, because `siskin run` and `siskin build`
+//! must give the same answers.
 
 use std::os::raw::c_int;
 #[cfg(unix)]
@@ -49,8 +49,8 @@ fn empty_tm() -> Tm {
     }
 }
 
-// 윈도우의 C 런타임은 `struct tm` 에 tm_gmtoff 가 없고, 함수 이름도 다릅니다.
-// 네이티브 쪽(`rt_sys.c`)과 같은 함수를 불러 같은 답을 냅니다.
+// The Windows C runtime has no tm_gmtoff in `struct tm`, and function names differ.
+// Call the same functions as the native side (`rt_sys.c`) to get the same answers.
 #[cfg(windows)]
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -120,11 +120,11 @@ unsafe fn join_time(r: &mut Tm, utc: bool) -> i64 {
     }
 }
 
-/// [년, 월, 일, 시, 분, 초, 요일(1=월..7=일), UTC와의 차이(초)]
+/// [year, month, day, hour, minute, second, weekday (1=Mon..7=Sun), offset from UTC (seconds)]
 pub fn time_parts(t: f64, utc: bool) -> Vec<i64> {
     let tt = t.floor() as i64;
     let mut r = empty_tm();
-    // 안전: 크기가 맞는 tm 칸에 C 런타임이 값을 채웁니다.
+    // Safety: the C runtime fills a correctly sized tm slot.
     let off = unsafe { split_time(tt, utc, &mut r) };
     vec![
         r.tm_year as i64 + 1900,
@@ -148,7 +148,7 @@ pub fn time_make(p: &[i64], utc: bool) -> f64 {
     r.tm_min = g(4);
     r.tm_sec = g(5);
     r.tm_isdst = -1;
-    // 안전: 채운 tm 칸을 C 런타임이 읽고 고칩니다.
+    // Safety: the C runtime reads and normalizes the filled tm slot.
     let v = unsafe { join_time(&mut r, utc) };
     v as f64
 }
@@ -159,8 +159,8 @@ pub fn sleep(sec: f64) {
     }
 }
 
-/// 오류의 errno. 유닉스는 그대로 쓰고, 윈도우는 운영체제 오류 번호가 errno 와 달라서
-/// 오류 종류로 C 런타임의 errno 를 맞춥니다(윈도우의 ENOTEMPTY 는 41).
+/// errno of an error. Unix uses it directly; on Windows OS error numbers differ from errno,
+/// so the C runtime's errno is derived from the error kind (Windows ENOTEMPTY is 41).
 #[cfg(unix)]
 fn errno_of(e: &std::io::Error) -> i32 {
     e.raw_os_error().unwrap_or(0)
@@ -180,7 +180,7 @@ fn errno_of(e: &std::io::Error) -> i32 {
     }
 }
 
-/// errno 를 사람이 읽는 까닭으로. `rt_sys` 의 mi_errmsg 와 글자까지 같습니다.
+/// errno as a human-readable reason. Identical, character for character, to mi_errmsg in `rt_sys`.
 pub fn errmsg(path: &str, e: &std::io::Error) -> String {
     let code = errno_of(e);
     let why = match code {
@@ -195,7 +195,7 @@ pub fn errmsg(path: &str, e: &std::io::Error) -> String {
     format!("{}: {}", path, why)
 }
 
-/// 셸 명령 한 줄. 유닉스는 `sh -c`, 윈도우는 `cmd /C` (네이티브 `rt_sys.c` 와 같게).
+/// One shell command line. `sh -c` on Unix, `cmd /C` on Windows (same as native `rt_sys.c`).
 #[cfg(unix)]
 fn shell_command(prog: &str) -> std::process::Command {
     let mut c = std::process::Command::new("sh");
@@ -211,7 +211,7 @@ fn shell_command(prog: &str) -> std::process::Command {
     c
 }
 
-/// 신호로 끝난 프로그램의 끝난 코드(128 + 신호 번호). 윈도우에는 신호가 없습니다.
+/// Exit code of a program killed by a signal (128 + signal number). Windows has no signals.
 #[cfg(unix)]
 fn signal_code(st: &std::process::ExitStatus) -> i64 {
     use std::os::unix::process::ExitStatusExt;
@@ -223,7 +223,7 @@ fn signal_code(_: &std::process::ExitStatus) -> i64 {
     -1
 }
 
-/// 프로그램을 실행하고 (끝난 코드, 표준 출력, 표준 오류)를 돌려줍니다.
+/// Run a program and return (exit code, stdout, stderr).
 pub fn run(prog: &str, args: &[String], shell: bool) -> (i64, String, String) {
     use std::io::Write;
     use std::process::{Command, Stdio};
@@ -258,7 +258,7 @@ pub fn list_dir(p: &str) -> Result<Vec<String>, String> {
     for e in rd.flatten() {
         out.push(e.file_name().to_string_lossy().to_string());
     }
-    // 네이티브와 같은 순서(바이트 순)로 맞춥니다.
+    // Match the native side's order (byte order).
     out.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
     Ok(out)
 }

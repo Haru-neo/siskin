@@ -1,8 +1,8 @@
-/* ---------------- 동시성: spawn 과 channel ----------------
-   작업(spawn) 하나가 운영체제 스레드 하나입니다. 작업에 넘기는 값은 모두 복사본이라
-   작업끼리 같은 메모리를 만지지 않습니다. 서로 주고받을 때는 통로(channel)를 씁니다.
-   통로·작업 상태는 자물쇠 하나(mi_sync)로 지킵니다. 모든 작업이 무언가를 기다리고
-   있으면(교착) 아무도 깨워 줄 수 없으므로 실행 오류로 멈춥니다(인터프리터와 같은 규칙). */
+/* ---------------- Concurrency: spawn and channel ----------------
+   Each task (spawn) is one OS thread. Every value passed to a task is a copy, so
+   tasks never touch the same memory. They communicate through channels.
+   Channel and task state are protected by a single lock (mi_sync). If every task is waiting
+   on something (deadlock), nobody can wake them, so it stops with a runtime error (same rule as the interpreter). */
 #ifndef _WIN32
 #include <pthread.h>
 #endif
@@ -25,8 +25,8 @@ struct MiChan {
 static pthread_mutex_t mi_sync = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t mi_sync_cv = PTHREAD_COND_INITIALIZER;
 static int64_t mi_live = 1, mi_blocked = 0;
-/* 모두 깨울 때마다 늘어납니다. 깨운 순간 기다리던 수는 0 으로 돌립니다(깨어난 쪽이
-   아직 자물쇠를 못 잡았어도 "기다리는 중"으로 세면 교착으로 잘못 볼 수 있어서). */
+/* Incremented on every wake-all. At the moment of waking, the waiting count is reset to 0 (a woken
+   task that has not yet grabbed the lock could otherwise be counted as "waiting" and mistaken for a deadlock). */
 static uint64_t mi_epoch = 0;
 
 static void mi_wake_all(void) {
@@ -47,7 +47,7 @@ static void mi_deadlock(void) {
     exit(1);
 }
 
-/* mi_sync 를 쥔 채로 부릅니다. 한 번 깨어날 때까지 기다립니다. */
+/* Called while holding mi_sync. Waits until woken once. */
 static void mi_block(void) {
     uint64_t e = mi_epoch;
     mi_blocked++;
@@ -77,7 +77,7 @@ static MiTask* mi_task_spawn(MiClo clo, int64_t rsz, void (*run)(MiTask*)) {
     t->clo = clo;
     t->run = run;
     t->res = mi_alloc(rsz > 0 ? rsz : 1);
-    /* 난수 씨앗: 부모에게서 한 번 뽑습니다(인터프리터와 같은 규칙). */
+    /* Random seed: drawn once from the parent (same rule as the interpreter). */
     uint64_t s = mi_next_rand();
     t->seed = s ? s : 0x853C49E6748FEA9Bull;
     pthread_mutex_lock(&mi_sync);
@@ -107,7 +107,7 @@ static bool mi_task_done(MiTask* t) {
     return d;
 }
 
-/* main 이 끝날 때: 아직 도는 작업을 모두 기다립니다. */
+/* When main ends: wait for all tasks still running. */
 static void mi_tasks_finish(void) {
     pthread_mutex_lock(&mi_sync);
     while (mi_live > 1) mi_block();
@@ -150,7 +150,7 @@ static void mi_chan_send(MiChan* c, const void* v) {
     pthread_mutex_unlock(&mi_sync);
 }
 
-/* 하나 받습니다. 닫히고 비었으면 false. */
+/* Receive one value. false if closed and empty. */
 static bool mi_chan_recv(MiChan* c, void* out) {
     pthread_mutex_lock(&mi_sync);
     while (c->len == 0 && !c->closed) mi_block();

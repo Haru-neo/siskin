@@ -1,15 +1,15 @@
-# 16. 파일 나누기와 이름공간
+# 16. Splitting into files, and namespaces
 #
-# `import shapes` 로 가져온 파일의 이름은 `shapes.이름` 으로 씁니다.
-# 그래서 내 파일과 가져온 파일(또는 두 패키지)이 같은 이름을 써도 부딪히지 않습니다.
-# 자주 쓰는 이름만 `from shapes import unit_circle` 처럼 따로 가져올 수도 있습니다.
+# Names from a file brought in with `import shapes` are written as `shapes.name`.
+# So your file and an imported file (or two packages) can use the same name without clashing.
+# You can also bring in just the names you use often, like `from shapes import unit_circle`.
 
 import shapes
 from shapes import unit_circle as circle1
 
-# shapes 에도 describe 가 있지만, 모듈 이름을 붙이므로 괜찮습니다.
+# shapes also has a describe, but that's fine because we prefix the module name.
 fn describe(n: Int) -> Str:
-    return f"도형 {n}개"
+    return f"{n} shapes"
 
 fn main():
     let figs: [shapes.Shape] = [
@@ -21,6 +21,6 @@ fn main():
         print(shapes.describe(f) + "\n")
     match figs[1]:
         case shapes.Box(c, w, h):
-            print(f"상자 모서리 {c}\n")
+            print(f"box corner {c}\n")
         case _:
             pass

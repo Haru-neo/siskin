@@ -1,4 +1,4 @@
-# 구조체, 인터페이스, 열거형, 패턴 매칭
+# Structs, interfaces, enums, pattern matching
 
 from std.math import sqrt
 
@@ -28,13 +28,13 @@ fn area(s: Shape) -> Float:
 
 fn main():
     let v = Vec2(x: 3.0, y: 4.0)
-    print(f"{v.to_str()} 길이 {v.len()}\n")
+    print(f"{v.to_str()} length {v.len()}\n")
 
     let shapes = [Circle(r: 2.0), Rect(w: 3.0, h: 4.0)]
     for s in shapes:
-        print(f"넓이 {area(s)}\n")
+        print(f"area {area(s)}\n")
 
-    # 값 의미론: 복사본을 고쳐도 원본은 그대로입니다
+    # Value semantics: changing the copy leaves the original untouched
     var copy = v
     copy.x = 99.0
-    print(f"원본 {v.to_str()}, 복사본 {copy.to_str()}\n")
+    print(f"original {v.to_str()}, copy {copy.to_str()}\n")

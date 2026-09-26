@@ -1,4 +1,4 @@
-# 웹 서버 액세스 로그 분석기
+# Web server access log analyzer
 from std.fs import read_text
 from std.re import groups
 from std.math import round
@@ -10,7 +10,7 @@ struct Stat:
     bytes: Int
     total_ms: Float
 
-# 소수점 둘째 자리까지 — 언어에 서식 기능이 없어서 직접 만듦
+# Two decimal places — written by hand because the language has no formatting feature
 fn fixed2(x: Float) -> Str:
     let scaled = round(x * 100.0)
     let whole = scaled / 100
@@ -22,7 +22,7 @@ fn fixed2(x: Float) -> Str:
         fs = "0" + fs
     return str(whole) + "." + fs
 
-# 오른쪽에 공백을 채워 표 칸을 맞춤 — 언어에 자리 맞춤 기능이 없어서 직접 만듦
+# Pad with spaces on the right to align table columns — written by hand because the language has no alignment feature
 fn padr(s: Str, n: Int) -> Str:
     if s.len() >= n:
         return s
@@ -33,7 +33,7 @@ fn padl(s: Str, n: Int) -> Str:
         return s
     return " ".repeat(n - s.len()) + s
 
-# hits가 많은 순으로 정렬 — 정렬 기준을 넘길 수 없어서 직접 만듦
+# Sort by hits, descending — written by hand because you cannot pass a sort key
 fn sort_by_hits(rows: [Stat]) -> [Stat]:
     var out = rows
     var i = 0
@@ -83,7 +83,7 @@ fn main() -> !Unit:
             s.errors += 1
         stats[path] = s
 
-    # 사전을 리스트로 옮김 — key로 얻은 값도 다시 none 검사를 해야 함
+    # Move the dictionary into a list — values fetched by key still need another none check
     var rows: [Stat] = []
     for key in stats.keys():
         let s = stats[key]
@@ -92,7 +92,7 @@ fn main() -> !Unit:
 
     let sorted = sort_by_hits(rows)
 
-    print(padr("경로", 18) + padl("요청", 6) + padl("에러", 6) + padl("평균ms", 10) + padl("MB", 8) + "\n")
+    print(padr("path", 18) + padl("hits", 6) + padl("errs", 6) + padl("avg ms", 10) + padl("MB", 8) + "\n")
     print("-".repeat(48) + "\n")
     var total = 0
     for s in sorted:
@@ -101,5 +101,5 @@ fn main() -> !Unit:
               + padl(fixed2(s.total_ms / float(s.hits)), 10)
               + padl(fixed2(float(s.bytes) / 1048576.0), 8) + "\n")
     print("-".repeat(48) + "\n")
-    print(f"전체 {total}건, 해석 못한 줄 {bad}건\n")
+    print(f"{total} requests total, {bad} unparsable lines\n")
     return

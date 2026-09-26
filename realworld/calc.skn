@@ -1,4 +1,4 @@
-# 수식 계산기 — 토큰 나누기 / 파싱 / 계산
+# Expression calculator — tokenize / parse / evaluate
 from std.math import pow
 
 enum Tok:
@@ -12,8 +12,8 @@ enum Node:
     Bin(op: Str, l: Node, r: Node)
     Neg(e: Node)
 
-# 파서는 "만든 가지"와 "다음 위치"를 같이 돌려줘야 한다.
-# 튜플이 없고 위치를 고쳐 쓸 방법이 없어서 이 구조체를 만들었다.
+# The parser has to return both "the node it built" and "the next position".
+# There are no tuples and no way to update the position in place, so this struct exists.
 struct Parsed:
     node: Node
     pos: Int
@@ -48,7 +48,7 @@ fn tokenize(src: Str) -> ![Tok]:
             out.push(Op(c: c))
             i += 1
             continue
-        return error("모르는 글자 " + c)
+        return error("unknown character " + c)
     return out
 
 fn op_at(toks: [Tok], i: Int) -> Str:
@@ -64,29 +64,29 @@ fn op_at(toks: [Tok], i: Int) -> Str:
         case RPar:
             return ")"
 
-# 단항: 숫자, 괄호, 앞에 붙은 마이너스
+# Unary: numbers, parentheses, leading minus
 fn parse_unary(toks: [Tok], i: Int) -> !Parsed:
     if i >= toks.len():
-        return error("수식이 갑자기 끝났습니다")
+        return error("unexpected end of expression")
     if op_at(toks, i) == "-":
         let inner = try parse_unary(toks, i + 1)
         return Parsed(node: Neg(e: inner.node), pos: inner.pos)
     if op_at(toks, i) == "(":
         let inner = try parse_sum(toks, i + 1)
         if op_at(toks, inner.pos) != ")":
-            return error("닫는 괄호가 없습니다")
+            return error("missing closing parenthesis")
         return Parsed(node: inner.node, pos: inner.pos + 1)
     match toks[i]:
         case Num(v):
             return Parsed(node: Lit(v: v), pos: i + 1)
         case Op(c):
-            return error("숫자가 올 자리에 " + c + "가 왔습니다")
+            return error("expected a number but got " + c)
         case LPar:
-            return error("괄호 처리 오류")
+            return error("parenthesis handling error")
         case RPar:
-            return error("여는 괄호 없이 )가 왔습니다")
+            return error(") without a matching opening parenthesis")
 
-# 거듭제곱: 오른쪽부터 묶는다 (2^3^2 = 2^9)
+# Exponentiation: right-associative (2^3^2 = 2^9)
 fn parse_pow(toks: [Tok], i: Int) -> !Parsed:
     let base = try parse_unary(toks, i)
     if op_at(toks, base.pos) == "^":
@@ -94,7 +94,7 @@ fn parse_pow(toks: [Tok], i: Int) -> !Parsed:
         return Parsed(node: Bin(op: "^", l: base.node, r: exp.node), pos: exp.pos)
     return base
 
-# 곱셈과 나눗셈
+# Multiplication and division
 fn parse_product(toks: [Tok], i: Int) -> !Parsed:
     var cur = try parse_pow(toks, i)
     while op_at(toks, cur.pos) == "*" or op_at(toks, cur.pos) == "/":
@@ -103,7 +103,7 @@ fn parse_product(toks: [Tok], i: Int) -> !Parsed:
         cur = Parsed(node: Bin(op: sym, l: cur.node, r: rhs.node), pos: rhs.pos)
     return cur
 
-# 덧셈과 뺄셈
+# Addition and subtraction
 fn parse_sum(toks: [Tok], i: Int) -> !Parsed:
     var cur = try parse_product(toks, i)
     while op_at(toks, cur.pos) == "+" or op_at(toks, cur.pos) == "-":
@@ -130,22 +130,22 @@ fn eval(n: Node) -> !Float:
                 return a * b
             if op == "/":
                 if b == 0.0:
-                    return error("0으로 나눴습니다")
+                    return error("division by zero")
                 return a / b
             if op == "^":
                 return pow(a, b)
-            return error("모르는 연산 " + op)
+            return error("unknown operator " + op)
 
 fn calc(src: Str) -> !Float:
     let toks = try tokenize(src)
     let p = try parse_sum(toks, 0)
     if p.pos != toks.len():
-        return error("다 읽지 못한 부분이 있습니다")
+        return error("part of the input was not consumed")
     return try eval(p.node)
 
 fn show(src: Str):
     let v = calc(src) catch e:
-        print(src + "  ->  오류: " + str(e) + "\n")
+        print(src + "  ->  error: " + str(e) + "\n")
         return
     print(src + "  ->  " + str(v) + "\n")
 

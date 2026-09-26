@@ -1,4 +1,4 @@
-/* ------- 운영체제와 이야기하는 부분: 날짜, 프로세스, 파일 폴더 (자동 생성) ------- */
+/* ------- The part that talks to the operating system: dates, processes, files and folders (emitted automatically) ------- */
 #include <time.h>
 #ifndef _WIN32
 #include <unistd.h>
@@ -25,12 +25,12 @@ static void mi_sleep(double sec) {
 #endif
 }
 
-/* [년, 월, 일, 시, 분, 초, 요일(1=월..7=일), UTC와의 차이(초)] */
+/* [year, month, day, hour, minute, second, weekday (1=Mon..7=Sun), offset from UTC (seconds)] */
 static MiList mi_time_parts(double t, bool utc) {
     time_t tt = (time_t)floor(t);
     struct tm r;
 #ifdef _WIN32
-    /* 윈도우에는 tm_gmtoff 가 없어서, 현지 시각을 UTC 로 읽은 값과의 차이로 구합니다. */
+    /* Windows has no tm_gmtoff, so compute it as the difference from the local time read as UTC. */
     int64_t off = 0;
     if (utc) gmtime_s(&r, &tt);
     else { localtime_s(&r, &tt); struct tm c = r; off = (int64_t)(_mkgmtime(&c) - tt); }
@@ -45,7 +45,7 @@ static MiList mi_time_parts(double t, bool utc) {
     return l;
 }
 
-/* 날짜 칸들을 초로. 범위를 넘는 값(13월, 32일)은 알아서 다음 달로 넘깁니다. */
+/* Date fields to seconds. Out-of-range values (month 13, day 32) roll over into the next month. */
 static double mi_time_make(int64_t y, int64_t mo, int64_t d, int64_t h, int64_t mi, int64_t s, bool utc) {
     struct tm r;
     memset(&r, 0, sizeof r);
@@ -93,7 +93,7 @@ static MiRes_int64_t mi_set_cwd(MiStr p) {
 
 static MiStr mi_run_out_s, mi_run_err_s;
 
-/* 버퍼에 이어 붙이기 */
+/* Append to a buffer */
 typedef struct { char* p; int64_t len, cap; } MiBuf;
 static void mi_buf_add(MiBuf* b, const char* s, int64_t n) {
     if (b->len + n + 1 > b->cap) {
@@ -109,7 +109,7 @@ static void mi_buf_add(MiBuf* b, const char* s, int64_t n) {
 }
 
 #ifdef _WIN32
-/* 명령줄 인자 하나를 윈도우 규칙대로 따옴표로 감쌉니다(Rust 의 Command 와 같은 규칙). */
+/* Quote one command-line argument according to Windows rules (same rules as Rust's Command). */
 static void mi_quote_arg(MiBuf* b, const char* a) {
     bool need = (*a == 0) || strpbrk(a, " \t\"") != NULL;
     if (!need) { mi_buf_add(b, a, (int64_t)strlen(a)); return; }
@@ -126,7 +126,7 @@ static void mi_quote_arg(MiBuf* b, const char* a) {
     mi_buf_add(b, "\"", 1);
 }
 
-/* 자식의 출력을 받을 임시 파일. 닫으면 저절로 지워집니다. */
+/* Temporary file to receive the child's output. Deleted automatically when closed. */
 static HANDLE mi_tmp_handle(void) {
     wchar_t dir[MAX_PATH + 1], name[MAX_PATH + 1];
     if (!GetTempPathW(MAX_PATH, dir) || !GetTempFileNameW(dir, L"skn", 0, name)) return INVALID_HANDLE_VALUE;
@@ -145,8 +145,8 @@ static MiStr mi_tmp_read(HANDLE h) {
     return b.p ? mi_mk(b.p, b.len) : mi_str("");
 }
 
-/* 프로그램을 실행하고 끝날 때까지 기다립니다. 표준 출력과 표준 오류를 따로 모읍니다.
-   shell 이면 `cmd /C 명령` 으로 돌립니다. 돌려주는 값은 끝난 코드. */
+/* Run a program and wait for it to finish. Collect stdout and stderr separately.
+   With shell, run it as `cmd /C command`. Returns the exit code. */
 static int64_t mi_run(MiStr prog, MiList args, bool shell) {
     mi_run_out_s = mi_str(""); mi_run_err_s = mi_str("");
     MiBuf cl = {0};
@@ -192,8 +192,8 @@ static int64_t mi_run(MiStr prog, MiList args, bool shell) {
     return (int64_t)(int32_t)code;
 }
 #else
-/* 프로그램을 실행하고 끝날 때까지 기다립니다. 표준 출력과 표준 오류를 따로 모읍니다.
-   shell 이면 `sh -c 명령` 으로 돌립니다. 돌려주는 값은 끝난 코드. */
+/* Run a program and wait for it to finish. Collect stdout and stderr separately.
+   With shell, run it as `sh -c command`. Returns the exit code. */
 static int64_t mi_run(MiStr prog, MiList args, bool shell) {
     int po[2], pe[2];
     mi_run_out_s = mi_str(""); mi_run_err_s = mi_str("");
@@ -245,7 +245,7 @@ static int64_t mi_run(MiStr prog, MiList args, bool shell) {
 
 #endif
 
-/* ---- std.fs 추가분 ---- */
+/* ---- std.fs additions ---- */
 #ifdef _WIN32
 static bool mi_is_dir(MiStr p) {
     wchar_t* w = mi_wide(mi_cstr(p));
@@ -311,13 +311,13 @@ static MiRes_MiList_S mi_list_dir(MiStr p) {
     }
     closedir(d);
 #endif
-    /* 운영체제가 주는 순서는 제각각이라 이름순으로 맞춥니다. */
+    /* The OS returns entries in arbitrary order, so sort them by name. */
     if (r.val.len > 1) qsort(r.val.data, (size_t)r.val.len, sizeof(MiStr), mi_cmp_str_p);
     r.ok = true;
     return r;
 }
 
-/* 중간 폴더까지 만듭니다 (`mkdir -p`). 이미 있으면 괜찮습니다. */
+/* Create intermediate folders too (`mkdir -p`). Fine if it already exists. */
 static MiRes_int64_t mi_make_dir(MiStr p) {
     MiRes_int64_t r; r.val = 0; r.err = mi_str(""); r.ok = true;
     char* path = (char*)mi_cstr(p);
@@ -326,7 +326,7 @@ static MiRes_int64_t mi_make_dir(MiStr p) {
     for (char* s = cp + 1; ; s++) {
         bool end = (*s == 0);
 #ifdef _WIN32
-        /* 윈도우는 `\` 도 경로 구분자이고, `C:` 같은 드라이브 이름은 만들 수 없으니 건너뜁니다. */
+        /* On Windows, `\` is also a path separator, and drive names like `C:` cannot be created, so skip them. */
         if ((*s == '/' || *s == '\\' || end) && s[-1] != ':') {
             char keep = *s; *s = 0;
             wchar_t* w = mi_wide(cp);

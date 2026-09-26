@@ -1,16 +1,16 @@
-//! P2 타입 검사기.
+//! P2 type checker.
 //!
-//! P1 인터프리터는 타입 표기를 파싱만 하고 무시했습니다. 여기서부터는
-//! 실행 전에 검사합니다. 이것이 있어야 P3 네이티브 코드 생성이 가능합니다.
-//! (타입을 알아야 C의 `long long`인지 `double`인지 정할 수 있습니다.)
+//! The P1 interpreter only parsed type annotations and ignored them. From here on
+//! they are checked before running. This is what makes P3 native code generation possible.
+//! (We need the types to decide whether something is a C `long long` or a `double`.)
 
 use crate::ast::*;
 use crate::error::SiskinError;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-/// Siskin 이 이미 가지고 있는 이름들. C 헤더에 같은 이름이 있어도
-/// Siskin 쪽이 이깁니다 (`abs`, `exit`, `free`, `pow` 처럼 겹치는 게 많습니다).
+/// Names Siskin already provides. Even if a C header has the same name,
+/// Siskin's wins (many overlap, like `abs`, `exit`, `free`, `pow`).
 pub const SISKIN_BUILTINS: &[&str] = &[
     "print", "eprint", "len", "range", "str", "input", "args", "exit", "int", "float", "error", "assert",
     "abs", "min", "max", "sqrt", "sin", "cos", "tan", "log", "log10", "exp", "pi", "e", "now",
@@ -27,7 +27,7 @@ pub enum Ty {
     Float,
     Bool,
     Str,
-    /// `none` 리터럴 자체의 타입
+    /// The type of the `none` literal itself
     NoneTy,
     Unit,
     List(Box<Ty>),
@@ -35,30 +35,30 @@ pub enum Ty {
     Struct(String),
     Enum(String),
     Optional(Box<Ty>),
-    /// 실패할 수 있는 값: (성공 타입, 오류 타입). `!T` 는 오류 타입이 Str.
+    /// A fallible value: (success type, error type). For `!T` the error type is Str.
     Fallible(Box<Ty>, Box<Ty>),
-    /// `*T` — 원시 포인터 (메모리 Level 2)
+    /// `*T` — raw pointer (memory Level 2)
     Raw(Box<Ty>),
-    /// `with arena a:` 가 만드는 아레나 (메모리 Level 1)
+    /// Arena created by `with arena a:` (memory Level 1)
     Arena,
-    /// `std.json` 의 값
+    /// A `std.json` value
     Json,
-    /// `(T, U, ...)` — 튜플
+    /// `(T, U, ...)` — tuple
     Tuple(Vec<Ty>),
-    /// `(A, B) -> R` — 함수 값의 타입
+    /// `(A, B) -> R` — type of a function value
     Fn(Vec<Ty>, Box<Ty>),
-    /// `fn f[T](...)` 의 `T` 같은 타입 매개변수. 호출 때 실제 타입으로 채워집니다.
+    /// A type parameter such as the `T` in `fn f[T](...)`. Filled with a concrete type at the call.
     Var(String),
-    /// `spawn f(x)` 가 돌려주는 작업 손잡이. `t.wait()` 가 f 의 결과를 줍니다.
+    /// Task handle returned by `spawn f(x)`. `t.wait()` yields f's result.
     Task(Box<Ty>),
-    /// `channel[T]()` 로 만든 통로. 작업끼리 값을 주고받습니다(보낼 때 복사).
+    /// Channel created by `channel[T]()`. Tasks pass values through it (copied on send).
     Chan(Box<Ty>),
-    /// 아직 결정되지 않음 (빈 리스트 등). 무엇과도 맞습니다.
+    /// Not yet determined (empty list, etc.). Matches anything.
     Unknown,
 }
 
 impl Ty {
-    /// 오류 값이 글자인 보통의 `!T`.
+    /// The ordinary `!T` whose error value is a string.
     pub fn fallible(t: Ty) -> Ty {
         Ty::Fallible(Box::new(t), Box::new(Ty::Str))
     }
@@ -123,48 +123,48 @@ pub struct Types {
     cur_ret: Ty,
     cur_fn: String,
     imported: HashSet<String>,
-    /// `extern "C" fn ...` 으로 선언된 함수 이름들.
+    /// Names of functions declared with `extern "C" fn ...`.
     pub externs: HashSet<String>,
-    /// `extern "C" link "..."` 으로 적힌 라이브러리 이름들.
+    /// Library names given with `extern "C" link "..."`.
     pub links: Vec<String>,
-    /// 헤더에 있지만 자동으로 못 가져온 함수: 이름 -> (헤더, 이유)
+    /// Functions present in a header that could not be imported automatically: name -> (header, reason)
     pub c_skipped: std::collections::HashMap<String, (String, String)>,
-    /// `unsafe:` 안인가. 원시 포인터 연산은 여기서만 됩니다.
+    /// Whether we are inside `unsafe:`. Raw pointer operations are allowed only here.
     unsafe_depth: usize,
-    /// `with arena:` 안인가.
+    /// Whether we are inside `with arena:`.
     arena_depth: usize,
-    /// 아레나에서 나온 값의 이름들. 블록 밖으로 내보낼 수 없습니다.
+    /// Names of values that came from an arena. They cannot escape the block.
     tainted: HashSet<String>,
-    /// 열려 있는 `with arena` 블록마다, 블록이 시작할 때의 스코프 깊이.
+    /// For each open `with arena` block, the scope depth at which the block started.
     arena_bases: Vec<usize>,
-    /// 바꿀 수 있는 이름들(scopes와 짝을 이룸). `var`, `inout`/`owned` 인자,
-    /// `inout self`가 여기 들어갑니다. `let`과 읽기 전용 인자는 안 들어갑니다.
+    /// Mutable names (paired with scopes). `var`, `inout`/`owned` parameters
+    /// and `inout self` go here. `let` and read-only parameters do not.
     mutables: Vec<HashSet<String>>,
-    /// 지금 검사 중인 함수의 타입 매개변수들(`fn f[T, U]`의 T, U).
-    /// `resolve`가 이 안의 이름을 만나면 `Ty::Var`로 봅니다.
+    /// Type parameters of the function currently being checked (the T, U in `fn f[T, U]`).
+    /// When `resolve` meets one of these names it treats it as `Ty::Var`.
     cur_generics: HashSet<String>,
-    /// 이미 알린 "없는 타입" 이름. 같은 이름을 쓰는 곳마다 되풀이하지 않습니다.
+    /// "Unknown type" names already reported. Not repeated at every place the name is used.
     reported_types: HashSet<String>,
-    /// 네이티브 단형화(monomorphization)에서 타입 매개변수의 실제 타입.
-    /// 비어 있으면(타입 검사 중) `resolve`는 `Ty::Var`를 냅니다.
+    /// Concrete types for type parameters during native monomorphization.
+    /// If empty (during type checking), `resolve` yields `Ty::Var`.
     pub mono_subst: HashMap<String, Ty>,
-    /// 익명 함수 인자 타입을 적지 않았을 때 쓸 "들어갈 자리의 타입".
-    /// `map(xs, fn(x): x * 2)` 에서 `x` 가 Int 인 것을 여기서 압니다.
+    /// The "expected type of the slot" used when an anonymous function omits parameter types.
+    /// This is how we know `x` is Int in `map(xs, fn(x): x * 2)`.
     lambda_hint: Option<Ty>,
-    /// 익명 함수마다 확정된 (인자 타입들, 반환 타입). 선언 주소로 찾습니다.
-    /// 네이티브 코드 생성이 인자 타입을 적지 않은 익명 함수를 만들 때 씁니다.
+    /// The resolved (parameter types, return type) for each anonymous function, keyed by declaration address.
+    /// Used by native code generation to emit anonymous functions whose parameter types were omitted.
     pub lambda_sigs: HashMap<usize, (Vec<Ty>, Ty)>,
-    /// 클로저 본문을 검사 중이면 그 클로저가 시작한 스코프 깊이.
-    /// 이보다 바깥 스코프의 이름은 붙잡은 값이라 읽기만 됩니다.
+    /// While checking a closure body, the scope depth at which that closure starts.
+    /// Names from scopes outside it are captured values and are read-only.
     closure_bases: Vec<usize>,
-    /// 지금 검사(또는 코드 생성) 중인 함수. 가드 절 뒤의 필드 좁히기가
-    /// 함수 나머지에서 `inout` 으로 바뀌는지 볼 때 씁니다.
+    /// The function currently being checked (or generated). Used to see whether field narrowing
+    /// after a guard clause is changed via `inout` in the rest of the function.
     pub cur_decl: Option<crate::ast::Shared<FnDecl>>,
-    /// `closure_bases` 와 짝: 그 클로저가 `spawn` 이 만든 작업 본문인가.
+    /// Paired with `closure_bases`: whether that closure is the body of a task created by `spawn`.
     spawn_bodies: Vec<bool>,
 }
 
-/// `math.sqrt(x)` 처럼 모듈 이름으로 부를 수 있는 표준 모듈인가.
+/// Whether this is a standard module that can be called through its module name, like `math.sqrt(x)`.
 pub fn is_std_module(m: &str) -> bool {
     matches!(m, "math" | "fs" | "io" | "time" | "random" | "re" | "json" | "process" | "net")
 }
@@ -173,7 +173,7 @@ fn err(code: &'static str, msg: impl Into<String>, line: usize, col: usize) -> S
     SiskinError::new(code, msg, line, col)
 }
 
-/// 대입 대상의 뿌리 이름을 찾습니다. `x`, `x.f`, `x[i]`, `x.f[i].g` 모두 `x`.
+/// Finds the root name of an assignment target. `x`, `x.f`, `x[i]`, `x.f[i].g` all give `x`.
 fn root_ident(e: &Expr) -> Option<&str> {
     match e {
         Expr::Ident(n, _, _) => Some(n),
@@ -183,9 +183,9 @@ fn root_ident(e: &Expr) -> Option<&str> {
     }
 }
 
-/// `t.due`, `a.b.c` 처럼 이름과 필드만으로 된 식을 `"t.due"` 글자로 바꿉니다.
-/// 구조체 필드 좁히기(`if t.due != none:`)의 열쇠로 씁니다. 스코프에 이 글자로
-/// 좁혀진 타입을 넣어 두는데, 점이 들어 있어 보통 이름과 겹치지 않습니다.
+/// Turns an expression made only of a name and fields, like `t.due` or `a.b.c`, into the string `"t.due"`.
+/// Used as the key for struct field narrowing (`if t.due != none:`). The narrowed type is stored in the
+/// scope under this string; since it contains a dot, it never clashes with ordinary names.
 pub fn field_path(e: &Expr) -> Option<String> {
     match e {
         Expr::Ident(n, _, _) => Some(n.clone()),
@@ -194,7 +194,7 @@ pub fn field_path(e: &Expr) -> Option<String> {
     }
 }
 
-/// 대입·`inout` 이 실제로 바꾸는 경로. `t.xs[0] = ..` 는 `t.xs` 를 바꿉니다.
+/// The path actually changed by an assignment or `inout`. `t.xs[0] = ..` changes `t.xs`.
 fn write_path(e: &Expr) -> Option<String> {
     match e {
         Expr::Ident(n, _, _) => Some(n.clone()),
@@ -204,7 +204,7 @@ fn write_path(e: &Expr) -> Option<String> {
     }
 }
 
-/// 한쪽이 `?T` 라서 연산이 안 될 때의 안내. 먼저 none 인지 확인하라고 알려 줍니다.
+/// Hint for when an operation fails because one side is `?T`. Tells the user to check for none first.
 fn optional_fix(a: &Ty, b: &Ty) -> Option<String> {
     let t = if matches!(a, Ty::Optional(_)) { a } else if matches!(b, Ty::Optional(_)) { b } else { return None };
     Some(tr!(
@@ -213,22 +213,22 @@ fn optional_fix(a: &Ty, b: &Ty) -> Option<String> {
     ))
 }
 
-/// `w` 가 `k` 의 바깥 경로인가 (`t` 는 `t.due` 의, `a.b` 는 `a.b.c` 의).
+/// Whether `w` is an outer path of `k` (`t` of `t.due`, `a.b` of `a.b.c`).
 fn is_outer_path(w: &str, k: &str) -> bool {
     k.len() > w.len() && k.starts_with(w) && k.as_bytes()[w.len()] == b'.'
 }
 
-/// 좁히기를 지켜야 하는 범위. 이 안에서 `inout` 으로 바뀔 수 있으면 좁히지 않습니다.
+/// The range over which a narrowing must hold. If it may be changed via `inout` in here, no narrowing is done.
 pub enum Region<'a> {
     Block(&'a [Stmt]),
     Expr(&'a Expr),
-    /// 가드 절(`if t.due == none: return`) 뒤: 지금 함수의 이 줄 이후 전부.
+    /// After a guard clause (`if t.due == none: return`): everything after this line in the current function.
     After(usize),
 }
 
-/// 문장들 안에서 `inout` 으로 넘겨지는 경로를 (경로, 줄) 로 모읍니다.
-/// `inout` 인자를 가진 함수·메서드 이름(`inout`)만 봅니다. 이름만 보고 판단하므로
-/// 같은 이름의 다른 함수까지 조심스럽게 셉니다.
+/// Collects paths passed as `inout` within the statements, as (path, line).
+/// Only looks at function/method names that have `inout` parameters (`inout`). Since it judges by name only,
+/// it conservatively also counts other functions with the same name.
 fn call_writes_stmts(stmts: &[Stmt], inout: &HashSet<String>, out: &mut Vec<(String, usize)>) {
     for s in stmts {
         call_writes_stmt(s, inout, out);
@@ -342,13 +342,13 @@ fn call_writes_expr(e: &Expr, inout: &HashSet<String>, out: &mut Vec<(String, us
     }
 }
 
-/// 문장들 안의 대입(`경로 = 값`)을 모읍니다. 반복문 앞에서 좁히기를 풀지 정할 때 씁니다.
+/// Collects assignments (`path = value`) within the statements. Used to decide whether to drop narrowing before a loop.
 fn assign_writes(stmts: &[Stmt], out: &mut Vec<(String, Expr)>) {
     for s in stmts {
         match s {
             Stmt::Assign { target, value, catch, .. } => {
                 if let Some(p) = write_path(target) {
-                    // `x = f() catch e:` 는 값 타입을 여기서 알기 어려우니 늘 "없을 수 있음"으로 봅니다.
+                    // For `x = f() catch e:` the value type is hard to know here, so it is always treated as "may be absent".
                     let v = if catch.is_some() { Expr::NoneLit } else { value.clone() };
                     out.push((p, v));
                 }
@@ -378,7 +378,7 @@ fn assign_writes(stmts: &[Stmt], out: &mut Vec<(String, Expr)>) {
     }
 }
 
-/// `a.alloc[T](n)` 같은 호출에서 실제 대상 식을 꺼냅니다.
+/// Extracts the actual target expression from a call like `a.alloc[T](n)`.
 fn value_arena_src(e: &Expr) -> Option<&Expr> {
     match e {
         Expr::Call { callee, .. } => Some(callee),
@@ -387,7 +387,7 @@ fn value_arena_src(e: &Expr) -> Option<&Expr> {
 }
 
 impl Types {
-    /// 오류를 내지 않고 타입만 살짝 봅니다 (오염 추적용).
+    /// Peeks at the type without reporting errors (for taint tracking).
     fn infer_peek(&self, e: &Expr) -> Option<Ty> {
         match e {
             Expr::Ident(n, _, _) => self.lookup(n),
@@ -395,10 +395,10 @@ impl Types {
         }
     }
 
-    /// 타입만 알아내고 그 과정에서 생긴 오류는 버립니다.
-    /// 진짜 오류는 나중에 정식 `infer`가 한 번만 냅니다.
-    /// `let x = f() catch e:` 의 catch 블록을 검사합니다. 블록은 빠져나가거나
-    /// (return / break / continue), 마지막 줄에 x 대신 넣을 값을 적어야 합니다.
+    /// Determines only the type and discards any errors produced along the way.
+    /// The real errors are reported once, later, by the proper `infer`.
+    /// Checks the catch block of `let x = f() catch e:`. The block must either exit
+    /// (return / break / continue) or end with a value to put into x instead.
     fn check_catch_value(&mut self, c: &CatchClause, name: &str, want: &Ty, err_ty: &Ty, line: usize, col: usize) {
         self.push_scope();
         self.declare(&c.name, err_ty.clone());
@@ -469,10 +469,10 @@ impl Types {
         t
     }
 
-    /// 대입 대상이 실제로 어떤 바인딩의 값을 바꾸는지 봅니다.
-    /// 포인터를 거쳐 쓰는 경우(`p[i] = ...`, `p`가 `*T`)는 그 포인터가
-    /// 가리키는 메모리를 바꿀 뿐 포인터 바인딩 자체는 그대로이므로 None입니다.
-    /// 반대로 리스트·딕셔너리·구조체는 값이라, 원소를 바꾸면 바인딩의 값이 바뀝니다.
+    /// Determines which binding's value an assignment target actually changes.
+    /// Writes through a pointer (`p[i] = ...` where `p` is `*T`) only change the memory the pointer
+    /// points to, not the pointer binding itself, so they yield None.
+    /// Lists, dicts and structs, on the other hand, are values: changing an element changes the binding's value.
     fn mutated_binding(&mut self, target: &Expr) -> Option<String> {
         match target {
             Expr::Ident(n, _, _) => Some(n.clone()),
@@ -488,8 +488,8 @@ impl Types {
         }
     }
 
-    /// `inout` 인자로 넘길 수 있는지 봅니다. 바꿀 수 있는 lvalue여야 합니다.
-    /// 리터럴·계산식(바꿀 곳이 없음)이나 `let`·읽기 전용 값은 넘길 수 없습니다.
+    /// Checks whether this can be passed as an `inout` argument. It must be a mutable lvalue.
+    /// Literals and computed expressions (nothing to change) and `let` or read-only values cannot be passed.
     fn check_inout_arg(&mut self, arg: &Expr, fname: &str, l: usize, c: usize) {
         let is_lvalue = matches!(
             arg,
@@ -568,7 +568,7 @@ impl Types {
     }
 
     fn collect(&mut self, prog: &Program) {
-        // 1차: 구조체와 열거형 이름을 먼저 등록해야 타입 표기를 풀 수 있습니다.
+        // Pass 1: struct and enum names must be registered first so type annotations can be resolved.
         for s in &prog.stmts {
             match s {
                 Stmt::Struct(sd) => {
@@ -585,7 +585,7 @@ impl Types {
                         self.imported.insert(n.clone());
                     }
                     self.check_std_import(path, names, *line, *col);
-                    // `import std.math` 처럼 모듈째 가져오면 `math.sqrt(...)` 로 씁니다.
+                    // Importing a whole module, like `import std.math`, means calls are written `math.sqrt(...)`.
                     if names.is_empty() && path.len() == 2 && path[0] == "std" {
                         self.imported.insert(format!("@{}", path[1]));
                     }
@@ -593,7 +593,7 @@ impl Types {
                 _ => {}
             }
         }
-        // 2차: 함수 시그니처
+        // Pass 2: function signatures
         for s in &prog.stmts {
             if let Stmt::Fn(f) = s {
                 let sig = self.sig_of(f, None);
@@ -607,8 +607,8 @@ impl Types {
                     self.links.push(lib.clone());
                 }
             }
-            // 헤더에는 있지만 아직 자동으로 못 가져오는 함수. 이름을 기억해 뒀다가
-            // 그 이름을 부르면 "없는 이름"이 아니라 왜 못 쓰는지 알려 줍니다.
+            // Functions that are in a header but cannot be imported automatically yet. Remember the names so that
+            // calling one reports why it cannot be used, rather than "unknown name".
             if let Stmt::CHeader { header, only, .. } = s {
                 if only.len() == 2 {
                     self.c_skipped
@@ -616,7 +616,7 @@ impl Types {
                 }
             }
         }
-        // 3차: 메서드
+        // Pass 3: methods
         let structs: Vec<crate::ast::Shared<StructDecl>> = self.structs.values().cloned().collect();
         for sd in structs {
             for m in &sd.methods {
@@ -656,7 +656,7 @@ impl Types {
         FnSig { params, ret, decl: f.clone() }
     }
 
-    /// 문법 상의 타입 표기를 실제 타입으로 바꿉니다.
+    /// Turns a syntactic type annotation into an actual type.
     pub fn resolve(&mut self, te: &TypeExpr, line: usize) -> Ty {
         if let TypeExpr::Named(n, targs) = te {
             if (n == "Task" || n == "Chan") && !self.structs.contains_key(n.as_str()) {
@@ -684,12 +684,12 @@ impl Types {
                 "Float" => Ty::Float,
                 "Bool" => Ty::Bool,
                 "Str" => Ty::Str,
-                // 돌려줄 값이 없다는 뜻. `-> !Unit` 처럼 실패만 알릴 때 씁니다.
+                // Means there is no value to return. Used when only failure is signalled, as in `-> !Unit`.
                 "Unit" => Ty::Unit,
                 "Json" => Ty::Json,
                 other => {
                     if self.cur_generics.contains(other) {
-                        // 단형화 중이면 실제 타입으로, 아니면 타입 매개변수로.
+                        // During monomorphization, the concrete type; otherwise the type parameter.
                         match self.mono_subst.get(other) {
                             Some(concrete) => concrete.clone(),
                             None => Ty::Var(other.to_string()),
@@ -765,7 +765,7 @@ impl Types {
                 Ty::Dict(Box::new(self.resolve(k, line)), Box::new(self.resolve(v, line)))
             }
             TypeExpr::Raw(t) => Ty::Raw(Box::new(self.resolve(t, line))),
-            // `()` 는 돌려줄 값이 없다는 뜻(Unit)입니다. `Task[()]` 처럼 씁니다.
+            // `()` means no value to return (Unit). Written like `Task[()]`.
             TypeExpr::Tuple(ts) if ts.is_empty() => Ty::Unit,
             TypeExpr::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| self.resolve(t, line)).collect()),
             TypeExpr::Fn(ps, r) => Ty::Fn(
@@ -775,7 +775,7 @@ impl Types {
         }
     }
 
-    // --------------------------------------------------------------- 스코프
+    // --------------------------------------------------------------- scopes
 
     pub fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
@@ -791,8 +791,8 @@ impl Types {
         self.scopes.len()
     }
 
-    /// 디버거가 보여 줄 지역 변수: `base` 번째 스코프부터 보이는 이름과 타입(바깥 것부터).
-    /// 좁혀 둔 필드(`t.due`) 같은 내부 이름은 뺍니다.
+    /// Local variables for the debugger to show: names and types visible from scope `base` on (outermost first).
+    /// Internal names such as narrowed fields (`t.due`) are excluded.
     pub fn locals_from(&self, base: usize) -> Vec<(String, Ty)> {
         let mut out: Vec<(String, Ty)> = Vec::new();
         for sc in self.scopes.iter().skip(base) {
@@ -809,16 +809,16 @@ impl Types {
     pub fn declare(&mut self, name: &str, t: Ty) {
         let sc = self.scopes.last_mut().unwrap();
         if !name.contains('.') {
-            // 같은 스코프에서 이름을 다시 만들면 그 이름에 걸린 필드 좁히기(`t.due`)는 끝납니다.
+            // Re-declaring a name in the same scope ends any field narrowing (`t.due`) tied to that name.
             let pre = format!("{}.", name);
             sc.retain(|k, _| !k.starts_with(&pre));
         }
         sc.insert(name.to_string(), t);
     }
 
-    // ---------------------------------------------------- 구조체 필드 좁히기
+    // ---------------------------------------------------- struct field narrowing
 
-    /// `inout` 인자(또는 `inout self`)를 가진 함수·메서드 이름들.
+    /// Names of functions/methods that have an `inout` parameter (or `inout self`).
     fn inout_callables(&self) -> HashSet<String> {
         let mut out = HashSet::new();
         let has_inout = |d: &FnDecl| d.params.iter().any(|p| p.conv == Convention::Inout);
@@ -835,8 +835,8 @@ impl Types {
         out
     }
 
-    /// 좁혀 둔 필드 경로(`"t.due"`)의 타입. 뿌리 이름(`t`)이 좁힌 뒤 안쪽에서
-    /// 다시 선언됐으면 다른 값이므로 없는 걸로 봅니다.
+    /// The type of a narrowed field path (`"t.due"`). If the root name (`t`) was re-declared
+    /// in an inner scope after narrowing, it is a different value, so treat it as absent.
     pub fn narrowed_field(&self, key: &str) -> Option<Ty> {
         let root = key.split('.').next()?;
         let ki = self.scopes.iter().rposition(|s| s.contains_key(key))?;
@@ -846,7 +846,7 @@ impl Types {
         }
     }
 
-    /// 이 식이 좁혀진 필드(`t.due`)면 좁혀진 타입.
+    /// If this expression is a narrowed field (`t.due`), its narrowed type.
     pub fn narrowed_expr(&self, e: &Expr) -> Option<Ty> {
         if !matches!(e, Expr::Field(..)) {
             return None;
@@ -855,7 +855,7 @@ impl Types {
         self.narrowed_field(&k)
     }
 
-    /// `region` 안에서 `key`(또는 그 바깥 경로)가 `inout` 으로 넘겨져 바뀔 수 있는가.
+    /// Whether `key` (or an outer path of it) may be changed by being passed as `inout` within `region`.
     fn region_writes(&self, key: &str, region: &Region) -> bool {
         let inout = self.inout_callables();
         if inout.is_empty() {
@@ -881,7 +881,7 @@ impl Types {
         }
     }
 
-    /// 대입 앞: 좁혀진 필드에 없을 수 있는 값(`none`, `?T`)을 넣으면 그 좁히기를 풉니다.
+    /// Before an assignment: storing a possibly-absent value (`none`, `?T`) into a narrowed field drops that narrowing.
     pub fn before_assign(&mut self, target: &Expr, value: &Expr) {
         if let Some(k) = field_path(target) {
             if k.contains('.') && self.narrowed_field(&k).is_some() {
@@ -893,15 +893,15 @@ impl Types {
         }
     }
 
-    /// 대입 뒤: 바깥 경로를 통째로 바꾸면(`t = 다른값`) 그 안의 좁히기(`t.due`)를 풉니다.
+    /// After an assignment: replacing an outer path wholesale (`t = other`) drops narrowings inside it (`t.due`).
     pub fn after_assign(&mut self, target: &Expr) {
         if let Some(w) = write_path(target) {
             self.forget_fields(&|k| is_outer_path(&w, k));
         }
     }
 
-    /// 반복문 앞: 본문이 좁혀진 필드를 다시 없을 수 있게 만들면, 두 번째 바퀴에서
-    /// 틀린 타입을 보게 되므로 반복문에 들어가기 전에 좁히기를 풉니다.
+    /// Before a loop: if the body makes a narrowed field possibly absent again, the second iteration
+    /// would see the wrong type, so narrowing is dropped before entering the loop.
     pub fn loop_forget(&mut self, body: &[Stmt]) {
         let keys: Vec<String> =
             self.scopes.iter().flat_map(|s| s.keys().filter(|k| k.contains('.')).cloned().collect::<Vec<_>>()).collect();
@@ -928,14 +928,14 @@ impl Types {
         }
     }
 
-    /// 바꿀 수 있는 이름으로 선언합니다(`var`, `inout`/`owned` 인자).
+    /// Declares a mutable name (`var`, `inout`/`owned` parameters).
     pub fn declare_mut(&mut self, name: &str, t: Ty) {
         self.declare(name, t);
         self.mutables.last_mut().unwrap().insert(name.to_string());
     }
 
-    /// 이 이름을 바꿀 수 있는가. 안쪽 스코프부터 봅니다.
-    /// 같은 이름이 안쪽에서 `let`으로 가려졌으면 그 가림이 우선합니다.
+    /// Whether this name is mutable. Looks from the innermost scope outward.
+    /// If the same name is shadowed by a `let` in an inner scope, the shadowing takes precedence.
     fn is_mutable(&self, name: &str) -> bool {
         for (i, s) in self.scopes.iter().enumerate().rev() {
             if s.contains_key(name) {
@@ -945,11 +945,11 @@ impl Types {
                 return self.mutables[i].contains(name);
             }
         }
-        // 좁혀진 이름 등 scopes에 없으면 막지 않습니다.
+        // Names not in scopes (e.g. narrowed names) are not blocked.
         true
     }
 
-    /// 이 이름이 지금 검사 중인 클로저가 바깥에서 붙잡은 값인가.
+    /// Whether this name is a value captured from outside by the closure currently being checked.
     fn is_captured(&self, name: &str) -> bool {
         let base = match self.closure_bases.last() {
             Some(b) => *b,
@@ -963,7 +963,7 @@ impl Types {
         false
     }
 
-    /// 붙잡은 값을 바꾸려 할 때의 오류.
+    /// Error for trying to modify a captured value.
     fn captured_error(&self, name: &str, l: usize, c: usize) -> SiskinError {
         if self.spawn_bodies.last().copied().unwrap_or(false) {
             return err(
@@ -1004,11 +1004,11 @@ impl Types {
         None
     }
 
-    // ------------------------------------------------------------- 타입 호환
+    // ------------------------------------------------------------- type compatibility
 
-    /// `want` 자리에 `got`을 넣을 수 있는가.
-    /// `==` / `!=` 의 양쪽이 비교할 수 있는 타입인지. 예전에는 아무거나 받아서
-    /// `input() == none` 처럼 늘 거짓인 비교가 조용히 통과했습니다.
+    /// Whether `got` can be placed where `want` is expected.
+    /// Whether both sides of `==` / `!=` are comparable types. It used to accept anything, so
+    /// always-false comparisons like `input() == none` slipped through silently.
     fn check_eq_types(&mut self, at: &Ty, bt: &Ty, l: usize, c: usize) {
         if matches!(at, Ty::Task(_) | Ty::Chan(_)) || matches!(bt, Ty::Task(_) | Ty::Chan(_)) {
             self.errors.push(
@@ -1100,8 +1100,8 @@ impl Types {
         }
     }
 
-    /// 제네릭 호출에서 타입 매개변수를 실제 타입에 맞춰 채웁니다.
-    /// 예: 인자 타입이 `[Int]`이고 매개변수가 `[T]`면 `T=Int`로 기록합니다.
+    /// Fills type parameters with concrete types in a generic call.
+    /// E.g. if the argument type is `[Int]` and the parameter is `[T]`, records `T=Int`.
     pub fn unify(&self, pat: &Ty, act: &Ty, subst: &mut HashMap<String, Ty>) {
         use Ty::*;
         match (pat, act) {
@@ -1142,7 +1142,7 @@ impl Types {
         }
     }
 
-    /// 타입 안의 매개변수(`Ty::Var`)를 채워진 실제 타입으로 바꿉니다.
+    /// Replaces parameters (`Ty::Var`) inside a type with the concrete types filled in.
     pub fn substitute(&self, t: &Ty, subst: &HashMap<String, Ty>) -> Ty {
         use Ty::*;
         match t {
@@ -1166,31 +1166,31 @@ impl Types {
         }
     }
 
-    /// 네이티브 단형화 시작: 이 함수의 타입 매개변수를 실제 타입에 묶습니다.
-    /// 이 뒤로 `resolve`가 `T`를 실제 타입으로 풀어 줍니다.
+    /// Start of native monomorphization: binds this function's type parameters to concrete types.
+    /// After this, `resolve` resolves `T` to the concrete type.
     pub fn enter_mono(&mut self, generics: &[String], subst: HashMap<String, Ty>) {
         self.cur_generics = generics.iter().cloned().collect();
         self.mono_subst = subst;
     }
 
-    /// 단형화 끝: 매개변수 묶음을 비웁니다.
+    /// End of monomorphization: clears the parameter bindings.
     pub fn exit_mono(&mut self) {
         self.cur_generics.clear();
         self.mono_subst.clear();
     }
 
-    // --------------------------------------------------------------- 검사
+    // --------------------------------------------------------------- checking
 
     pub fn check_program(&mut self, prog: &Program) {
         self.check_program_inner(prog);
-        // 같은 자리의 같은 오류는 한 번만 보여 줍니다 (시그니처를 두 번 읽어서 겹치던 것).
+        // The same error at the same position is shown only once (signatures were read twice, causing duplicates).
         let mut seen = HashSet::new();
         self.errors.retain(|e| seen.insert((e.code, e.msg.clone(), e.line, e.col)));
     }
 
     fn check_program_inner(&mut self, prog: &Program) {
-        // 구조체·enum 필드의 타입을 선언한 자리에서 먼저 봅니다. 그래야 잘못된 타입이
-        // 쓰는 곳마다가 아니라 선언한 줄에서 한 번 알려집니다.
+        // Check struct/enum field types at their declaration first, so a bad type is
+        // reported once at the declaring line rather than at every use.
         for s in &prog.stmts {
             match s {
                 Stmt::Struct(sd) => {
@@ -1214,8 +1214,8 @@ impl Types {
                 _ => {}
             }
         }
-        // 최상위 `let` 은 파일 전체에서 보이는 상수입니다. 함수보다 먼저 봐 두어야
-        // 위치와 상관없이(함수가 먼저 적혀 있어도) 씁니다.
+        // A top-level `let` is a constant visible throughout the file. It must be seen before the functions
+        // so it can be used regardless of position (even if a function is written first).
         for s in &prog.stmts {
             if let Stmt::Let { name, mutable, catch, line, col, .. } = s {
                 if *mutable || catch.is_some() {
@@ -1259,7 +1259,7 @@ impl Types {
                     }
                 }
                 other => {
-                    // 실행할 문장은 main 안에만 둡니다(`siskin build` 와 같은 규칙).
+                    // Executable statements go only inside main (same rule as `siskin build`).
                     let line = crate::debug::stmt_line(other).unwrap_or(1);
                     self.errors.push(
                         err("T0077", tr!("최상위에는 함수·타입 선언과 상수(`let`)만 올 수 있습니다", "only functions, type declarations and constants (`let`) are allowed at the top level"), line, 1)
@@ -1313,8 +1313,8 @@ impl Types {
         let prev_decl = std::mem::replace(&mut self.cur_decl, Some(f.clone()));
         self.push_scope();
         for (n, t) in &sig.params {
-            // 읽기 전용 인자(기본)와 읽기 전용 self는 못 바꿉니다.
-            // `inout`/`owned` 인자와 `inout self`만 바꿀 수 있습니다.
+            // Read-only parameters (the default) and read-only self cannot be modified.
+            // Only `inout`/`owned` parameters and `inout self` can be modified.
             let mutable = f
                 .params
                 .iter()
@@ -1342,8 +1342,8 @@ impl Types {
         for s in &f.body {
             self.check_stmt(s);
         }
-        // 값을 돌려줘야 하는 함수가 끝까지 흘러가면, 예전에는 run 은 `none`, build 는 0 을
-        // 조용히 돌려줬습니다. 컴파일 때 막습니다.
+        // When a function that must return a value fell off the end, `run` used to silently return `none`
+        // and `build` returned 0. This is now rejected at compile time.
         let needs_value = !matches!(sig.ret, Ty::Unit | Ty::Unknown)
             && !matches!(&sig.ret, Ty::Fallible(x, _) if matches!(**x, Ty::Unit));
         if needs_value && !f.is_extern && !f.body.is_empty() && !always_returns(&f.body) {
@@ -1364,7 +1364,7 @@ impl Types {
                 )),
             );
         }
-        // ensures는 result를 볼 수 있습니다.
+        // ensures can see result.
         self.push_scope();
         self.declare("result", sig.ret.clone());
         for e in &f.ensures {
@@ -1401,9 +1401,9 @@ impl Types {
         }
     }
 
-    /// `if x != none:` 안에서 x를 벗겨진 타입으로 보게 합니다. 구조체 필드(`t.due`)도 됩니다.
-    /// 필드는 `region` 안에서 `inout` 으로 바뀔 수 있으면 좁히지 않습니다.
-    /// `a and b` 의 참쪽, `a or b` 의 거짓쪽에서는 두 조건의 좁히기를 모두 받습니다.
+    /// Inside `if x != none:`, treats x as its unwrapped type. Works for struct fields (`t.due`) too.
+    /// A field is not narrowed if it may be changed via `inout` within `region`.
+    /// The true side of `a and b` and the false side of `a or b` receive the narrowings of both conditions.
     pub fn narrowing(&mut self, cond: &Expr, positive: bool, region: &Region) -> Vec<(String, Ty)> {
         let mut out = Vec::new();
         self.narrowing_into(cond, positive, region, &mut out);
@@ -1426,7 +1426,7 @@ impl Types {
                 (x, Expr::NoneLit) | (Expr::NoneLit, x) => x,
                 _ => return,
             };
-            // `x != none` 의 참쪽, `x == none` 의 거짓쪽에서 벗겨집니다.
+            // Unwrapped on the true side of `x != none` and the false side of `x == none`.
             let unwrap_here = (is_ne && positive) || (is_eq && !positive);
             if !unwrap_here {
                 return;
@@ -1451,13 +1451,13 @@ impl Types {
         }
     }
 
-    /// 다음 `infer` 가 익명 함수를 만나면 쓸 자리 타입을 정해 둡니다(코드 생성용).
+    /// Sets the slot type to use when the next `infer` meets an anonymous function (for code generation).
     pub fn lambda_hint_set(&mut self, h: Option<Ty>) {
         self.lambda_hint = h;
     }
 
-    /// 식을 추론하되, 그 식이 익명 함수면 "들어갈 자리의 타입"을 알려 줍니다.
-    /// 인자 타입을 적지 않은 익명 함수가 여기서 타입을 얻습니다.
+    /// Infers an expression, and if it is an anonymous function, supplies the "expected type of the slot".
+    /// This is where anonymous functions without parameter types get their types.
     fn infer_hinted(&mut self, e: &Expr, hint: Option<Ty>) -> Ty {
         if matches!(e, Expr::Lambda(..)) {
             self.lambda_hint = hint;
@@ -1465,7 +1465,7 @@ impl Types {
         self.infer(e)
     }
 
-    /// 타입이 아직 다 정해지지 않았는가(`_` 나 `T` 가 섞였는가).
+    /// Whether the type is not yet fully determined (contains `_` or `T`).
     fn is_open(t: &Ty) -> bool {
         match t {
             Ty::Unknown | Ty::Var(_) => true,
@@ -1477,7 +1477,7 @@ impl Types {
         }
     }
 
-    /// 제네릭 함수 안에서는 그 함수의 타입 매개변수(`T`)가 정해진 타입처럼 쓰입니다.
+    /// Inside a generic function, its type parameters (`T`) are used like determined types.
     fn is_open_here(&self, t: &Ty) -> bool {
         match t {
             Ty::Var(n) => !self.cur_generics.contains(n),
@@ -1490,7 +1490,7 @@ impl Types {
         }
     }
 
-    /// 함수 안에 선언한 `fn` — 바깥 값을 붙잡는 이름 붙은 클로저입니다.
+    /// A `fn` declared inside a function — a named closure that captures outer values.
     fn check_nested_fn(&mut self, f: &crate::ast::Shared<FnDecl>) {
         if !f.generics.is_empty() {
             self.errors.push(
@@ -1508,13 +1508,13 @@ impl Types {
         }
         let sig = self.sig_of(f, None);
         let ps: Vec<Ty> = sig.params.iter().map(|(_, t)| t.clone()).collect();
-        // 본문보다 먼저 이름을 알려야 자기 자신을 부를 수 있습니다(재귀).
+        // The name must be known before the body so it can call itself (recursion).
         self.declare(&f.name, Ty::Fn(ps, Box::new(sig.ret.clone())));
         self.check_closure(f, None, 1);
     }
 
-    /// 클로저(익명 함수·중첩 함수)의 본문을 검사하고 그 함수 타입을 냅니다.
-    /// 바깥 스코프는 그대로 보이지만 읽기만 됩니다(붙잡은 값은 복사본이라서).
+    /// Checks the body of a closure (anonymous or nested function) and yields its function type.
+    /// Outer scopes remain visible but are read-only (captured values are copies).
     fn check_closure(&mut self, f: &crate::ast::Shared<FnDecl>, hint: Option<Ty>, col: usize) -> Ty {
         let (hp, hr) = match hint {
             Some(Ty::Fn(ps, r)) if ps.len() == f.params.len() => (Some(ps), Some(*r)),
@@ -1572,7 +1572,7 @@ impl Types {
         }
         let ret = match (&declared_ret, f.is_lambda(), f.body.first()) {
             (None, true, Some(Stmt::Return(Some(e), _, _))) => {
-                // `fn(x): 식` — 반환 타입은 식의 타입입니다.
+                // `fn(x): expr` — the return type is the expression's type.
                 self.cur_ret = Ty::Unknown;
                 self.infer_hinted(e, hr.clone())
             }
@@ -1581,7 +1581,7 @@ impl Types {
                     self.check_cond(r);
                 }
                 if let (Some(Stmt::Return(Some(e), l, c)), true) = (f.body.first(), f.is_lambda()) {
-                    // 반환 타입을 적은 익명 함수: 식이 그 타입이어야 합니다.
+                    // Anonymous function with a declared return type: the expression must have that type.
                     let want = self.cur_ret.clone();
                     let t = self.infer_hinted(e, Some(want.clone()));
                     if !self.compatible(&want, &t) {
@@ -1621,7 +1621,7 @@ impl Types {
             Stmt::Struct(_) | Stmt::Enum(_) | Stmt::Interface(_) | Stmt::Import { .. } => {}
 
             Stmt::Let { name, ty, value, catch, line, col, mutable } => {
-                // 같은 블록에서 같은 이름을 또 선언하면 run 은 실행 중 오류(E0211), build 는 C 오류였습니다.
+                // Declaring the same name again in the same block used to be a runtime error (E0211) in run and a C error in build.
                 if self.scopes.len() > 1 && self.scopes.last().map_or(false, |sc| sc.contains_key(name)) {
                     self.errors.push(
                         err(
@@ -1650,7 +1650,7 @@ impl Types {
                 };
                 let mut vt = self.infer_hinted(value, hint);
                 if let Some(c) = catch {
-                    // catch가 붙으면 에러 쪽은 처리되었으므로 성공 타입만 남습니다.
+                    // With catch attached, the error side is handled, so only the success type remains.
                     let mut err_ty = Ty::Str;
                     if let Ty::Fallible(inner, e) = vt.clone() {
                         vt = *inner;
@@ -1808,8 +1808,8 @@ impl Types {
                     let shown = crate::interp::render_expr(target);
                     self.check_catch_value(c, &shown, &want, &err_ty, *line, *col);
                 }
-                // 아레나 안의 값을 블록 바깥 변수에 담으면(구조체 필드를 거쳐도) 블록이 끝난 뒤
-                // 사라진 메모리를 가리키게 됩니다. `return` 과 같은 규칙으로 막습니다.
+                // Storing an arena value in a variable outside the block (even via a struct field) would leave it
+                // pointing at freed memory after the block ends. Blocked with the same rule as `return`.
                 if let (Some(base), Some(root)) = (self.arena_bases.last().copied(), self.mutated_binding(target)) {
                     let outer = self
                         .scopes
@@ -1817,7 +1817,7 @@ impl Types {
                         .rposition(|sc| sc.contains_key(&root))
                         .map(|i| i < base)
                         .unwrap_or(false);
-                    // 리스트는 담을 때 복사되므로 안전합니다. 포인터(또는 포인터를 품을 수 있는 구조체)만 막습니다.
+                    // Lists are copied when stored, so they are safe. Only pointers (or structs that may contain pointers) are blocked.
                     let vt_now = self.infer_quiet(value);
                     let risky = matches!(vt_now, Ty::Raw(_) | Ty::Struct(_) | Ty::Tuple(_) | Ty::Enum(_));
                     if outer && risky {
@@ -1840,9 +1840,9 @@ impl Types {
                         }
                     }
                 }
-                // 값 의미론: `let`과 읽기 전용 인자·self는 바꿀 수 없습니다.
-                // 단, 포인터를 거쳐 쓰는 `p[i] = ...`는 포인터가 가리키는
-                // 메모리를 바꾸는 것이라 `let p`여도 괜찮습니다.
+                // Value semantics: `let` and read-only parameters/self cannot be modified.
+                // However, `p[i] = ...` through a pointer modifies the memory the pointer
+                // points to, so it is fine even with `let p`.
                 if let Some(root) = self.mutated_binding(target) {
                     let root = root.as_str();
                     if self.is_captured(root) {
@@ -1933,8 +1933,8 @@ impl Types {
                     }
                     self.pop_scope();
                 }
-                // 가드 절: `if v == none: return` 처럼 유일한 arm이 반드시 빠져나가면
-                // 그 뒤부터 반대 방향으로 좁혀 줍니다. 깊은 중첩을 평평하게 만듭니다.
+                // Guard clause: if the only arm always exits, as in `if v == none: return`,
+                // narrow in the opposite direction from there on. This flattens deep nesting.
                 if els.is_none() && arms.len() == 1 && block_diverges(&arms[0].1) {
                     let line = arms[0].0.pos().0;
                     for (n, t) in self.narrowing(&arms[0].0, false, &Region::After(line)) {
@@ -1958,7 +1958,7 @@ impl Types {
                 let it = self.infer(iter);
                 self.push_scope();
                 if let Some(v2) = var2 {
-                    // `for k, v in d:` — 사전만 됩니다. k는 키 타입, v는 값 타입.
+                    // `for k, v in d:` — dicts only. k has the key type, v the value type.
                     match &it {
                         Ty::Dict(k, v) => {
                             self.declare_mut(var, (**k).clone());
@@ -1999,9 +1999,9 @@ impl Types {
                     let elem = match &it {
                         Ty::List(t) => (**t).clone(),
                         Ty::Str => Ty::Str,
-                        // JSON 리스트의 원소를 돕니다 (리스트가 아니면 한 번도 돌지 않습니다).
+                        // Iterates over the elements of a JSON list (does not iterate at all if it is not a list).
                         Ty::Json => Ty::Json,
-                        // 통로가 닫히고 다 비울 때까지 받습니다.
+                        // Receives until the channel is closed and drained.
                         Ty::Chan(t) => (**t).clone(),
                         Ty::Unknown => Ty::Unknown,
                         other => {
@@ -2015,7 +2015,7 @@ impl Types {
                             Ty::Unknown
                         }
                     };
-                    // 반복 변수는 바꿀 수 있게 둡니다(각 회전의 지역 복사본).
+                    // The loop variable is left mutable (a local copy per iteration).
                     self.declare_mut(var, elem);
                 }
                 for s in body {
@@ -2026,8 +2026,8 @@ impl Types {
 
             Stmt::Match { subject, cases, line } => {
                 let st = self.infer(subject);
-                // 설계 문서 §4.5: match는 전수 검사됩니다. P1에서는 실행 중에
-                // 걸렸지만 여기서부터는 컴파일 시점에 걸립니다.
+                // Design doc §4.5: match is checked for exhaustiveness. In P1 this was caught at
+                // runtime, but from here on it is caught at compile time.
                 if let Ty::Enum(ename) = &st {
                     let ed = self.enums.get(ename).cloned();
                     if let Some(ed) = ed {
@@ -2126,8 +2126,8 @@ impl Types {
                         }
                     }
                 }
-                // enum 이 아닌 값에 `case Some(v):` / `case UnknownAccount(id):` 같은 패턴을 쓰면
-                // 예전에는 조용히 넘어가고 "`v`를 찾을 수 없습니다"만 나왔습니다.
+                // Using a pattern like `case Some(v):` / `case UnknownAccount(id):` on a non-enum value
+                // used to pass silently, producing only "cannot find `v`".
                 if !matches!(st, Ty::Enum(_) | Ty::Unknown | Ty::Var(_)) {
                     for c in cases {
                         if let Pattern::Variant(n, binds) = &c.pattern {
@@ -2177,8 +2177,8 @@ impl Types {
                         }
                     }
                 }
-                // Str·Int 같은 값은 가짓수가 끝이 없으니 `case _:` 가 있어야 합니다.
-                // 없으면 예전에는 run 은 실행 중 오류, build 는 조용히 지나갔습니다.
+                // Values like Str and Int have unbounded cases, so `case _:` is required.
+                // Without it, `run` used to fail at runtime and `build` passed silently.
                 if !matches!(st, Ty::Enum(_) | Ty::Unknown | Ty::Var(_)) {
                     let has_wild = cases.iter().any(|c| matches!(c.pattern, Pattern::Wildcard | Pattern::Bind(_)));
                     let bool_full = matches!(st, Ty::Bool)
@@ -2207,7 +2207,7 @@ impl Types {
                 for c in cases {
                     self.push_scope();
                     if let Pattern::Variant(_, binds) = &c.pattern {
-                        // 위에서 알린 잘못된 패턴이 "`v`를 찾을 수 없습니다"로 번지지 않게 합니다.
+                        // Keeps the bad pattern reported above from cascading into "cannot find `v`".
                         if !matches!(st, Ty::Enum(_)) {
                             for b in binds {
                                 self.declare(b, Ty::Unknown);
@@ -2272,7 +2272,7 @@ impl Types {
                     }
                 }
                 let want = self.cur_ret.clone();
-                // `return error(x)` 의 오류 타입이 틀린 경우는 error() 쪽에서 이미 T0073 으로 알렸습니다.
+                // A wrong error type in `return error(x)` has already been reported as T0073 by error().
                 let from_error_call = matches!(&t, Ty::Fallible(ok, _) if **ok == Ty::Unknown);
                 if !from_error_call && !self.compatible(&want, &t) {
                     let fname = self.cur_fn.clone();
@@ -2319,7 +2319,7 @@ impl Types {
         }
     }
 
-    /// 이 식이 아레나에서 나온 값을 건드리는가.
+    /// Whether this expression touches a value that came from an arena.
     fn mentions_tainted(&self, e: &Expr) -> Option<String> {
         match e {
             Expr::Ident(n, _, _) => {
@@ -2347,7 +2347,7 @@ impl Types {
         }
     }
 
-    // ------------------------------------------------------------- 표현식
+    // ------------------------------------------------------------- expressions
 
     pub fn infer(&mut self, e: &Expr) -> Ty {
         match e {
@@ -2384,7 +2384,7 @@ impl Types {
                         return Ty::Struct(n.clone());
                     }
                     if let Some(en) = self.variant_of.get(n).cloned() {
-                        // 값을 담는 변형을 괄호 없이 쓰면 오류입니다.
+                        // Using a payload-carrying variant without parentheses is an error.
                         if let Some(ed) = self.enums.get(&en) {
                             if let Some(v) = ed.variants.iter().find(|v| &v.name == n) {
                                 if !v.fields.is_empty() {
@@ -2405,7 +2405,7 @@ impl Types {
                         }
                         return Ty::Enum(en.clone());
                     }
-                    // 최상위 함수 이름을 값으로 쓰면 함수 타입이 됩니다.
+                    // Using a top-level function name as a value gives a function type.
                     if let Some(sig) = self.fns.get(n).cloned() {
                         let params: Vec<Ty> = sig
                             .params
@@ -2467,11 +2467,11 @@ impl Types {
                 let mut first = self.infer(&items[0]);
                 for it in &items[1..] {
                     let t = self.infer(it);
-                    // `[[], [1]]` 처럼 앞 원소 타입이 덜 정해졌으면 뒤 원소로 채웁니다.
+                    // If an earlier element's type is underdetermined, as in `[[], [1]]`, fill it from later elements.
                     if Self::is_open(&first) && !Self::is_open(&t) && self.compatible(&first, &t) {
                         first = t.clone();
                     }
-                    // `[none, 5]` 이나 `[5, none]` 은 `[?Int]` 입니다.
+                    // `[none, 5]` and `[5, none]` are `[?Int]`.
                     match (&first, &t) {
                         (Ty::NoneTy, Ty::NoneTy) | (Ty::Optional(_), _) => {}
                         (Ty::NoneTy, other) => first = Ty::Optional(Box::new(other.clone())),
@@ -2542,8 +2542,8 @@ impl Types {
 
             Expr::Binary(op, a, b, l, c) => {
                 let at = self.infer(a);
-                // `a and b`: 오른쪽은 왼쪽이 참이라는 가정 아래 봅니다.
-                // 그래서 `v != none and v > 0` 에서 오른쪽의 v가 좁혀집니다.
+                // `a and b`: the right side is checked assuming the left side is true.
+                // So in `v != none and v > 0`, v on the right side is narrowed.
                 let bt = if *op == BinOp::And {
                     let narrow = self.narrowing(a, true, &Region::Expr(b));
                     self.push_scope();
@@ -2599,7 +2599,7 @@ impl Types {
                         Ty::Bool
                     }
                     Add | Sub | Mul | Div | Mod => {
-                        // 포인터 산술: `p + 8`
+                        // Pointer arithmetic: `p + 8`
                         if let Ty::Raw(_) = &at {
                             if matches!(op, Add | Sub) && bt == Ty::Int {
                                 if self.unsafe_depth == 0 {
@@ -2688,8 +2688,8 @@ impl Types {
                 let t = self.infer(inner);
                 match t {
                     Ty::Fallible(x, inner_err) => {
-                        // 오류 타입이 다르면 그대로 전파할 수 없습니다. enum 오류를 Str 오류 함수로
-                        // 올릴 때만 글자로 바꿔 줍니다(`NoFunds(need: 5)` 같은 모양).
+                        // Different error types cannot be propagated as is. Only when raising an enum error from a Str-error
+                        // function is it converted to a string (in the form `NoFunds(need: 5)`).
                         if let Ty::Fallible(_, outer_err) = self.cur_ret.clone() {
                             let same = self.compatible(&outer_err, &inner_err);
                             if !same && !(*outer_err == Ty::Str && matches!(*inner_err, Ty::Enum(_))) {
@@ -2750,7 +2750,7 @@ impl Types {
             Expr::OrElse(a, b, l, c) => {
                 let at = self.infer(a);
                 let bt = self.infer(b);
-                // 왼쪽은 `?T`여야 합니다. 결과는 벗겨진 T입니다.
+                // The left side must be `?T`. The result is the unwrapped T.
                 let inner = match &at {
                     Ty::Optional(x) => (**x).clone(),
                     Ty::Unknown => Ty::Unknown,
@@ -2770,7 +2770,7 @@ impl Types {
                         return other.clone();
                     }
                 };
-                // 기본값은 T(또는 ?T)와 맞아야 합니다.
+                // The default must match T (or ?T).
                 if !self.compatible(&inner, &bt) && inner != Ty::Unknown {
                     self.errors.push(
                         err(
@@ -2941,8 +2941,8 @@ impl Types {
         }
     }
 
-    /// 함수 값(값으로 넘긴 함수)을 부르는 경우의 인자 검사. 반환 타입을 냅니다.
-    /// 구조체에 같은 이름의 메서드가 없고 함수 타입 필드가 있으면 그 필드 타입.
+    /// Argument checking when calling a function value (a function passed as a value). Yields the return type.
+    /// If the struct has no method of that name but has a function-typed field, that field's type.
     pub fn fn_field(&mut self, ot: &Ty, name: &str) -> Option<Ty> {
         let sn = match ot {
             Ty::Struct(n) => n.clone(),
@@ -3008,12 +3008,12 @@ impl Types {
     }
 
     fn infer_call(&mut self, callee: &Expr, targs: &[TypeExpr], args: &[Arg], line: usize, col: usize) -> Ty {
-        // 메서드 호출
+        // Method call
         if let Expr::Field(obj, mname, l, c) = callee {
-            // 모듈 함수
+            // Module function
             if let Expr::Ident(m, _, _) = obj.as_ref() {
                 if self.lookup(m).is_none() && is_std_module(m) {
-                    // `time.today()` 처럼 Siskin 으로 쓴 표준 함수는 보통 함수처럼 부릅니다.
+                    // Standard functions written in Siskin, like `time.today()`, are called like ordinary functions.
                     if self.fns.contains_key(mname.as_str()) {
                         let callee = Expr::Ident(mname.clone(), *l, *c);
                         return self.infer_call(&callee, targs, args, line, col);
@@ -3023,14 +3023,14 @@ impl Types {
                 }
             }
             let ot = self.infer(obj);
-            // 함수 타입 필드를 부르기: `self.on_click(x)`
+            // Calling a function-typed field: `self.on_click(x)`
             if let Some(Ty::Fn(ps, r)) = self.fn_field(&ot, mname) {
                 return self.check_indirect_call(&ps, *r, args, *l, *c);
             }
-            // `fs.push(fn(x): ...)` — 리스트 원소 타입이 익명 함수 인자 타입을 알려 줍니다.
+            // `fs.push(fn(x): ...)` — the list element type gives the anonymous function's parameter type.
             let push_hint = match (&ot, mname.as_str()) {
                 (Ty::List(inner), "push") => Some((**inner).clone()),
-                // `xs.map(fn(x): ...)` — x 는 원소 타입입니다.
+                // `xs.map(fn(x): ...)` — x has the element type.
                 (Ty::List(inner), "map" | "filter" | "any" | "all" | "sort_by") => {
                     Some(Ty::Fn(vec![(**inner).clone()], Box::new(Ty::Unknown)))
                 }
@@ -3078,7 +3078,7 @@ impl Types {
                     }
                 };
             }
-            // 값 의미론: 읽기 전용 값에는 제자리 변경 메서드를 쓸 수 없습니다.
+            // Value semantics: in-place mutating methods cannot be used on read-only values.
             const MUTATING: &[&str] = &["push", "pop", "sort", "sort_by", "reverse", "clear"];
             if matches!(ot, Ty::List(_)) && MUTATING.contains(&mname.as_str()) {
                 if let Some(root) = root_ident(obj) {
@@ -3109,7 +3109,7 @@ impl Types {
                     }
                 }
             }
-            // `inout self`나 `inout` 메서드 인자도 바꿀 수 있는 변수여야 합니다.
+            // `inout self` and `inout` method arguments must also be mutable variables.
             if let Some(k) = match &ot {
                 Ty::Struct(n) | Ty::Enum(n) => Some(format!("{}.{}", n, mname)),
                 _ => None,
@@ -3134,26 +3134,26 @@ impl Types {
         }
 
         if let Expr::Ident(name, l, c) = callee {
-            // 함수 값(지역 변수·인자로 받은 함수)을 부르면 간접 호출입니다.
+            // Calling a function value (a function in a local variable or parameter) is an indirect call.
             if let Some(Ty::Fn(params, ret)) = self.lookup(name) {
                 return self.check_indirect_call(&params, *ret, args, *l, *c);
             }
-            // 구조체 생성
+            // Struct construction
             if let Some(sd) = self.structs.get(name).cloned() {
                 return self.check_ctor(&sd.name, &sd.fields, args, *l, *c, Ty::Struct(sd.name.clone()));
             }
-            // 열거형 변형 생성
+            // Enum variant construction
             if let Some(ename) = self.variant_of.get(name).cloned() {
                 let ed = self.enums.get(&ename).cloned().unwrap();
                 let vd = ed.variants.iter().find(|v| &v.name == name).unwrap().clone();
                 return self.check_ctor(&vd.name, &vd.fields, args, *l, *c, Ty::Enum(ename));
             }
-            // 사용자 함수
+            // User function
             if let Some(sig) = self.fns.get(name).cloned() {
                 let want: Vec<(String, Ty)> =
                     sig.params.iter().filter(|(n, _)| n != "self").cloned().collect();
-                // 익명 함수 인자는 나중에 봅니다. 다른 인자로 `T` 가 먼저 정해져야
-                // `fn(x): ...` 의 `x` 타입을 알 수 있기 때문입니다.
+                // Anonymous function arguments are checked later: `T` must first be determined by the other
+                // arguments before the type of `x` in `fn(x): ...` can be known.
                 let mut arg_tys = Vec::new();
                 let mut deferred: Vec<(usize, Option<Ty>)> = Vec::new();
                 let mut ppos = 0usize;
@@ -3191,7 +3191,7 @@ impl Types {
                         *c,
                     ));
                 }
-                // 제네릭 함수면 인자 타입으로 타입 매개변수(T 등)를 먼저 채웁니다.
+                // For a generic function, first fill the type parameters (T, etc.) from the argument types.
                 let mut subst: HashMap<String, Ty> = HashMap::new();
                 if !sig.decl.generics.is_empty() {
                     let mut gpi = 0usize;
@@ -3258,7 +3258,7 @@ impl Types {
                                 .with_fix(tr!("Siskin에는 암묵적 형변환이 없습니다", "Siskin has no implicit conversions")),
                             );
                         }
-                        // `inout` 인자는 바꿀 수 있는 변수여야 합니다.
+                        // `inout` arguments must be mutable variables.
                         let inout = sig
                             .decl
                             .params
@@ -3295,7 +3295,7 @@ impl Types {
                     self.substitute(&sig.ret, &subst)
                 };
             }
-            // `channel[T]()` / `channel[T](크기)` — 작업끼리 값을 주고받는 통로.
+            // `channel[T]()` / `channel[T](size)` — a channel for passing values between tasks.
             if name == "channel" {
                 let arg_tys: Vec<Ty> = args.iter().map(|a| self.infer(&a.value)).collect();
                 if arg_tys.len() > 1 || arg_tys.first().map_or(false, |t| !self.compatible(&Ty::Int, t)) {
@@ -3330,7 +3330,7 @@ impl Types {
                     }
                 };
             }
-            // 메모리 Level 2 내장 함수
+            // Memory Level 2 builtins
             if matches!(name.as_str(), "alloc" | "free" | "cast" | "cstr" | "ptr_get") {
                 if self.unsafe_depth == 0 {
                     self.errors.push(
@@ -3346,7 +3346,7 @@ impl Types {
                 let arg_tys: Vec<Ty> = args.iter().map(|a| self.infer(&a.value)).collect();
                 let targ = targs.first().map(|te| self.resolve(te, *l));
                 return match name.as_str() {
-                    // C가 준 손잡이에서 0으로 끝나는 글자열을 읽습니다.
+                    // Reads a NUL-terminated string from a handle given by C.
                     "cstr" => {
                         if !matches!(arg_tys.first(), Some(Ty::Int)) {
                             self.errors.push(err(
@@ -3358,7 +3358,7 @@ impl Types {
                         }
                         Ty::Str
                     }
-                    // 손잡이가 가리키는 칸에서 i번째 값을 읽습니다 (8바이트씩).
+                    // Reads the i-th value from the slot the handle points to (8 bytes each).
                     "ptr_get" => {
                         if arg_tys.len() != 2 || !matches!(arg_tys.first(), Some(Ty::Int)) {
                             self.errors.push(
@@ -3390,12 +3390,12 @@ impl Types {
                     },
                 };
             }
-            // 내장 함수
+            // Builtin functions
             let arg_tys: Vec<Ty> = args.iter().map(|a| self.infer(&a.value)).collect();
             return self.builtin_ret(name, &arg_tys, *l, *c);
         }
 
-        // 함수 값을 돌려주는 식을 바로 부르는 경우: `구하기()(x)` 등.
+        // Directly calling an expression that returns a function value: `get_fn()(x)` etc.
         if let Ty::Fn(params, ret) = self.infer(callee) {
             return self.check_indirect_call(&params, *ret, args, line, col);
         }
@@ -3493,8 +3493,8 @@ impl Types {
         }
     }
 
-    /// `spawn` 이 새 작업으로 넘기는 값을 봅니다. 값은 복사되어 넘어가므로 대부분 안전하지만,
-    /// 원시 포인터와 아레나 값은 다른 작업이 그 메모리를 풀거나 바꿀 수 있어 막습니다.
+    /// Checks values that `spawn` hands to a new task. Values are copied, so most are safe, but
+    /// raw pointers and arena values are blocked because another task could free or modify that memory.
     fn check_spawn_captures(&mut self, f: &crate::ast::Shared<FnDecl>, l: usize, c: usize) {
         fn has_json(t: &Ty) -> bool {
             match t {
@@ -3574,7 +3574,7 @@ impl Types {
     }
 
     fn method_ret(&mut self, recv: &Ty, name: &str, args: &[Ty], l: usize, c: usize) -> Ty {
-        // 사용자 정의 메서드
+        // User-defined methods
         let key = match recv {
             Ty::Struct(n) => Some(format!("{}.{}", n, name)),
             Ty::Enum(n) => Some(format!("{}.{}", n, name)),
@@ -3794,8 +3794,8 @@ impl Types {
         }
     }
 
-    /// 프렐류드가 아닌 표준 라이브러리 함수는 반드시 import 해야 합니다.
-    /// 설계 문서 §4.7의 "와일드카드 import 없음" 원칙을 검사 단계에서 지킵니다.
+    /// Standard library functions outside the prelude must be imported.
+    /// Enforces the "no wildcard import" principle of design doc §4.7 at check time.
     fn check_builtin_import(&mut self, name: &str, l: usize, c: usize) {
         const MODULE_OF: &[(&str, &str)] = &[
             ("sqrt", "math"), ("floor", "math"), ("ceil", "math"), ("pow", "math"),
@@ -3831,7 +3831,7 @@ impl Types {
         }
     }
 
-    /// 표준 모듈에 들어 있는 이름들 (내장 함수 + Siskin 으로 쓴 조각의 공개 선언).
+    /// Names in a standard module (builtins + public declarations of its Siskin-written parts).
     pub fn std_members(module: &str) -> Option<Vec<String>> {
         let mut out: Vec<String> = crate::interp::MODULES
             .iter()
@@ -3855,8 +3855,8 @@ impl Types {
         Some(out)
     }
 
-    /// `from std.x import a, b` 가 실제로 있는 이름인지 검사 단계에서 봅니다
-    /// (예전에는 `siskin run` 을 해야 알 수 있었습니다).
+    /// Checks at check time that `from std.x import a, b` names actually exist
+    /// (previously this was only discovered by running `siskin run`).
     fn check_std_import(&mut self, path: &[String], names: &[String], l: usize, c: usize) {
         if path.len() != 2 || path[0] != "std" {
             return;
@@ -3907,7 +3907,7 @@ impl Types {
 
     fn builtin_ret(&mut self, name: &str, args: &[Ty], l: usize, c: usize) -> Ty {
         self.check_builtin_import(name, l, c);
-        // 인자 개수. 예전에는 `round(x, 1)` 의 둘째 인자를 말없이 버렸습니다.
+        // Argument count. `round(x, 1)` used to silently drop its second argument.
         const ARITY: &[(&str, usize, usize)] = &[
             ("sqrt", 1, 1), ("floor", 1, 1), ("ceil", 1, 1), ("pow", 2, 2), ("sin", 1, 1), ("cos", 1, 1),
             ("tan", 1, 1), ("log", 1, 1), ("log10", 1, 1), ("exp", 1, 1), ("round", 1, 1), ("pi", 0, 0),
@@ -4100,7 +4100,7 @@ impl Types {
             "set_env" => Ty::Unit,
             "cwd" => Ty::Str,
             "pid" => Ty::Int,
-            // 표준 라이브러리의 Siskin 조각이 쓰는 내장 함수들
+            // Builtins used by the Siskin-written parts of the standard library
             "__time_parts" => Ty::List(Box::new(Ty::Int)),
             "__time_make" => Ty::Float,
             "__run" => Ty::Int,
@@ -4111,7 +4111,7 @@ impl Types {
             "__net_close" | "__net_timeout" => Ty::Unit,
             "__http_headers" => Ty::List(Box::new(Ty::Str)),
             other => {
-                // 헤더에는 있는데 아직 자동으로 못 가져온 함수면, 왜 못 쓰는지 알려 줍니다.
+                // If the function is in a header but could not be imported automatically yet, explain why it cannot be used.
                 if let Some((header, why)) = self.c_skipped.get(other).cloned() {
                     self.errors.push(
                         err(
@@ -4214,7 +4214,7 @@ impl Types {
         }
     }
 }
-/// 후보 가운데 가장 비슷한 이름 (없으면 None).
+/// The most similar name among the candidates (None if none).
 pub fn best_match(cands: &[String], n: &str) -> Option<String> {
     cands
         .iter()
@@ -4241,7 +4241,7 @@ fn edit_distance(a: &str, b: &str) -> usize {
     prev[y.len()]
 }
 
-/// 오타 제안용: 대소문자·밑줄 무시 편집 거리가 짧거나 한쪽이 다른 쪽을 품으면 비슷하다고 봅니다.
+/// For typo suggestions: considered similar if the case/underscore-insensitive edit distance is small or one contains the other.
 pub fn similar(a: &str, b: &str) -> bool {
     let a = norm(a);
     let b = norm(b);
@@ -4265,7 +4265,7 @@ pub fn similar(a: &str, b: &str) -> bool {
     d <= 1 || (d <= 2 && x.len().max(y.len()) >= 5)
 }
 
-/// 없는 메서드를 불렀을 때: 다른 언어 이름이면 Siskin 이름을, 아니면 그 타입의 메서드 목록을 알려 줍니다.
+/// When calling a nonexistent method: if it is another language's name, give the Siskin name; otherwise list that type's methods.
 fn method_hint(t: &Ty, name: &str) -> String {
     let list: &[&str] = match t {
         Ty::List(_) => &[
@@ -4337,8 +4337,8 @@ fn method_hint(t: &Ty, name: &str) -> String {
     }
 }
 
-/// 블록이 어느 길로 가든 `return`(또는 `exit`)으로 끝나는가.
-/// match 는 전수 검사(T0012/T0068)를 통과했다고 보고, 모든 갈래가 끝나면 끝난다고 봅니다.
+/// Whether a block ends with `return` (or `exit`) on every path.
+/// match is assumed to have passed exhaustiveness checks (T0012/T0068); it ends if every arm ends.
 fn always_returns(body: &[Stmt]) -> bool {
     body.iter().any(stmt_returns)
 }
@@ -4355,7 +4355,7 @@ fn stmt_returns(s: &Stmt) -> bool {
     }
 }
 
-/// 이 반복문 자신을 빠져나가는 `break` 가 있는가 (안쪽 반복문의 break 는 세지 않음).
+/// Whether there is a `break` that exits this loop itself (breaks in inner loops don't count).
 fn has_break(body: &[Stmt]) -> bool {
     body.iter().any(|s| match s {
         Stmt::Break(..) => true,

@@ -1,4 +1,4 @@
-# 두 수를 더합니다.
-# 음수도 됩니다.
+# Adds two numbers.
+# Negative numbers work too.
 fn add(a: Int, b: Int) -> Int:
     return a + b

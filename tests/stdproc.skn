@@ -1,14 +1,14 @@
-# std.process 와 std.fs 추가분
+# Additions to std.process and std.fs
 import std.process
 from std.process import env, set_env, cwd, set_cwd
 from std.fs import list_dir, make_dir, is_dir, write_text, read_text, remove, exists
 
 fn main():
-    let r = run("echo 안녕; echo 오류 >&2; exit 3")
+    let r = run("echo hello; echo error >&2; exit 3")
     print(f"{r.code} {r.ok()} [{r.out.strip()}] [{r.err.strip()}]\n")
     let r2 = run_args("printf", ["%s-%s", "가", "나 다"])
     print(f"{r2.code} [{r2.out}]\n")
-    let r3 = run_args("없는명령_xyz", [])
+    let r3 = run_args("no_such_command_xyz", [])
     print(f"{r3.code} [{r3.err.strip()}]\n")
     let r4 = run("printf 'a\\nb\\nc\\n' | wc -l")
     print(f"[{r4.out.strip()}]\n")
@@ -19,10 +19,10 @@ fn main():
     let missing = env("SISKIN_NO_SUCH_VAR_Q")
     print(f"{missing == none}\n")
     let child = run("echo $SISKIN_TEST_VAR")
-    print("자식도 봄: " + child.out)
+    print("child sees it too: " + child.out)
     let base = "/tmp/siskin_proc_test/a/b"
     make_dir(base) catch e:
-        print("make_dir 실패: " + e + "\n")
+        print("make_dir failed: " + e + "\n")
     write_text(base + "/z.txt", "z") catch e:
         print(e)
     write_text(base + "/a.txt", "a") catch e:
@@ -30,10 +30,10 @@ fn main():
     make_dir(base + "/m") catch e:
         print(e)
     let names = list_dir(base) catch e:
-        print("list_dir 실패: " + e + "\n")
+        print("list_dir failed: " + e + "\n")
         return
     print(f"{names} {is_dir(base)} {is_dir(base + '/a.txt')}\n")
-    let nope = list_dir("/tmp/siskin_proc_test/없음") catch e:
-        print("오류: " + e + "\n")
+    let nope = list_dir("/tmp/siskin_proc_test/missing") catch e:
+        print("error: " + e + "\n")
         return
     print(f"{nope}")

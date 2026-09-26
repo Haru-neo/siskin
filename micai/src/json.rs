@@ -1,7 +1,7 @@
-//! 아주 작은 JSON 읽기/쓰기.
+//! A tiny JSON reader/writer.
 //!
-//! 바깥 라이브러리를 쓰지 않습니다. C 쪽에도 같은 규칙을 두어서
-//! `siskin run` 과 `siskin build` 가 같은 답을 냅니다.
+//! Uses no external libraries. The C side follows the same rules, so
+//! `siskin run` and `siskin build` give the same answer.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -16,7 +16,7 @@ pub enum JsonVal {
     Float(f64),
     Str(String),
     List(Vec<JRef>),
-    /// 넣은 순서를 지킵니다.
+    /// Preserves insertion order.
     Dict(Vec<(String, JRef)>),
 }
 
@@ -24,7 +24,7 @@ pub fn wrap(v: JsonVal) -> JRef {
     Rc::new(RefCell::new(v))
 }
 
-/// 통째로 새로 만든 복사본 (작업 사이로 넘길 때).
+/// A fully fresh copy (for passing between tasks).
 pub fn detach(j: &JRef) -> JRef {
     let v = match &*j.borrow() {
         JsonVal::List(xs) => JsonVal::List(xs.iter().map(detach).collect()),
@@ -141,7 +141,7 @@ impl P {
             }
             self.i += 1;
             let v = self.value()?;
-            // 같은 이름이 또 나오면 뒤엣것이 이깁니다.
+            // If the same key appears again, the later one wins.
             match out.iter_mut().find(|(ek, _)| *ek == k) {
                 Some(slot) => slot.1 = v,
                 None => out.push((k, v)),
@@ -263,7 +263,7 @@ impl P {
         } else {
             match text.parse::<i64>() {
                 Ok(n) => Ok(wrap(JsonVal::Int(n))),
-                // 너무 큰 정수는 실수로 받습니다.
+                // Integers that are too large are read as floats.
                 Err(_) => text
                     .parse::<f64>()
                     .map(|f| wrap(JsonVal::Float(f)))

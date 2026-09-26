@@ -11,7 +11,8 @@ PY="$(command -v python3 || command -v python)"
 pass=0; fail=0
 # 맥에는 timeout 명령이 없습니다(Homebrew 의 gtimeout 이 있으면 그것을 씁니다).
 if ! command -v timeout > /dev/null; then
-    if command -v gtimeout > /dev/null; then timeout() { gtimeout "$@"; }; else timeout() { shift; "$@"; }; fi
+    if command -v gtimeout > /dev/null; then timeout() { gtimeout "$@"; }
+    else timeout() { t="$1"; shift; perl -e 'alarm shift; exec @ARGV or exit 127' "$t" "$@"; }; fi
 fi
 ok() { pass=$((pass+1)); }
 bad() { fail=$((fail+1)); echo "실패: $1"; }

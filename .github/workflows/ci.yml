@@ -29,6 +29,7 @@ jobs:
             os: windows-latest
             toolchain: gcc
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     defaults:
       run:
         shell: bash
@@ -60,7 +61,7 @@ jobs:
       - name: run == build
         run: |
           if [ "$RUNNER_OS" != "Windows" ]; then export SISKIN_TEST_LIBS=1; fi
-          bash tests/same.sh "$RUNNER_TEMP/siskin/bin/siskin"
+          SISKIN_TEST_VERBOSE=1 bash tests/same.sh "$RUNNER_TEMP/siskin/bin/siskin"
       - name: Tools (fmt, lsp, debug, packages, https server)
         if: success() || failure()
         run: sh tests/tools.sh "$RUNNER_TEMP/siskin/bin/siskin"

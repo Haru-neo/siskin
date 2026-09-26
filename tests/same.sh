@@ -9,13 +9,15 @@ T="$(mktemp -d)"
 pass=0; fail=0; known=0
 # 맥에는 timeout 명령이 없습니다(Homebrew 의 gtimeout 이 있으면 그것을 씁니다).
 if ! command -v timeout > /dev/null; then
-    if command -v gtimeout > /dev/null; then timeout() { gtimeout "$@"; }; else timeout() { shift; "$@"; }; fi
+    if command -v gtimeout > /dev/null; then timeout() { gtimeout "$@"; }
+    else timeout() { t="$1"; shift; perl -e 'alarm shift; exec @ARGV or exit 127' "$t" "$@"; }; fi
 fi
 cd "$ROOT"
 for f in examples/*.skn tests/*.skn tests/ns/main.skn realworld/*.skn trial/*/*.skn trial2/*/*.skn; do
     n="$(basename "$f")"
     case "$n" in 08_cffi.skn|10_sqlite.skn) [ "$SISKIN_TEST_LIBS" = 1 ] || continue ;; esac
     d="$(dirname "$f")"
+    [ -n "$SISKIN_TEST_VERBOSE" ] && echo "... $f"
     a="$(cd "$d" && timeout 60 "$M" run "$n" </dev/null 2>&1; echo "code $?")"
     if (cd "$d" && timeout 120 "$M" build "$n" -o "$T/prog" >"$T/build.log" 2>&1); then
         b="$(cd "$d" && timeout 60 "$T/prog" </dev/null 2>&1; echo "code $?")"

@@ -74,10 +74,20 @@ static bool mi_ssl_load(void) {
 static bool mi_ssl_load_once(void) {
     if (mi_ssl.tried) return mi_ssl.ok;
     mi_ssl.tried = true;
-    const char* names[] = { "libssl.so.3", "libssl.so", "libssl.so.1.1", "libssl.3.dylib", "libssl.dylib", NULL };
+#ifdef __APPLE__
+    /* 맥의 /usr/lib/libssl.dylib 는 불러오면 프로그램을 멈춰 버리는 껍데기라서, Homebrew 의 OpenSSL 을 씁니다. */
+    const char* names[] = { "/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib", "/usr/local/opt/openssl@3/lib/libssl.3.dylib",
+                            "/opt/homebrew/lib/libssl.3.dylib", "/usr/local/lib/libssl.3.dylib", "libssl.3.dylib", NULL };
+#else
+    const char* names[] = { "libssl.so.3", "libssl.so", "libssl.so.1.1", NULL };
+#endif
     void* h = NULL;
     for (int i = 0; names[i] && !h; i++) h = dlopen(names[i], RTLD_NOW | RTLD_GLOBAL);
+#ifdef __APPLE__
+    if (!h) { mi_net_fail(MI_T("https 를 쓰려면 OpenSSL(libssl)이 필요합니다. 예: `brew install openssl@3`", "https requires OpenSSL (libssl), e.g. `brew install openssl@3`")); return false; }
+#else
     if (!h) { mi_net_fail(MI_T("https 를 쓰려면 OpenSSL(libssl)이 필요합니다. 예: `apt install libssl3`", "https requires OpenSSL (libssl), e.g. `apt install libssl3`")); return false; }
+#endif
 #define MI_SSL_SYM(n) do { *(void**)(&mi_ssl.n) = dlsym(h, #n); if (!mi_ssl.n) { mi_net_fail(MI_T("OpenSSL 이 너무 오래되었습니다 (%s 없음). 1.1.1 이상이 필요합니다", "OpenSSL is too old (missing %s); version 1.1.1 or later is required"), #n); return false; } } while (0)
     MI_SSL_SYM(TLS_client_method); MI_SSL_SYM(SSL_CTX_new); MI_SSL_SYM(SSL_CTX_set_default_verify_paths);
     MI_SSL_SYM(SSL_CTX_set_verify); MI_SSL_SYM(SSL_new); MI_SSL_SYM(SSL_set_fd); MI_SSL_SYM(SSL_ctrl);

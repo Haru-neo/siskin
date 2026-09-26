@@ -7,12 +7,19 @@ on:
 
 jobs:
   test:
-    name: ${{ matrix.os }}
+    name: ${{ matrix.os }} ${{ matrix.cc }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        cc: [default]
+        include:
+          # 윈도우에 MSVC 만 있는 PC: LLVM 의 clang 을 씁니다.
+          - os: windows-latest
+            cc: clang
     runs-on: ${{ matrix.os }}
+    env:
+      CC: ${{ matrix.cc != 'default' && matrix.cc || '' }}
     defaults:
       run:
         shell: bash
@@ -20,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: C compiler
         run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then gcc --version; else cc --version; fi
+          if [ -n "$CC" ]; then "$CC" --version; elif [ "$RUNNER_OS" = "Windows" ]; then gcc --version; else cc --version; fi
       - name: Install the compiler (cargo install)
         run: cargo install --path micai --root "$RUNNER_TEMP/siskin"
       - name: run == build

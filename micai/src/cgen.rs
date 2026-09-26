@@ -1431,7 +1431,7 @@ fn generate_opts(prog: &Program, src_path: &str, dbg: bool) -> Result<(String, V
         if g.uses_net && !links.iter().any(|l| l == "dl") {
             links.push("dl".into());
         }
-        if (g.uses_conc || g.uses_net || g.dbg) && !links.iter().any(|l| l == "pthread") {
+        if (g.uses_conc || g.uses_net || g.dbg) && !cfg!(windows) && !links.iter().any(|l| l == "pthread") {
             links.push("pthread".into());
         }
         let cpp = if g.cpp_ffi.is_empty() { None } else { Some(g.cpp_ffi.clone()) };

@@ -3,7 +3,45 @@
    작업끼리 같은 메모리를 만지지 않습니다. 서로 주고받을 때는 통로(channel)를 씁니다.
    통로·작업 상태는 자물쇠 하나(mi_sync)로 지킵니다. 모든 작업이 무언가를 기다리고
    있으면(교착) 아무도 깨워 줄 수 없으므로 실행 오류로 멈춥니다(인터프리터와 같은 규칙). */
+#ifdef _WIN32
+/* 윈도우: 여기서 쓰는 pthread 몇 개를 윈도우 스레드로 옮겨 둡니다.
+   MSVC 용 clang 에는 pthread 가 없고, MinGW 에서도 따로 DLL 을 안 달고 다니게 됩니다. */
+typedef HANDLE pthread_t;
+typedef SRWLOCK pthread_mutex_t;
+typedef CONDITION_VARIABLE pthread_cond_t;
+typedef struct { size_t stack; } pthread_attr_t;
+#define PTHREAD_MUTEX_INITIALIZER SRWLOCK_INIT
+#define PTHREAD_COND_INITIALIZER CONDITION_VARIABLE_INIT
+#define PTHREAD_CREATE_DETACHED 1
+static int pthread_mutex_lock(pthread_mutex_t* m) { AcquireSRWLockExclusive(m); return 0; }
+static int pthread_mutex_unlock(pthread_mutex_t* m) { ReleaseSRWLockExclusive(m); return 0; }
+static int pthread_cond_wait(pthread_cond_t* c, pthread_mutex_t* m) { SleepConditionVariableSRW(c, m, INFINITE, 0); return 0; }
+static int pthread_cond_broadcast(pthread_cond_t* c) { WakeAllConditionVariable(c); return 0; }
+static int pthread_attr_init(pthread_attr_t* a) { a->stack = 0; return 0; }
+static int pthread_attr_setstacksize(pthread_attr_t* a, size_t n) { a->stack = n; return 0; }
+static int pthread_attr_setdetachstate(pthread_attr_t* a, int d) { (void)a; (void)d; return 0; }
+static int pthread_attr_destroy(pthread_attr_t* a) { (void)a; return 0; }
+typedef struct { void* (*f)(void*); void* arg; } MiThrStart;
+static unsigned __stdcall mi_thr_tramp(void* p) {
+    MiThrStart s = *(MiThrStart*)p;
+    free(p);
+    s.f(s.arg);
+    return 0;
+}
+/* 늘 떼어 놓은(detached) 스레드로 만듭니다. 여기서는 그렇게만 씁니다. */
+static int pthread_create(pthread_t* t, const pthread_attr_t* a, void* (*f)(void*), void* arg) {
+    MiThrStart* s = (MiThrStart*)malloc(sizeof(MiThrStart));
+    if (!s) return 1;
+    s->f = f; s->arg = arg;
+    uintptr_t h = _beginthreadex(NULL, (unsigned)(a ? a->stack : 0), mi_thr_tramp, s, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
+    if (!h) { free(s); return 1; }
+    CloseHandle((HANDLE)h);
+    *t = NULL;
+    return 0;
+}
+#else
 #include <pthread.h>
+#endif
 
 struct MiTask {
     pthread_t th;

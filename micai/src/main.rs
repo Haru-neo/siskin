@@ -681,7 +681,11 @@ fn compile_native(
     if cfg!(windows) {
         // 윈도우: 만든 .exe 가 MinGW 의 DLL 없이도 돌도록 정적으로 묶고,
         // 명령줄 인자를 UTF-8 로 읽는 데 쓰는 shell32 를 붙입니다.
-        cc.arg("-static").arg("-lshell32");
+        // (-static 은 MinGW gcc 용입니다. MSVC 용 clang 은 원래 DLL 없이 돕니다.)
+        if c_compiler(needs_cxx).contains("gcc") || c_compiler(needs_cxx).contains("g++") {
+            cc.arg("-static");
+        }
+        cc.arg("-lshell32");
     } else {
         cc.arg("-lm");
     }

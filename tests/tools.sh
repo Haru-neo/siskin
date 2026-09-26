@@ -17,12 +17,12 @@ ok() { pass=$((pass+1)); }
 bad() { fail=$((fail+1)); echo "실패: $1"; }
 
 # fmt: 정해 둔 결과와 같고, 두 번 해도 같아야 함
-"$M" fmt --stdout "$HERE/fmt/messy.skn" > "$T/f1.skn" && cmp -s "$T/f1.skn" "$HERE/fmt/messy.expected" && ok || bad "fmt 결과"
+"$M" fmt --stdout "$HERE/fmt/messy.skn" > "$T/f1.skn" && cmp -s "$T/f1.skn" "$HERE/fmt/messy.expected" && ok || { bad "fmt 결과"; diff "$T/f1.skn" "$HERE/fmt/messy.expected" | head -5; }
 "$M" fmt --stdout "$T/f1.skn" > "$T/f2.skn" && cmp -s "$T/f1.skn" "$T/f2.skn" && ok || bad "fmt 두 번"
 
 # lsp: 진단, 서식, 정의, 설명, 끝내기
 (cd "$HERE/lsp" && "$PY" client.py "$M") > "$T/lsp.txt" 2>&1
-grep -q "T0018" "$T/lsp.txt" && grep -q "exit code 0" "$T/lsp.txt" && grep -q "두 수를 더합니다" "$T/lsp.txt" && ok || bad "lsp"
+grep -q "T0018" "$T/lsp.txt" && grep -q "exit code 0" "$T/lsp.txt" && grep -q "두 수를 더합니다" "$T/lsp.txt" && ok || { bad "lsp"; tail -5 "$T/lsp.txt"; }
 
 # debug: 멈출 곳에서 변수 보기
 printf 'b 7\nc\np t\nc\nd 7\nc\n' | "$M" debug "$HERE/debug/sample.skn" > "$T/dbg.out" 2> "$T/dbg.err"
@@ -69,7 +69,7 @@ if command -v openssl > /dev/null; then
   r1="$(SSL_CERT_FILE="$T/cert.pem" timeout 60 "$M" run https_server.skn 2>&1)"
   "$M" build https_server.skn -o "$T/hs" > /dev/null 2>&1
   r2="$(SSL_CERT_FILE="$T/cert.pem" timeout 60 "$T/hs" 2>&1)"
-  echo "$r1" | grep -q "처리한 요청: 3" && [ "$r1" = "$r2" ] && ok || bad "https 서버"
+  echo "$r1" | grep -q "처리한 요청: 3" && [ "$r1" = "$r2" ] && ok || { bad "https 서버"; echo "run: $r1"; echo "build: $r2"; }
 fi
 
 rm -rf "$T"

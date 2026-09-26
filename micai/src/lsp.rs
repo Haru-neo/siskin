@@ -77,6 +77,9 @@ fn uri_to_path(uri: &str) -> String {
 
 fn path_to_uri(p: &str) -> String {
     let mut o = String::from("file://");
+    // 윈도우 경로 C:\a\b → /C:/a/b
+    let p = p.replace('\\', "/");
+    let p = p.as_str();
     if !p.starts_with('/') {
         o.push('/');
     }

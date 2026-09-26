@@ -1,4 +1,6 @@
-import subprocess, json, sys, os
+import subprocess, json, sys, os, tempfile, urllib.parse
+# 윈도우에서도 한글을 그대로 쓰고 읽게 합니다.
+sys.stdout.reconfigure(encoding="utf-8")
 p = subprocess.Popen([sys.argv[1], "lsp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 def send(m):
     b = json.dumps(m).encode()
@@ -10,11 +12,12 @@ def recv():
         if not l: break
         if l.lower().startswith("content-length:"): n = int(l.split(":")[1])
     return json.loads(p.stdout.read(n))
-uri = "file:///tmp/lsp/%EB%A9%94%EC%9D%B8.skn"  # 메인.skn
+d = os.path.join(tempfile.gettempdir(), "lsp").replace("\\", "/")
+uri = "file://" + ("" if d.startswith("/") else "/") + urllib.parse.quote(d + "/메인.skn", safe="/:")
 text = 'import util\n\nfn Main():\n    let 이름 = "가" + 1\n    print(str(ADD(1, 2)))\n  let bad = 3\n'
-os.makedirs("/tmp/lsp", exist_ok=True)
-open("/tmp/lsp/util.skn","w").write(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "util.skn")).read())
-open("/tmp/lsp/메인.skn","w").write(text)
+os.makedirs(d, exist_ok=True)
+open(d + "/util.skn", "w", encoding="utf-8").write(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "util.skn"), encoding="utf-8").read())
+open(d + "/메인.skn", "w", encoding="utf-8").write(text)
 send({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}); print("init", recv()["result"]["serverInfo"])
 send({"jsonrpc":"2.0","method":"initialized","params":{}})
 send({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"languageId":"siskin","version":1,"text":text}}})

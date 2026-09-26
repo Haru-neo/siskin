@@ -1687,7 +1687,7 @@ impl CGen {
         for f in &decls {
             let cs = f.c_sig.as_ref().unwrap();
             let h = cs.header.clone();
-            let inc = if h.starts_with('.') || h.starts_with('/') {
+            let inc = if h.starts_with('.') || h.starts_with('/') || std::path::Path::new(h.as_str()).is_absolute() {
                 format!("#include \"{}\"\n", h)
             } else {
                 format!("#include <{}>\n", h)

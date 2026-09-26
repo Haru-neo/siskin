@@ -340,7 +340,7 @@ fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::S
                 params: f.c_params.clone(),
                 // clang 이 실제로 찾아낸 자리를 그대로 씁니다. 그래야 C 컴파일러도
                 // `-I` 없이 같은 파일을 봅니다.
-                header: if im.header_path.starts_with('/') {
+                header: if std::path::Path::new(&im.header_path).is_absolute() || im.header_path.starts_with('/') {
                     im.header_path.clone()
                 } else {
                     header.clone()

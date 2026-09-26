@@ -423,7 +423,15 @@ fn collect_typedefs(root: &JRef, td: &mut HashMap<String, String>) {
 fn is_wanted(path: &str, header: &str) -> bool {
     let want = header.trim_start_matches("./").replace('\\', "/");
     let p = path.replace('\\', "/");
-    p == want || p.ends_with(&format!("/{}", want))
+    if p == want || p.ends_with(&format!("/{}", want)) {
+        return true;
+    }
+    // 새 macOS SDK 는 `string.h` 의 함수들을 같은 폴더의 `_string.h` 에 적어 둡니다.
+    let (dir, file) = match want.rsplit_once('/') {
+        Some((d, f)) => (format!("/{}/", d), f.to_string()),
+        None => ("/".to_string(), want.clone()),
+    };
+    p.ends_with(&format!("{}_{}", dir, file))
 }
 
 pub fn import_header(

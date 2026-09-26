@@ -19,7 +19,8 @@ fn main():
 필요한 것:
 
 - **Rust** (컴파일러를 만들 때만): https://rustup.rs 에서 설치합니다.
-- **C 컴파일러** `cc` (`siskin build` 가 씁니다). 리눅스는 `gcc`, 맥은 `xcode-select --install`.
+- **C 컴파일러** (`siskin build` 가 씁니다). 리눅스는 `gcc`, 맥은 `xcode-select --install`,
+  윈도우는 MinGW-w64 의 `gcc` (예: `winget install BrechtSanders.WinLibs.POSIX.UCRT` 뒤 새 터미널). 다른 컴파일러는 환경변수 `CC` 로 고릅니다.
 - 있으면 좋은 것: C++ 라이브러리를 쓰려면 `c++`, https 를 쓰려면 OpenSSL(리눅스에는 대개 있습니다).
 
 ```
@@ -28,13 +29,14 @@ cd siskin
 cargo install --path micai
 ```
 
-`siskin` 명령이 `~/.cargo/bin` 에 설치됩니다. 확인:
+`siskin` 명령이 `~/.cargo/bin` (윈도우는 `%USERPROFILE%\.cargo\bin`) 에 설치됩니다. 확인:
 
 ```
 siskin run examples/01_hello.skn
 ```
 
-> 지금까지 리눅스에서만 시험했습니다. Windows·macOS 는 아직 확인하지 않았습니다.
+> 리눅스·윈도우·macOS 에서 GitHub Actions 로 매번 시험합니다(`tests/same.sh`: run 과 build 의 결과가 같은지).
+> 윈도우에서 아직 안 되는 것: `std.net`, C 라이브러리·std.net·spawn 을 쓰는 프로그램의 `siskin debug`.
 
 ## 써 보기
 
@@ -67,7 +69,7 @@ siskin fmt main.skn       # 코드 모양 정리
 |---|---|
 | `micai/` | 컴파일러와 인터프리터 (Rust) |
 | `examples/` | 예제 프로그램, `examples/errors/` 는 일부러 틀린 예 |
-| `tests/` | 시험 (`sh tests/tools.sh siskin`) |
+| `tests/` | 시험 (`bash tests/same.sh siskin`, `sh tests/tools.sh siskin`) |
 | `editors/` | VS Code 확장, Neovim·Helix 설정 |
 | `bench/` | 같은 프로그램의 Siskin·C 판 속도 비교 |
 | `realworld/` | 실제로 써 본 작은 프로그램들 |

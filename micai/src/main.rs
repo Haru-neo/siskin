@@ -538,6 +538,48 @@ fn needs_native(prog: &ast::Program) -> bool {
     })
 }
 
+/// C / C++ 컴파일러 이름. 환경변수 `CC` / `CXX` 로 바꿀 수 있습니다.
+/// 윈도우에는 보통 `cc` 가 없어서 gcc(MinGW-w64), clang 순서로 찾습니다.
+fn c_compiler(cpp: bool) -> String {
+    if let Ok(c) = std::env::var(if cpp { "CXX" } else { "CC" }) {
+        if !c.trim().is_empty() {
+            return c;
+        }
+    }
+    if cfg!(windows) {
+        let cands: &[&str] = if cpp { &["g++", "clang++", "c++"] } else { &["gcc", "clang", "cc"] };
+        for c in cands {
+            let found = std::process::Command::new(c)
+                .arg("--version")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if found {
+                return c.to_string();
+            }
+        }
+        return cands[0].to_string();
+    }
+    (if cpp { "c++" } else { "cc" }).to_string()
+}
+
+/// 컴파일러를 못 찾았을 때의 안내. 무엇을 깔면 되는지까지 알려 줍니다.
+fn no_compiler(what: &str, e: std::io::Error) -> String {
+    let hint = if cfg!(windows) {
+        tr!(
+            "\nC 컴파일러(gcc)가 필요합니다. 예: `winget install BrechtSanders.WinLibs.POSIX.UCRT` 로 MinGW-w64 를 깔고 새 터미널을 여세요",
+            "\na C compiler (gcc) is needed. e.g. install MinGW-w64 with `winget install BrechtSanders.WinLibs.POSIX.UCRT`, then open a new terminal"
+        )
+    } else if cfg!(target_os = "macos") {
+        tr!("\nC 컴파일러가 필요합니다: `xcode-select --install`", "\na C compiler is needed: `xcode-select --install`")
+    } else {
+        tr!("\nC 컴파일러가 필요합니다. 예: `sudo apt install gcc`", "\na C compiler is needed. e.g. `sudo apt install gcc`")
+    };
+    format!("{}: {}{}", what, e, hint)
+}
+
 /// 만들어진 C(그리고 C++ 다리) 파일을 실제 실행 파일로 만듭니다.
 /// C++ 라이브러리를 쓰면 다리 파일을 C++ 컴파일러로 따로 컴파일해서 함께 묶습니다.
 fn compile_native(
@@ -567,11 +609,7 @@ fn compile_native(
     for (n, f) in extra_srcs.iter().enumerate() {
         let is_cpp = f.ends_with(".cpp") || f.ends_with(".cc") || f.ends_with(".cxx") || f.ends_with(".C");
         let o = cpath.with_extension(format!("extra{}.o", n));
-        let mut cc = std::process::Command::new(if is_cpp {
-            std::env::var("CXX").unwrap_or_else(|_| "c++".to_string())
-        } else {
-            "cc".to_string()
-        });
+        let mut cc = std::process::Command::new(c_compiler(is_cpp));
         cc.arg(opt).arg("-w");
         if is_cpp {
             cc.arg("-std=c++17");
@@ -580,12 +618,7 @@ fn compile_native(
         match cc.status() {
             Ok(st) if st.success() => {}
             Ok(_) => return Err(tr!(format!("`{}` 을(를) 컴파일하지 못했습니다", f), format!("failed to compile `{}`", f))),
-            Err(e) => {
-                return Err(tr!(
-                    format!("컴파일러를 실행할 수 없습니다: {}", e),
-                    format!("cannot run the compiler: {}", e)
-                ))
-            }
+            Err(e) => return Err(no_compiler(tr!("컴파일러를 실행할 수 없습니다", "cannot run the compiler"), e)),
         }
         objs.push(o);
     }
@@ -597,9 +630,7 @@ fn compile_native(
             tr!(format!("C++ 다리 파일을 쓸 수 없습니다: {}", e), format!("cannot write C++ bridge file: {}", e))
         })?;
         let o = cpath.with_extension("ffi.o");
-        let mut cxx = std::process::Command::new(
-            std::env::var("CXX").unwrap_or_else(|_| "c++".to_string()),
-        );
+        let mut cxx = std::process::Command::new(c_compiler(true));
         cxx.arg(opt).arg("-std=c++17").arg("-w").arg("-c").arg(&p).arg("-o").arg(&o);
         for a in args {
             if let Some(dir) = a.strip_prefix("-I") {
@@ -614,12 +645,7 @@ fn compile_native(
                     format!("failed to compile the C++ bridge file; kept it at: {}", p.display())
                 ))
             }
-            Err(e) => {
-                return Err(tr!(
-                    format!("C++ 컴파일러를 실행할 수 없습니다: {}", e),
-                    format!("cannot run the C++ compiler: {}", e)
-                ))
-            }
+            Err(e) => return Err(no_compiler(tr!("C++ 컴파일러를 실행할 수 없습니다", "cannot run the C++ compiler"), e)),
         }
         objs.push(o);
         cpp_path = Some(p);
@@ -630,8 +656,7 @@ fn compile_native(
         || extra_srcs.iter().any(|f| {
             f.ends_with(".cpp") || f.ends_with(".cc") || f.ends_with(".cxx") || f.ends_with(".C")
         });
-    let driver = if needs_cxx { "c++" } else { "cc" };
-    let mut cc = std::process::Command::new(driver);
+    let mut cc = std::process::Command::new(c_compiler(needs_cxx));
     // `--debug`: gdb 로 .skn 줄을 따라갈 수 있게 디버그 정보를 넣고 최적화를 끕니다.
     if args.iter().any(|a| a == "--debug") {
         cc.arg("-g").arg("-O0").arg("-w");
@@ -652,7 +677,14 @@ fn compile_native(
     for o in &objs {
         cc.arg(o);
     }
-    cc.arg("-o").arg(outname).arg("-lm");
+    cc.arg("-o").arg(outname);
+    if cfg!(windows) {
+        // 윈도우: 만든 .exe 가 MinGW 의 DLL 없이도 돌도록 정적으로 묶고,
+        // 명령줄 인자를 UTF-8 로 읽는 데 쓰는 shell32 를 붙입니다.
+        cc.arg("-static").arg("-lshell32");
+    } else {
+        cc.arg("-lm");
+    }
     for lib in links {
         cc.arg(format!("-l{}", lib));
     }
@@ -677,9 +709,7 @@ fn compile_native(
         }
         i += 1;
     }
-    let out = cc
-        .output()
-        .map_err(|e| tr!(format!("C 컴파일러를 실행할 수 없습니다: {}", e), format!("cannot run the C compiler: {}", e)))?;
+    let out = cc.output().map_err(|e| no_compiler(tr!("C 컴파일러를 실행할 수 없습니다", "cannot run the C compiler"), e))?;
     for o in &objs {
         let _ = std::fs::remove_file(o);
     }
@@ -747,7 +777,7 @@ fn run_via_native(
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "a".into());
     let cpath = dir.join(format!("{}.c", stem));
-    let exe = dir.join(&stem);
+    let exe = dir.join(format!("{}{}", stem, std::env::consts::EXE_SUFFIX));
     if let Err(msg) = compile_native(
         &csrc,
         cppsrc.as_ref(),
@@ -807,7 +837,7 @@ fn debug_native(
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "a".into());
     let cpath = dir.join(format!("{}.c", stem));
-    let exe = dir.join(&stem);
+    let exe = dir.join(format!("{}{}", stem, std::env::consts::EXE_SUFFIX));
     if let Err(msg) = compile_native(&csrc, cppsrc.as_ref(), &links, args, &cpath, &exe, false, "-O0") {
         eprintln!("{}", msg);
         return ExitCode::FAILURE;
@@ -1332,9 +1362,19 @@ fn main() -> ExitCode {
                 .and_then(|i| args.get(i + 1))
                 .cloned()
                 .unwrap_or_else(|| stem.clone());
+            // 윈도우 실행 파일은 `.exe` 로 끝나야 합니다.
+            let outname = if cfg!(windows) && !outname.ends_with(".c") && std::path::Path::new(&outname).extension().is_none() {
+                format!("{}.exe", outname)
+            } else {
+                outname
+            };
 
             // `-o x.c` 로 주면 `x.c.c` 가 되지 않게 합니다.
-            let cpath = if outname.ends_with(".c") { outname.clone() } else { format!("{}.c", outname) };
+            let cpath = if outname.ends_with(".c") {
+                outname.clone()
+            } else {
+                format!("{}.c", outname.strip_suffix(".exe").unwrap_or(&outname))
+            };
             if args.iter().any(|a| a == "--emit-c") {
                 if let Err(e) = std::fs::write(&cpath, &csrc) {
                     eprintln!("{}: {}", tr!("C 파일을 쓸 수 없습니다", "cannot write C file"), e);
@@ -1373,7 +1413,13 @@ fn main() -> ExitCode {
                     println!(
                         "{}: {}{}",
                         tr!("컴파일 완료", "compiled"),
-                        if outname.contains('/') { "" } else { "./" },
+                        if outname.contains('/') || outname.contains('\\') {
+                            ""
+                        } else if cfg!(windows) {
+                            ".\\"
+                        } else {
+                            "./"
+                        },
                         outname
                     );
                     ExitCode::SUCCESS

@@ -409,6 +409,16 @@ mod fds {
     }
 }
 
+/// 윈도우에서는 아직 네이티브 디버깅(C 라이브러리·std.net·spawn 을 쓰는 프로그램)을 못 합니다.
+#[cfg(not(unix))]
+pub fn run_native(_exe: &std::path::Path, _args: &[String], _dbg: &mut Debugger, _prog: &crate::ast::Program) -> i32 {
+    say(tr!(
+        "C 라이브러리, std.net, spawn 을 쓰는 프로그램의 디버깅은 아직 윈도우에서 안 됩니다\n",
+        "debugging programs that use C libraries, std.net or spawn is not supported on Windows yet\n"
+    ));
+    2
+}
+
 /// 멈출 자리를 넣어 컴파일한 프로그램(`exe`)을 자식으로 돌리며 따라갑니다.
 /// 프로그램의 종료 코드를 돌려줍니다.
 #[cfg(unix)]

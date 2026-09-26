@@ -21,6 +21,63 @@ const RUNTIME: &str = r##"/* ------- Siskin 런타임 (자동 생성) ------- */
 #include <ctype.h>
 #include <math.h>
 #include <errno.h>
+#ifdef _WIN32
+/* 윈도우: 경로·명령줄 인자·화면 글자를 UTF-8 로 맞춥니다. 인터프리터(siskin run)가
+   UTF-8 로 다루므로 이렇게 해야 두 방식의 결과가 같습니다. */
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <shellapi.h>
+#include <io.h>
+#include <fcntl.h>
+#include <direct.h>
+#include <process.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+static wchar_t* mi_wide(const char* s) {
+    int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
+    wchar_t* w = (wchar_t*)malloc(sizeof(wchar_t) * (size_t)(n > 0 ? n : 1));
+    if (!w) { fputs("out of memory\n", stderr); exit(1); }
+    if (n <= 0) w[0] = 0; else MultiByteToWideChar(CP_UTF8, 0, s, -1, w, n);
+    return w;
+}
+static char* mi_narrow(const wchar_t* w) {
+    int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, NULL, 0, NULL, NULL);
+    char* s = (char*)malloc((size_t)(n > 0 ? n : 1));
+    if (!s) { fputs("out of memory\n", stderr); exit(1); }
+    if (n <= 0) s[0] = 0; else WideCharToMultiByte(CP_UTF8, 0, w, -1, s, n, NULL, NULL);
+    return s;
+}
+static FILE* mi_fopen(const char* p, const char* m) {
+    wchar_t* wp = mi_wide(p);
+    wchar_t* wm = mi_wide(m);
+    FILE* f = _wfopen(wp, wm);
+    free(wp); free(wm);
+    return f;
+}
+static int mi_unlink(const char* p) { wchar_t* w = mi_wide(p); int r = _wunlink(w); free(w); return r; }
+#define getpid _getpid
+/* main 맨 앞에서 부릅니다: 화면을 UTF-8 로, 줄바꿈을 그대로(\n), 인자를 UTF-8 로. */
+static void mi_win_init(int* argc, char*** argv) {
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+    int n = 0;
+    wchar_t** wa = CommandLineToArgvW(GetCommandLineW(), &n);
+    if (!wa) return;
+    char** a = (char**)malloc(sizeof(char*) * (size_t)(n + 1));
+    if (!a) return;
+    for (int i = 0; i < n; i++) a[i] = mi_narrow(wa[i]);
+    a[n] = NULL;
+    LocalFree(wa);
+    *argc = n; *argv = a;
+}
+#else
+#include <unistd.h>
+#define mi_fopen fopen
+#define mi_unlink unlink
+#endif
 
 typedef struct { const char* p; int64_t len; } MiStr;
 /* 함수 값. 함수 자리(fn)와 붙잡은 값 묶음(env). 이름 붙은 함수는 env 가 NULL 입니다. */
@@ -330,6 +387,23 @@ static int64_t mi_rand_int(int64_t lo, int64_t hi) {
     return lo + (int64_t)(mi_next_rand() % (uint64_t)(hi - lo));
 }
 
+#ifdef _WIN32
+static double mi_now(void) {
+    FILETIME ft;
+    GetSystemTimePreciseAsFileTime(&ft);
+    uint64_t v = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;   /* 1601년부터 100ns 단위 */
+    return (double)(v - 116444736000000000ull) / 1e7;
+}
+
+static double mi_clock(void) {
+    static LARGE_INTEGER f, t0;
+    static int started = 0;
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    if (!started) { QueryPerformanceFrequency(&f); t0 = t; started = 1; }
+    return (double)(t.QuadPart - t0.QuadPart) / (double)f.QuadPart;
+}
+#else
 static double mi_now(void) {
     struct timespec t;
     clock_gettime(CLOCK_REALTIME, &t);
@@ -344,6 +418,7 @@ static double mi_clock(void) {
     if (!started) { t0 = t; started = 1; }
     return (double)(t.tv_sec - t0.tv_sec) + (double)(t.tv_nsec - t0.tv_nsec) / 1e9;
 }
+#endif
 
 /* Siskin 문자열을 C가 쓰는 "0으로 끝나는 문자열"로 바꿉니다.
    잘라낸 문자열은 끝에 0이 없을 수 있어 항상 복사합니다. */
@@ -354,7 +429,7 @@ static const char* mi_cstr(MiStr s) {
 }
 
 static bool mi_exists(MiStr p) {
-    FILE* f = fopen(mi_cstr(p), "rb");
+    FILE* f = mi_fopen(mi_cstr(p), "rb");
     if (!f) return false;
     fclose(f);
     return true;
@@ -921,7 +996,7 @@ static MiStr mi_errmsg(MiStr path, int e) {
 /* `!Unit` 은 내부적으로 MiRes_int64_t 로 표현됩니다. */
 static MiRes_int64_t mi_write_text(MiStr path, MiStr text, int append) {
     MiRes_int64_t r; r.val = 0;
-    FILE* f = fopen(mi_cstr(path), append ? "ab" : "wb");
+    FILE* f = mi_fopen(mi_cstr(path), append ? "ab" : "wb");
     if (!f) {
         r.ok = false;
         r.err = mi_errmsg(path, errno);
@@ -935,7 +1010,7 @@ static MiRes_int64_t mi_write_text(MiStr path, MiStr text, int append) {
 
 static MiRes_int64_t mi_remove(MiStr path) {
     MiRes_int64_t r; r.val = 0;
-    if (unlink(mi_cstr(path)) != 0) {
+    if (mi_unlink(mi_cstr(path)) != 0) {
         r.ok = false;
         r.err = mi_errmsg(path, errno);
         return r;
@@ -946,7 +1021,7 @@ static MiRes_int64_t mi_remove(MiStr path) {
 
 static MiRes_MiStr mi_read_text(MiStr path) {
     MiRes_MiStr r;
-    FILE* f = fopen(mi_cstr(path), "rb");
+    FILE* f = mi_fopen(mi_cstr(path), "rb");
     if (!f) {
         r.ok = false; r.val = mi_str("");
         r.err = mi_errmsg(path, errno);
@@ -1340,6 +1415,9 @@ fn generate_opts(prog: &Program, src_path: &str, dbg: bool) -> Result<(String, V
         out.push_str(&g.body);
         out.push_str(&
             "\nint main(int argc, char** argv) {\n\
+             #ifdef _WIN32\n\
+             \x20   mi_win_init(&argc, &argv);\n\
+             #endif\n\
              \x20   mi_prog_args = mi_list_new((int64_t)sizeof(MiStr));\n\
              \x20   for (int i = 1; i < argc; i++) { MiStr s = mi_str(argv[i]); mi_list_push(&mi_prog_args, &s); }\n\
              \x20   DBG_INIT GLOBALS_INIT MAIN_CALL\n\
@@ -5326,6 +5404,15 @@ impl CGen {
             "pid" => "((int64_t)getpid())".into(),
             // ---- std.net (네이티브 전용) ----
             n if n.starts_with("__net_") || n.starts_with("__http") || n == "__url_encode" => {
+                if cfg!(windows) && !self.uses_net {
+                    // 네트워크 런타임(rt_net.c)은 아직 유닉스 소켓만 씁니다.
+                    self.errors.push(cerr(
+                        "C0025",
+                        tr!("std.net 은 아직 윈도우에서 쓸 수 없습니다 (리눅스·맥에서는 됩니다)", "std.net is not supported on Windows yet (it works on Linux and macOS)"),
+                        line,
+                        1,
+                    ));
+                }
                 self.uses_net = true;
                 let mut v: Vec<String> = Vec::new();
                 for (i, a) in args.iter().enumerate() {

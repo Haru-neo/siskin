@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: C compiler
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then gcc --version; else cc --version; fi
+      - name: Install the compiler (cargo install)
+        run: cargo install --path micai --root "$RUNNER_TEMP/siskin"
+      - name: run == build
+        run: bash tests/same.sh "$RUNNER_TEMP/siskin/bin/siskin"
+      - name: Tools
+        if: runner.os == 'Linux'
+        run: sh tests/tools.sh "$RUNNER_TEMP/siskin/bin/siskin"

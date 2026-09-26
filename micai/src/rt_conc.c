@@ -3,7 +3,9 @@
    작업끼리 같은 메모리를 만지지 않습니다. 서로 주고받을 때는 통로(channel)를 씁니다.
    통로·작업 상태는 자물쇠 하나(mi_sync)로 지킵니다. 모든 작업이 무언가를 기다리고
    있으면(교착) 아무도 깨워 줄 수 없으므로 실행 오류로 멈춥니다(인터프리터와 같은 규칙). */
+#ifndef _WIN32
 #include <pthread.h>
+#endif
 
 struct MiTask {
     pthread_t th;

@@ -21,6 +21,104 @@ const RUNTIME: &str = r##"/* ------- Siskin 런타임 (자동 생성) ------- */
 #include <ctype.h>
 #include <math.h>
 #include <errno.h>
+#ifdef _WIN32
+/* 윈도우: 경로·명령줄 인자·화면 글자를 UTF-8 로 맞춥니다. 인터프리터(siskin run)가
+   UTF-8 로 다루므로 이렇게 해야 두 방식의 결과가 같습니다. */
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0A00
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <shellapi.h>
+#include <io.h>
+#include <fcntl.h>
+#include <direct.h>
+#include <process.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+static wchar_t* mi_wide(const char* s) {
+    int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
+    wchar_t* w = (wchar_t*)malloc(sizeof(wchar_t) * (size_t)(n > 0 ? n : 1));
+    if (!w) { fputs("out of memory\n", stderr); exit(1); }
+    if (n <= 0) w[0] = 0; else MultiByteToWideChar(CP_UTF8, 0, s, -1, w, n);
+    return w;
+}
+static char* mi_narrow(const wchar_t* w) {
+    int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, NULL, 0, NULL, NULL);
+    char* s = (char*)malloc((size_t)(n > 0 ? n : 1));
+    if (!s) { fputs("out of memory\n", stderr); exit(1); }
+    if (n <= 0) s[0] = 0; else WideCharToMultiByte(CP_UTF8, 0, w, -1, s, n, NULL, NULL);
+    return s;
+}
+static FILE* mi_fopen(const char* p, const char* m) {
+    wchar_t* wp = mi_wide(p);
+    wchar_t* wm = mi_wide(m);
+    FILE* f = _wfopen(wp, wm);
+    free(wp); free(wm);
+    return f;
+}
+static int mi_unlink(const char* p) { wchar_t* w = mi_wide(p); int r = _wunlink(w); free(w); return r; }
+#define getpid _getpid
+/* main 맨 앞에서 부릅니다: 화면을 UTF-8 로, 줄바꿈을 그대로(\n), 인자를 UTF-8 로. */
+static void mi_win_init(int* argc, char*** argv) {
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+    int n = 0;
+    wchar_t** wa = CommandLineToArgvW(GetCommandLineW(), &n);
+    if (!wa) return;
+    char** a = (char**)malloc(sizeof(char*) * (size_t)(n + 1));
+    if (!a) return;
+    for (int i = 0; i < n; i++) a[i] = mi_narrow(wa[i]);
+    a[n] = NULL;
+    LocalFree(wa);
+    *argc = n; *argv = a;
+}
+/* 런타임(동시성·네트워크·디버거)이 쓰는 pthread 몇 개를 윈도우 스레드로 옮겨 둡니다.
+   MSVC 용 clang 에는 pthread 가 없고, MinGW 에서도 따로 DLL 을 안 달고 다니게 됩니다. */
+typedef HANDLE pthread_t;
+typedef SRWLOCK pthread_mutex_t;
+typedef CONDITION_VARIABLE pthread_cond_t;
+typedef struct { size_t stack; } pthread_attr_t;
+#define PTHREAD_MUTEX_INITIALIZER SRWLOCK_INIT
+#define PTHREAD_COND_INITIALIZER CONDITION_VARIABLE_INIT
+#define PTHREAD_CREATE_DETACHED 1
+static int pthread_mutex_lock(pthread_mutex_t* m) { AcquireSRWLockExclusive(m); return 0; }
+static int pthread_mutex_init(pthread_mutex_t* m, void* a) { (void)a; InitializeSRWLock(m); return 0; }
+static int pthread_mutex_unlock(pthread_mutex_t* m) { ReleaseSRWLockExclusive(m); return 0; }
+static int pthread_cond_wait(pthread_cond_t* c, pthread_mutex_t* m) { SleepConditionVariableSRW(c, m, INFINITE, 0); return 0; }
+static int pthread_cond_broadcast(pthread_cond_t* c) { WakeAllConditionVariable(c); return 0; }
+static int pthread_attr_init(pthread_attr_t* a) { a->stack = 0; return 0; }
+static int pthread_attr_setstacksize(pthread_attr_t* a, size_t n) { a->stack = n; return 0; }
+static int pthread_attr_setdetachstate(pthread_attr_t* a, int d) { (void)a; (void)d; return 0; }
+static int pthread_attr_destroy(pthread_attr_t* a) { (void)a; return 0; }
+typedef struct { void* (*f)(void*); void* arg; } MiThrStart;
+static unsigned __stdcall mi_thr_tramp(void* p) {
+    MiThrStart s = *(MiThrStart*)p;
+    free(p);
+    s.f(s.arg);
+    return 0;
+}
+/* 늘 떼어 놓은(detached) 스레드로 만듭니다. 여기서는 그렇게만 씁니다. */
+static int pthread_create(pthread_t* t, const pthread_attr_t* a, void* (*f)(void*), void* arg) {
+    MiThrStart* s = (MiThrStart*)malloc(sizeof(MiThrStart));
+    if (!s) return 1;
+    s->f = f; s->arg = arg;
+    uintptr_t h = _beginthreadex(NULL, (unsigned)(a ? a->stack : 0), mi_thr_tramp, s, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
+    if (!h) { free(s); return 1; }
+    CloseHandle((HANDLE)h);
+    *t = NULL;
+    return 0;
+}
+#else
+#include <unistd.h>
+#define mi_fopen fopen
+#define mi_unlink unlink
+#endif
 
 typedef struct { const char* p; int64_t len; } MiStr;
 /* 함수 값. 함수 자리(fn)와 붙잡은 값 묶음(env). 이름 붙은 함수는 env 가 NULL 입니다. */
@@ -330,6 +428,23 @@ static int64_t mi_rand_int(int64_t lo, int64_t hi) {
     return lo + (int64_t)(mi_next_rand() % (uint64_t)(hi - lo));
 }
 
+#ifdef _WIN32
+static double mi_now(void) {
+    FILETIME ft;
+    GetSystemTimePreciseAsFileTime(&ft);
+    uint64_t v = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;   /* 1601년부터 100ns 단위 */
+    return (double)(v - 116444736000000000ull) / 1e7;
+}
+
+static double mi_clock(void) {
+    static LARGE_INTEGER f, t0;
+    static int started = 0;
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    if (!started) { QueryPerformanceFrequency(&f); t0 = t; started = 1; }
+    return (double)(t.QuadPart - t0.QuadPart) / (double)f.QuadPart;
+}
+#else
 static double mi_now(void) {
     struct timespec t;
     clock_gettime(CLOCK_REALTIME, &t);
@@ -344,6 +459,7 @@ static double mi_clock(void) {
     if (!started) { t0 = t; started = 1; }
     return (double)(t.tv_sec - t0.tv_sec) + (double)(t.tv_nsec - t0.tv_nsec) / 1e9;
 }
+#endif
 
 /* Siskin 문자열을 C가 쓰는 "0으로 끝나는 문자열"로 바꿉니다.
    잘라낸 문자열은 끝에 0이 없을 수 있어 항상 복사합니다. */
@@ -354,7 +470,7 @@ static const char* mi_cstr(MiStr s) {
 }
 
 static bool mi_exists(MiStr p) {
-    FILE* f = fopen(mi_cstr(p), "rb");
+    FILE* f = mi_fopen(mi_cstr(p), "rb");
     if (!f) return false;
     fclose(f);
     return true;
@@ -921,7 +1037,7 @@ static MiStr mi_errmsg(MiStr path, int e) {
 /* `!Unit` 은 내부적으로 MiRes_int64_t 로 표현됩니다. */
 static MiRes_int64_t mi_write_text(MiStr path, MiStr text, int append) {
     MiRes_int64_t r; r.val = 0;
-    FILE* f = fopen(mi_cstr(path), append ? "ab" : "wb");
+    FILE* f = mi_fopen(mi_cstr(path), append ? "ab" : "wb");
     if (!f) {
         r.ok = false;
         r.err = mi_errmsg(path, errno);
@@ -935,7 +1051,7 @@ static MiRes_int64_t mi_write_text(MiStr path, MiStr text, int append) {
 
 static MiRes_int64_t mi_remove(MiStr path) {
     MiRes_int64_t r; r.val = 0;
-    if (unlink(mi_cstr(path)) != 0) {
+    if (mi_unlink(mi_cstr(path)) != 0) {
         r.ok = false;
         r.err = mi_errmsg(path, errno);
         return r;
@@ -946,7 +1062,7 @@ static MiRes_int64_t mi_remove(MiStr path) {
 
 static MiRes_MiStr mi_read_text(MiStr path) {
     MiRes_MiStr r;
-    FILE* f = fopen(mi_cstr(path), "rb");
+    FILE* f = mi_fopen(mi_cstr(path), "rb");
     if (!f) {
         r.ok = false; r.val = mi_str("");
         r.err = mi_errmsg(path, errno);
@@ -1340,6 +1456,9 @@ fn generate_opts(prog: &Program, src_path: &str, dbg: bool) -> Result<(String, V
         out.push_str(&g.body);
         out.push_str(&
             "\nint main(int argc, char** argv) {\n\
+             #ifdef _WIN32\n\
+             \x20   mi_win_init(&argc, &argv);\n\
+             #endif\n\
              \x20   mi_prog_args = mi_list_new((int64_t)sizeof(MiStr));\n\
              \x20   for (int i = 1; i < argc; i++) { MiStr s = mi_str(argv[i]); mi_list_push(&mi_prog_args, &s); }\n\
              \x20   DBG_INIT GLOBALS_INIT MAIN_CALL\n\
@@ -1350,10 +1469,14 @@ fn generate_opts(prog: &Program, src_path: &str, dbg: bool) -> Result<(String, V
             .replace("GLOBALS_INIT ", if g.has_globals { "mi_init_globals(); " } else { "" }),
         );
         let mut links = g.ty.links.clone();
-        if g.uses_net && !links.iter().any(|l| l == "dl") {
+        if g.uses_net && cfg!(windows) {
+            // 윈도우: 소켓(ws2_32)과 인증서 목록(crypt32).
+            links.push("ws2_32".into());
+            links.push("crypt32".into());
+        } else if g.uses_net && !links.iter().any(|l| l == "dl") {
             links.push("dl".into());
         }
-        if (g.uses_conc || g.uses_net || g.dbg) && !links.iter().any(|l| l == "pthread") {
+        if (g.uses_conc || g.uses_net || g.dbg) && !cfg!(windows) && !links.iter().any(|l| l == "pthread") {
             links.push("pthread".into());
         }
         let cpp = if g.cpp_ffi.is_empty() { None } else { Some(g.cpp_ffi.clone()) };
@@ -1564,7 +1687,7 @@ impl CGen {
         for f in &decls {
             let cs = f.c_sig.as_ref().unwrap();
             let h = cs.header.clone();
-            let inc = if h.starts_with('.') || h.starts_with('/') {
+            let inc = if h.starts_with('.') || h.starts_with('/') || std::path::Path::new(h.as_str()).is_absolute() {
                 format!("#include \"{}\"\n", h)
             } else {
                 format!("#include <{}>\n", h)

@@ -1,0 +1,5 @@
+# 시험이 파일 내용을 바이트 단위로 비교하므로, 윈도우에서도 줄바꿈을 LF 로 받습니다.
+*.skn text eol=lf
+*.expected text eol=lf
+*.sh text eol=lf
+*.txt text eol=lf

@@ -1,0 +1,12 @@
+examples/shapes.skn
+trial/blind1/probe.skn
+trial/grades/csvutil.skn
+trial/json/repro_import.skn
+trial/tree/mistakes.skn
+trial/tree/mistakes_compile.skn
+trial/tree/tree.skn
+trial/wordfreq/wordfreq.skn
+trial2/bank/probe_noreturn.skn
+trial2/bank/probe_strmatch.skn
+trial2/blind1/probe2.skn
+trial2/blind2/repro_import.skn

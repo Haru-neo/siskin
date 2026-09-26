@@ -2,6 +2,98 @@
    이 조각은 프로그램이 std.net 을 쓸 때만 붙습니다.
    TLS(https)는 컴퓨터에 깔린 OpenSSL(libssl)을 실행 중에 찾아서 씁니다.
    그래서 빌드할 때 OpenSSL 헤더가 없어도 되고, https 를 안 쓰면 없어도 됩니다. */
+#include <stdarg.h>
+#ifdef _WIN32
+/* 윈도우: 소켓은 Winsock(ws2_32), OpenSSL 은 DLL 을 LoadLibrary 로 불러옵니다.
+   아래 mi_s* 함수는 실패하면 errno 에 유닉스와 같은 오류 번호를 넣어서, 나머지 코드가
+   운영체제를 가리지 않고 같은 오류 글을 내게 합니다. */
+#include <wincrypt.h>
+#define MSG_NOSIGNAL 0
+#define strncasecmp _strnicmp
+#define strcasecmp _stricmp
+static int mi_wsa_map(int w, bool recv_timeout) {
+    switch (w) {
+    case 0: return 0;
+    case WSAEINTR: return EINTR;
+    case WSAEWOULDBLOCK: return EAGAIN;
+    case WSAEINPROGRESS: return EINPROGRESS;
+    case WSAETIMEDOUT: return recv_timeout ? EAGAIN : ETIMEDOUT;
+    case WSAECONNREFUSED: return ECONNREFUSED;
+    case WSAECONNRESET: case WSAECONNABORTED: return ECONNRESET;
+    case WSAENETUNREACH: return ENETUNREACH;
+    case WSAEHOSTUNREACH: return EHOSTUNREACH;
+    case WSAEADDRINUSE: return EADDRINUSE;
+    case WSAEACCES: return EACCES;
+    default: return EIO;
+    }
+}
+static int mi_serr(void) { errno = mi_wsa_map(WSAGetLastError(), true); return -1; }
+static void mi_wsa_init(void) {
+    static volatile LONG done = 0;
+    if (InterlockedCompareExchange(&done, 1, 0) == 0) { WSADATA d; WSAStartup(MAKEWORD(2, 2), &d); }
+}
+static int mi_ssocket(int f, int t, int p) { mi_wsa_init(); SOCKET s = socket(f, t, p); if (s == INVALID_SOCKET) return mi_serr(); return (int)s; }
+static int mi_sconnect(int fd, const struct sockaddr* a, int n) { return connect((SOCKET)fd, a, n) == 0 ? 0 : mi_serr(); }
+static int mi_sbind(int fd, const struct sockaddr* a, int n) { return bind((SOCKET)fd, a, n) == 0 ? 0 : mi_serr(); }
+static int mi_slisten(int fd, int n) { return listen((SOCKET)fd, n) == 0 ? 0 : mi_serr(); }
+static int mi_saccept(int fd) { SOCKET s = accept((SOCKET)fd, NULL, NULL); if (s == INVALID_SOCKET) return mi_serr(); return (int)s; }
+static int64_t mi_ssend(int fd, const char* p, size_t n, int fl) {
+    int r = send((SOCKET)fd, p, (int)(n > 0x40000000 ? 0x40000000 : n), fl);
+    return r == SOCKET_ERROR ? (int64_t)mi_serr() : (int64_t)r;
+}
+static int64_t mi_srecv(int fd, char* p, size_t n, int fl) {
+    int r = recv((SOCKET)fd, p, (int)n, fl);
+    return r == SOCKET_ERROR ? (int64_t)mi_serr() : (int64_t)r;
+}
+static int mi_sclose(int fd) { return closesocket((SOCKET)fd); }
+static void mi_set_nonblock(int fd, bool on) { u_long v = on ? 1 : 0; ioctlsocket((SOCKET)fd, FIONBIO, &v); }
+static int mi_poll(struct pollfd* p, int n, int ms) { int r = WSAPoll(p, (ULONG)n, ms); if (r < 0) mi_serr(); return r; }
+static void mi_net_timeouts(int fd);
+static bool mi_readable(const char* f) { FILE* x = mi_fopen(f, "rb"); if (!x) return false; fclose(x); return true; }
+static void mi_no_sigpipe(void) {}
+/* dlopen 대신 */
+static HMODULE mi_ssl_libs[2];
+static void* mi_ssl_sym(const char* n) {
+    for (int i = 0; i < 2; i++) if (mi_ssl_libs[i]) { FARPROC f = GetProcAddress(mi_ssl_libs[i], n); if (f) return (void*)f; }
+    return NULL;
+}
+/* 폴더 dir 에서 libssl/libcrypto 짝을 불러 봅니다(dir 가 비면 PATH 에서). */
+static bool mi_ssl_try_dir(const wchar_t* dir) {
+    static const wchar_t* ssl[] = { L"libssl-3-x64.dll", L"libssl-3.dll", L"libssl-1_1-x64.dll", NULL };
+    static const wchar_t* cry[] = { L"libcrypto-3-x64.dll", L"libcrypto-3.dll", L"libcrypto-1_1-x64.dll", NULL };
+    for (int i = 0; ssl[i]; i++) {
+        wchar_t a[MAX_PATH * 2], b[MAX_PATH * 2];
+        _snwprintf(a, MAX_PATH * 2, L"%ls%ls%ls", dir, *dir ? L"\\" : L"", cry[i]);
+        _snwprintf(b, MAX_PATH * 2, L"%ls%ls%ls", dir, *dir ? L"\\" : L"", ssl[i]);
+        DWORD fl = *dir ? LOAD_WITH_ALTERED_SEARCH_PATH : 0;
+        HMODULE c = LoadLibraryExW(a, NULL, fl);
+        if (!c) continue;
+        HMODULE s = LoadLibraryExW(b, NULL, fl);
+        if (!s) { FreeLibrary(c); continue; }
+        mi_ssl_libs[0] = s; mi_ssl_libs[1] = c;
+        return true;
+    }
+    return false;
+}
+/* OpenSSL 은 윈도우에 기본으로 없어서, PATH → Git for Windows → OpenSSL 설치 폴더 순서로 찾습니다. */
+static bool mi_ssl_open(void) {
+    if (mi_ssl_try_dir(L"")) return true;
+    wchar_t git[MAX_PATH];
+    if (SearchPathW(NULL, L"git.exe", NULL, MAX_PATH, git, NULL)) {
+        /* ...\Git\cmd\git.exe 나 ...\Git\bin\git.exe → ...\Git\mingw64\bin */
+        wchar_t* s1 = wcsrchr(git, L'\\');
+        if (s1) { *s1 = 0; wchar_t* s2 = wcsrchr(git, L'\\'); if (s2) { *s2 = 0;
+            wchar_t d[MAX_PATH * 2];
+            _snwprintf(d, MAX_PATH * 2, L"%ls\\mingw64\\bin", git);
+            if (mi_ssl_try_dir(d)) return true;
+        } }
+    }
+    const wchar_t* dirs[] = { L"C:\\Program Files\\Git\\mingw64\\bin", L"C:\\Program Files\\OpenSSL-Win64\\bin",
+                              L"C:\\Program Files\\OpenSSL\\bin", NULL };
+    for (int i = 0; dirs[i]; i++) if (mi_ssl_try_dir(dirs[i])) return true;
+    return false;
+}
+#else
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -9,10 +101,31 @@
 #include <netdb.h>
 #include <dlfcn.h>
 #include <strings.h>
-#include <stdarg.h>
 #include <signal.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <poll.h>
+#include <fcntl.h>
+#define mi_ssocket socket
+#define mi_sconnect connect
+#define mi_sbind bind
+#define mi_slisten listen
+#define mi_sclose close
+#define mi_poll poll
+static int mi_saccept(int fd) { return accept(fd, NULL, NULL); }
+static int64_t mi_ssend(int fd, const char* p, size_t n, int fl) { return (int64_t)send(fd, p, n, fl); }
+static int64_t mi_srecv(int fd, char* p, size_t n, int fl) { return (int64_t)recv(fd, p, n, fl); }
+static void mi_set_nonblock(int fd, bool on) {
+    if (on) fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+    else fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) & ~O_NONBLOCK);
+}
+static bool mi_readable(const char* f) { return access(f, R_OK) == 0; }
+static void mi_no_sigpipe(void) {
+    static bool done = false;
+    if (!done) { signal(SIGPIPE, SIG_IGN); done = true; }
+}
+static int mi_wsa_map(int e, bool recv_timeout) { (void)recv_timeout; return e; }
+#endif
 
 static _Thread_local MiStr mi_net_err_s;
 static double mi_net_timeout_s = 30.0;
@@ -74,11 +187,27 @@ static bool mi_ssl_load(void) {
 static bool mi_ssl_load_once(void) {
     if (mi_ssl.tried) return mi_ssl.ok;
     mi_ssl.tried = true;
-    const char* names[] = { "libssl.so.3", "libssl.so", "libssl.so.1.1", "libssl.3.dylib", "libssl.dylib", NULL };
+#ifdef _WIN32
+    if (!mi_ssl_open()) { mi_net_fail(MI_T("https 를 쓰려면 OpenSSL 이 필요합니다. Git for Windows 를 깔면 함께 들어옵니다", "https requires OpenSSL; it comes with Git for Windows")); return false; }
+#define MI_SSL_GET(n) mi_ssl_sym(n)
+#else
+#ifdef __APPLE__
+    /* 맥의 /usr/lib/libssl.dylib 는 불러오면 프로그램을 멈춰 버리는 껍데기라서, Homebrew 의 OpenSSL 을 씁니다. */
+    const char* names[] = { "/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib", "/usr/local/opt/openssl@3/lib/libssl.3.dylib",
+                            "/opt/homebrew/lib/libssl.3.dylib", "/usr/local/lib/libssl.3.dylib", "libssl.3.dylib", NULL };
+#else
+    const char* names[] = { "libssl.so.3", "libssl.so", "libssl.so.1.1", NULL };
+#endif
     void* h = NULL;
     for (int i = 0; names[i] && !h; i++) h = dlopen(names[i], RTLD_NOW | RTLD_GLOBAL);
+#ifdef __APPLE__
+    if (!h) { mi_net_fail(MI_T("https 를 쓰려면 OpenSSL(libssl)이 필요합니다. 예: `brew install openssl@3`", "https requires OpenSSL (libssl), e.g. `brew install openssl@3`")); return false; }
+#else
     if (!h) { mi_net_fail(MI_T("https 를 쓰려면 OpenSSL(libssl)이 필요합니다. 예: `apt install libssl3`", "https requires OpenSSL (libssl), e.g. `apt install libssl3`")); return false; }
-#define MI_SSL_SYM(n) do { *(void**)(&mi_ssl.n) = dlsym(h, #n); if (!mi_ssl.n) { mi_net_fail(MI_T("OpenSSL 이 너무 오래되었습니다 (%s 없음). 1.1.1 이상이 필요합니다", "OpenSSL is too old (missing %s); version 1.1.1 or later is required"), #n); return false; } } while (0)
+#endif
+#define MI_SSL_GET(n) dlsym(h, n)
+#endif
+#define MI_SSL_SYM(n) do { *(void**)(&mi_ssl.n) = MI_SSL_GET(#n); if (!mi_ssl.n) { mi_net_fail(MI_T("OpenSSL 이 너무 오래되었습니다 (%s 없음). 1.1.1 이상이 필요합니다", "OpenSSL is too old (missing %s); version 1.1.1 or later is required"), #n); return false; } } while (0)
     MI_SSL_SYM(TLS_client_method); MI_SSL_SYM(SSL_CTX_new); MI_SSL_SYM(SSL_CTX_set_default_verify_paths);
     MI_SSL_SYM(SSL_CTX_set_verify); MI_SSL_SYM(SSL_new); MI_SSL_SYM(SSL_set_fd); MI_SSL_SYM(SSL_ctrl);
     MI_SSL_SYM(SSL_set1_host); MI_SSL_SYM(SSL_connect); MI_SSL_SYM(SSL_read); MI_SSL_SYM(SSL_write);
@@ -87,10 +216,31 @@ static bool mi_ssl_load_once(void) {
     MI_SSL_SYM(TLS_server_method); MI_SSL_SYM(SSL_CTX_use_certificate_chain_file); MI_SSL_SYM(SSL_CTX_use_PrivateKey_file);
     MI_SSL_SYM(SSL_CTX_check_private_key); MI_SSL_SYM(SSL_CTX_free); MI_SSL_SYM(SSL_accept);
 #undef MI_SSL_SYM
+#undef MI_SSL_GET
     mi_ssl.ctx = mi_ssl.SSL_CTX_new(mi_ssl.TLS_client_method());
     if (!mi_ssl.ctx) { mi_net_fail(MI_T("TLS 를 준비할 수 없습니다", "cannot initialize TLS")); return false; }
     /* 운영체제의 인증서 목록을 씁니다. SSL_CERT_FILE / SSL_CERT_DIR 환경 변수도 따릅니다. */
     mi_ssl.SSL_CTX_set_default_verify_paths(mi_ssl.ctx);
+#ifdef _WIN32
+    /* 윈도우의 OpenSSL 은 운영체제 인증서 목록을 모르므로, 윈도우 "신뢰할 수 있는 루트" 를 넣어 줍니다. */
+    {
+        void* (*get_store)(const void*) = (void* (*)(const void*))mi_ssl_sym("SSL_CTX_get_cert_store");
+        void* (*d2i)(void**, const unsigned char**, long) = (void* (*)(void**, const unsigned char**, long))mi_ssl_sym("d2i_X509");
+        int (*add)(void*, void*) = (int (*)(void*, void*))mi_ssl_sym("X509_STORE_add_cert");
+        void (*xfree)(void*) = (void (*)(void*))mi_ssl_sym("X509_free");
+        void* st = get_store ? get_store(mi_ssl.ctx) : NULL;
+        HCERTSTORE cs = (st && d2i && add && xfree) ? CertOpenSystemStoreW(0, L"ROOT") : NULL;
+        if (cs) {
+            PCCERT_CONTEXT cc = NULL;
+            while ((cc = CertEnumCertificatesInStore(cs, cc)) != NULL) {
+                const unsigned char* p = cc->pbCertEncoded;
+                void* x = d2i(NULL, &p, (long)cc->cbCertEncoded);
+                if (x) { add(st, x); xfree(x); }
+            }
+            CertCloseStore(cs, 0);
+        }
+    }
+#endif
     mi_ssl.SSL_CTX_set_verify(mi_ssl.ctx, 1 /* SSL_VERIFY_PEER */, NULL);
     mi_ssl.ok = true;
     return true;
@@ -145,17 +295,22 @@ static MiConn* mi_conn_get(int64_t h) {
 }
 
 static void mi_net_timeouts(int fd) {
+#ifdef _WIN32
+    DWORD ms = (DWORD)(mi_net_timeout_s * 1000.0);
+    setsockopt((SOCKET)fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&ms, sizeof ms);
+    setsockopt((SOCKET)fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&ms, sizeof ms);
+#else
     struct timeval tv;
     tv.tv_sec = (time_t)mi_net_timeout_s;
     tv.tv_usec = (suseconds_t)((mi_net_timeout_s - (double)tv.tv_sec) * 1e6);
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+#endif
 }
 
 /* 주소를 찾아서 TCP 로 붙습니다. 실패하면 -1 과 오류 글. */
 static int mi_tcp_dial(const char* host, int64_t port) {
-    static bool sig_done = false;
-    if (!sig_done) { signal(SIGPIPE, SIG_IGN); sig_done = true; }
+    mi_no_sigpipe();
     if (port <= 0 || port > 65535) { mi_net_fail(MI_T("포트 번호 %lld 은(는) 쓸 수 없습니다 (1~65535)", "invalid port number %lld (must be 1-65535)"), (long long)port); return -1; }
     char ps[16]; snprintf(ps, sizeof ps, "%lld", (long long)port);
     struct addrinfo hints, *res = NULL;
@@ -166,22 +321,22 @@ static int mi_tcp_dial(const char* host, int64_t port) {
     if (gr != 0 || !res) { mi_net_fail(MI_T("%s: 주소를 찾을 수 없습니다", "%s: cannot resolve address"), host); return -1; }
     int fd = -1; int last = 0;
     for (struct addrinfo* a = res; a; a = a->ai_next) {
-        fd = socket(a->ai_family, a->ai_socktype, a->ai_protocol);
+        fd = mi_ssocket(a->ai_family, a->ai_socktype, a->ai_protocol);
         if (fd < 0) { last = errno; continue; }
-        int fl = fcntl(fd, F_GETFL, 0);
-        fcntl(fd, F_SETFL, fl | O_NONBLOCK);
-        int r = connect(fd, a->ai_addr, a->ai_addrlen);
-        if (r != 0 && errno == EINPROGRESS) {
+        mi_set_nonblock(fd, true);
+        int r = mi_sconnect(fd, a->ai_addr, (int)a->ai_addrlen);
+        if (r != 0 && (errno == EINPROGRESS || errno == EAGAIN)) {
             struct pollfd p = { fd, POLLOUT, 0 };
             int ms = mi_net_timeout_s > 0 ? (int)(mi_net_timeout_s * 1000) : -1;
             int pr;
-            do { pr = poll(&p, 1, ms); } while (pr < 0 && errno == EINTR);
-            if (pr == 0) { last = ETIMEDOUT; close(fd); fd = -1; continue; }
+            do { pr = mi_poll(&p, 1, ms); } while (pr < 0 && errno == EINTR);
+            if (pr == 0) { last = ETIMEDOUT; mi_sclose(fd); fd = -1; continue; }
             int e = 0; socklen_t el = sizeof e;
-            getsockopt(fd, SOL_SOCKET, SO_ERROR, &e, &el);
-            if (e != 0) { last = e; close(fd); fd = -1; continue; }
-        } else if (r != 0) { last = errno; close(fd); fd = -1; continue; }
-        fcntl(fd, F_SETFL, fl);
+            getsockopt(fd, SOL_SOCKET, SO_ERROR, (void*)&e, &el);
+            e = mi_wsa_map(e, false);
+            if (e != 0) { last = e; mi_sclose(fd); fd = -1; continue; }
+        } else if (r != 0) { last = errno; mi_sclose(fd); fd = -1; continue; }
+        mi_set_nonblock(fd, false);
         break;
     }
     freeaddrinfo(res);
@@ -194,7 +349,7 @@ static int mi_tcp_dial(const char* host, int64_t port) {
         return -1;
     }
     int one = 1;
-    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (void*)&one, sizeof one);
     mi_net_timeouts(fd);
     return fd;
 }
@@ -235,8 +390,11 @@ static int64_t mi_conn_write(MiConn* c, const char* p, int64_t n) {
     while (done < n) {
         int64_t w;
         if (c->ssl) w = mi_ssl.SSL_write(c->ssl, p + done, (int)(n - done > (1 << 30) ? (1 << 30) : n - done));
-        else w = (int64_t)send(c->fd, p + done, (size_t)(n - done), MSG_NOSIGNAL);
+        else w = mi_ssend(c->fd, p + done, (size_t)(n - done), MSG_NOSIGNAL);
         if (w <= 0) {
+#ifdef _WIN32
+            if (c->ssl) errno = mi_wsa_map(WSAGetLastError(), true);
+#endif
             if (!c->ssl && w < 0 && errno == EINTR) continue;
             mi_net_fail(!c->ssl && (errno == EAGAIN || errno == EWOULDBLOCK) ? MI_T("보내다가 시간이 지났습니다", "timed out while sending") : MI_T("보내는 중에 연결이 끊겼습니다", "connection lost while sending"));
             return -1;
@@ -265,6 +423,9 @@ static int64_t mi_conn_fill(MiConn* c) {
             r = mi_ssl.SSL_read(c->ssl, c->buf + c->blen, 65536);
             if (r <= 0) {
                 int e = mi_ssl.SSL_get_error(c->ssl, (int)r);
+#ifdef _WIN32
+                errno = mi_wsa_map(WSAGetLastError(), true);
+#endif
                 if (e == 6 /* SSL_ERROR_ZERO_RETURN */) return 0;
                 if (e == 5 /* SSL_ERROR_SYSCALL */ && (errno == 0 || r == 0)) return 0;
                 if (e == 5 && (errno == EAGAIN || errno == EWOULDBLOCK)) { mi_net_fail(MI_T("응답을 기다리다 시간이 지났습니다", "timed out waiting for a response")); return -1; }
@@ -272,7 +433,7 @@ static int64_t mi_conn_fill(MiConn* c) {
                 return -1;
             }
         } else {
-            r = (int64_t)recv(c->fd, c->buf + c->blen, 65536, 0);
+            r = mi_srecv(c->fd, c->buf + c->blen, 65536, 0);
             if (r < 0) {
                 if (errno == EINTR) continue;
                 if (errno == EAGAIN || errno == EWOULDBLOCK) mi_net_fail(MI_T("응답을 기다리다 시간이 지났습니다", "timed out waiting for a response"));
@@ -424,7 +585,7 @@ static int64_t mi_net_dial(const char* host, int64_t port, bool tls, bool use_pr
     int64_t h = mi_conn_new(fd);
     MiConn* c = mi_conn_at(h);
     if ((px.has && !mi_proxy_connect(c, &px, host, port)) || (tls && !mi_tls_start(c, host))) {
-        close(fd); free(c->buf); c->buf = NULL;
+        mi_sclose(fd); free(c->buf); c->buf = NULL;
         pthread_mutex_lock(&mi_conn_mu); c->used = false; pthread_mutex_unlock(&mi_conn_mu);
         return -1;
     }
@@ -482,7 +643,7 @@ static void mi_net_close(int64_t h) {
         if (c->ssl) { mi_ssl.SSL_shutdown(c->ssl); mi_ssl.SSL_free(c->ssl); }
         if (c->sctx) mi_ssl.SSL_CTX_free(c->sctx);
         c->sctx = NULL;
-        close(c->fd);
+        mi_sclose(c->fd);
         free(c->buf);
         c->ssl = NULL; c->buf = NULL; c->blen = c->bcap = c->bpos = 0;
         pthread_mutex_lock(&mi_conn_mu);
@@ -494,8 +655,10 @@ static void mi_net_close(int64_t h) {
 
 /* ---- 서버: 들어오는 연결 받기 ---- */
 static int64_t mi_net_listen(MiStr host, int64_t port) {
-    static bool sig_done = false;
-    if (!sig_done) { signal(SIGPIPE, SIG_IGN); sig_done = true; }
+    mi_no_sigpipe();
+#ifdef _WIN32
+    mi_wsa_init();
+#endif
     const char* hs = host.len ? mi_cstr(host) : NULL;
     char ps[16]; snprintf(ps, sizeof ps, "%lld", (long long)port);
     struct addrinfo hints, *res = NULL;
@@ -505,12 +668,17 @@ static int64_t mi_net_listen(MiStr host, int64_t port) {
     hints.ai_flags = AI_PASSIVE;
     if (port < 0 || port > 65535) { mi_net_fail(MI_T("포트 번호 %lld 은(는) 쓸 수 없습니다 (0~65535)", "invalid port number %lld (must be 0-65535)"), (long long)port); return -1; }
     if (getaddrinfo(hs, ps, &hints, &res) != 0 || !res) { mi_net_fail(MI_T("%s: 주소를 찾을 수 없습니다", "%s: cannot resolve address"), hs ? hs : "?"); return -1; }
-    int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    int fd = mi_ssocket(res->ai_family, res->ai_socktype, res->ai_protocol);
     int one = 1;
+#ifdef _WIN32
+    /* 윈도우의 SO_REUSEADDR 는 남이 쓰는 포트도 빼앗으므로, 대신 독차지를 켭니다. */
+    if (fd >= 0) setsockopt((SOCKET)fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (void*)&one, sizeof one);
+#else
     if (fd >= 0) setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
-    if (fd < 0 || bind(fd, res->ai_addr, res->ai_addrlen) != 0 || listen(fd, 64) != 0) {
+#endif
+    if (fd < 0 || mi_sbind(fd, res->ai_addr, (int)res->ai_addrlen) != 0 || mi_slisten(fd, 64) != 0) {
         int e = errno;
-        if (fd >= 0) close(fd);
+        if (fd >= 0) mi_sclose(fd);
         freeaddrinfo(res);
         mi_net_fail(e == EADDRINUSE ? MI_T("포트 %lld 은(는) 이미 쓰이고 있습니다", "port %lld is already in use")
                     : e == EACCES ? MI_T("포트 %lld 을(를) 열 권한이 없습니다 (1024 아래는 관리자 권한이 필요합니다)", "no permission to open port %lld (ports below 1024 require root)")
@@ -533,8 +701,8 @@ static int64_t mi_net_listen_tls(MiStr host, int64_t port, MiStr cert, MiStr key
     const char* kf = mi_cstr(key);
     const char* how = MI_T("시험용 인증서는 이렇게 만들 수 있습니다: openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj /CN=localhost",
                            "for testing, create one with: openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj /CN=localhost");
-    if (access(cf, R_OK) != 0) { mi_net_fail(MI_T("인증서 파일 `%s` 을(를) 읽을 수 없습니다. %s", "cannot read certificate file `%s`. %s"), cf, how); mi_ssl.SSL_CTX_free(ctx); return -1; }
-    if (access(kf, R_OK) != 0) { mi_net_fail(MI_T("비밀 열쇠 파일 `%s` 을(를) 읽을 수 없습니다. %s", "cannot read private key file `%s`. %s"), kf, how); mi_ssl.SSL_CTX_free(ctx); return -1; }
+    if (!mi_readable(cf)) { mi_net_fail(MI_T("인증서 파일 `%s` 을(를) 읽을 수 없습니다. %s", "cannot read certificate file `%s`. %s"), cf, how); mi_ssl.SSL_CTX_free(ctx); return -1; }
+    if (!mi_readable(kf)) { mi_net_fail(MI_T("비밀 열쇠 파일 `%s` 을(를) 읽을 수 없습니다. %s", "cannot read private key file `%s`. %s"), kf, how); mi_ssl.SSL_CTX_free(ctx); return -1; }
     if (mi_ssl.SSL_CTX_use_certificate_chain_file(ctx, cf) != 1) {
         mi_net_fail(MI_T("`%s` 은(는) 인증서(PEM) 파일이 아닙니다", "`%s` is not a certificate (PEM) file"), cf);
         mi_ssl.SSL_CTX_free(ctx); return -1;
@@ -565,7 +733,7 @@ static int64_t mi_net_accept(int64_t h) {
     fflush(stdout);
     for (;;) {
         int fd;
-        do { fd = accept(c->fd, NULL, NULL); } while (fd < 0 && errno == EINTR);
+        do { fd = mi_saccept(c->fd); } while (fd < 0 && errno == EINTR);
         if (fd < 0) { mi_net_fail(MI_T("연결을 받을 수 없습니다", "cannot accept connection")); return -1; }
         mi_net_timeouts(fd);
         if (!c->sctx) { mi_net_ok(); return mi_conn_new(fd); }
@@ -576,7 +744,7 @@ static int64_t mi_net_accept(int64_t h) {
         if (mi_ssl.SSL_accept(s) != 1) {
             while (mi_ssl.ERR_get_error()) {}
             mi_ssl.SSL_free(s);
-            close(fd);
+            mi_sclose(fd);
             continue;
         }
         int64_t k = mi_conn_new(fd);

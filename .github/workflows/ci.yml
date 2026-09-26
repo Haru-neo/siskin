@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-latest
+          - name: macos
+            os: macos-latest
+          # README 가 권하는 윈도우 설치본: LLVM-MinGW (clang 하나에 헤더·라이브러리가 다 들어 있음)
+          - name: windows (llvm-mingw)
+            os: windows-latest
+            toolchain: llvm-mingw
+          # 윈도우에 Visual Studio 와 LLVM(clang) 만 있는 PC
+          - name: windows (clang + MSVC)
+            os: windows-latest
+            toolchain: msvc-clang
+          # MinGW-w64 gcc
+          - name: windows (gcc)
+            os: windows-latest
+            toolchain: gcc
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Libraries for the C examples
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang zlib1g-dev libsqlite3-dev
+      - name: LLVM-MinGW
+        if: matrix.toolchain == 'llvm-mingw'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download -R mstorsjo/llvm-mingw --pattern '*-ucrt-x86_64.zip' -D "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP"/*-ucrt-x86_64.zip -d "$RUNNER_TEMP/llvm-mingw"
+          dir="$(ls -d "$RUNNER_TEMP"/llvm-mingw/*/bin | head -1)"
+          cygpath -w "$dir" >> "$GITHUB_PATH"
+      - name: Pick the C compiler
+        run: |
+          case "${{ matrix.toolchain }}" in
+            gcc) echo "CC=gcc" >> "$GITHUB_ENV" ;;
+            msvc-clang) echo "CC=C:/Program Files/LLVM/bin/clang.exe" >> "$GITHUB_ENV" ;;
+          esac
+      - name: C compiler
+        run: |
+          if [ -n "$CC" ]; then "$CC" --version; elif [ "$RUNNER_OS" = "Windows" ]; then clang --version; else cc --version; fi
+      - name: Install the compiler (cargo install)
+        run: cargo install --path micai --root "$RUNNER_TEMP/siskin"
+      - name: run == build
+        run: |
+          if [ "$RUNNER_OS" != "Windows" ]; then export SISKIN_TEST_LIBS=1; fi
+          SISKIN_TEST_VERBOSE=1 bash tests/same.sh "$RUNNER_TEMP/siskin/bin/siskin"
+      - name: Tools (fmt, lsp, debug, packages, https server)
+        if: success() || failure()
+        run: sh tests/tools.sh "$RUNNER_TEMP/siskin/bin/siskin"

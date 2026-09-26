@@ -1,0 +1,13 @@
+# C 헤더를 가져와 같이 컴파일하는 시험 (운영체제마다 따로 깔 라이브러리가 없게 작은 C 파일을 씁니다)
+import c "counter.h" from "clib" also "clib/counter.c"
+import c "string.h"
+
+fn main():
+    let c = counter_new(10)
+    counter_add(c, 5)
+    counter_add(c, -3)
+    print(f"count = {counter_get(c)}\n")
+    counter_free(c)
+    print(f"scale = {scale(1.5, 4.0)}\n")
+    print(greet() + "\n")
+    print(f"strlen = {strlen("siskin")}\n")

@@ -144,6 +144,8 @@ const INT_TYPES: &[&str] = &[
     "long int", "unsigned long int", "long long", "unsigned long long", "long long int",
     "unsigned long long int", "wchar_t", "__int128", "unsigned __int128", "signed",
     "signed int", "signed long", "signed short", "signed char int",
+    // 새 clang(21 이후)은 size_t 를 이 이름으로 보여 줍니다.
+    "__size_t", "__signed_size_t", "__ptrdiff_t",
 ];
 
 /// 공백을 하나로 줄이고 의미 없는 수식어를 뗍니다.
@@ -343,14 +345,15 @@ fn hash64(s: &str) -> u64 {
 fn run_clang(header: &str, cpp: bool, incdirs: &[String]) -> Result<String, String> {
     let d = temp_dir();
     let src = d.join(if cpp { "probe.cpp" } else { "probe.c" });
-    let include = if header.starts_with('.') || header.starts_with('/') {
+    let include = if header.starts_with('.') || std::path::Path::new(header).is_absolute() {
         format!("#include \"{}\"\n", header)
     } else {
         format!("#include <{}>\n", header)
     };
     std::fs::write(&src, &include).map_err(|e| tr!(format!("임시 파일을 쓸 수 없습니다: {}", e), format!("cannot write temporary file: {}", e)))?;
 
-    let mut cmd = Command::new("clang");
+    // 컴파일에 쓰는 것과 같은 clang 으로 읽어야 타입 크기·헤더 위치가 맞습니다.
+    let mut cmd = Command::new(crate::header_clang());
     cmd.arg("-x").arg(if cpp { "c++" } else { "c" });
     if cpp {
         cmd.arg("-std=c++17");
@@ -368,13 +371,15 @@ fn run_clang(header: &str, cpp: bool, incdirs: &[String]) -> Result<String, Stri
                 format!(
                     "clang을 실행할 수 없습니다 ({}).\n\
                      헤더를 자동으로 가져오려면 clang이 필요합니다. \
-                     우분투/데비안이면 `apt install clang`, macOS면 `xcode-select --install`.",
+                     우분투/데비안이면 `apt install clang`, macOS면 `xcode-select --install`, \
+                     윈도우면 `winget install MartinStorsjo.LLVM-MinGW.UCRT`.",
                     e
                 ),
                 format!(
                     "cannot run clang ({}).\n\
                      clang is needed to import headers automatically. \
-                     on Ubuntu/Debian: `apt install clang`; on macOS: `xcode-select --install`",
+                     on Ubuntu/Debian: `apt install clang`; on macOS: `xcode-select --install`; \
+                     on Windows: `winget install MartinStorsjo.LLVM-MinGW.UCRT`",
                     e
                 )
             ))
@@ -418,7 +423,15 @@ fn collect_typedefs(root: &JRef, td: &mut HashMap<String, String>) {
 fn is_wanted(path: &str, header: &str) -> bool {
     let want = header.trim_start_matches("./").replace('\\', "/");
     let p = path.replace('\\', "/");
-    p == want || p.ends_with(&format!("/{}", want))
+    if p == want || p.ends_with(&format!("/{}", want)) {
+        return true;
+    }
+    // 새 macOS SDK 는 `string.h` 의 함수들을 같은 폴더의 `_string.h` 에 적어 둡니다.
+    let (dir, file) = match want.rsplit_once('/') {
+        Some((d, f)) => (format!("/{}/", d), f.to_string()),
+        None => ("/".to_string(), want.clone()),
+    };
+    p.ends_with(&format!("{}_{}", dir, file))
 }
 
 pub fn import_header(
@@ -540,8 +553,9 @@ pub fn import_header(
 /// clang 이 알려 준 자리를 절대 경로로 바꿉니다. 나중에 다른 폴더에서
 /// 컴파일해도 같은 헤더를 보게 하기 위해서입니다.
 fn abs_path(im: &mut Imported) {
-    if let Ok(p) = std::fs::canonicalize(&im.header_path) {
-        im.header_path = p.to_string_lossy().to_string();
+    if let Ok(p) = crate::canonicalize(&im.header_path) {
+        // C 의 `#include "..."` 안에서 `\` 는 탈출 글자라서 윈도우 경로도 `/` 로 적습니다.
+        im.header_path = p.to_string_lossy().replace('\\', "/");
     }
 }
 
@@ -1023,7 +1037,7 @@ fn walk_cpp(node: &JRef, ns: &str, ctx: &mut CppCtx, cur: &mut String) {
                 if !in_header {
                     continue;
                 }
-                if ctx.out.header_path.is_empty() || !ctx.out.header_path.starts_with('/') {
+                if ctx.out.header_path.is_empty() || !std::path::Path::new(&ctx.out.header_path).is_absolute() {
                     ctx.out.header_path = cur.clone();
                 }
                 cpp_entity(&c, &kind, ns, &name, ctx);

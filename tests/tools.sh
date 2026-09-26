@@ -64,11 +64,13 @@ unset SISKIN_HOME
 
 # https 서버: 시험용 인증서를 만들어 run 과 build 가 같은지
 if command -v openssl > /dev/null; then
-  cd "$T" && openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 1 -subj /CN=localhost \
+  # (MSYS_NO_PATHCONV: Git Bash 가 /CN=localhost 를 경로로 바꾸지 않게)
+  cd "$T" && MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 1 -subj /CN=localhost \
     -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" > /dev/null 2>&1 && cp "$HERE/net/https_server.skn" .
   r1="$(SSL_CERT_FILE="$T/cert.pem" timeout 60 "$M" run https_server.skn 2>&1)"
   "$M" build https_server.skn -o "$T/hs" > /dev/null 2>&1
-  r2="$(SSL_CERT_FILE="$T/cert.pem" timeout 60 "$T/hs" 2>&1)"
+  hs="$T/hs"; [ -f "$hs.exe" ] && hs="$hs.exe"
+  r2="$(SSL_CERT_FILE="$T/cert.pem" timeout 60 "$hs" 2>&1)"
   echo "$r1" | grep -q "처리한 요청: 3" && [ "$r1" = "$r2" ] && ok || { bad "https 서버"; echo "run: $r1"; echo "build: $r2"; }
 fi
 

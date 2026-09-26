@@ -409,20 +409,10 @@ mod fds {
     }
 }
 
-/// 윈도우에서는 아직 네이티브 디버깅(C 라이브러리·std.net·spawn 을 쓰는 프로그램)을 못 합니다.
-#[cfg(not(unix))]
-pub fn run_native(_exe: &std::path::Path, _args: &[String], _dbg: &mut Debugger, _prog: &crate::ast::Program) -> i32 {
-    say(tr!(
-        "C 라이브러리, std.net, spawn 을 쓰는 프로그램의 디버깅은 아직 윈도우에서 안 됩니다\n",
-        "debugging programs that use C libraries, std.net or spawn is not supported on Windows yet\n"
-    ));
-    2
-}
-
-/// 멈출 자리를 넣어 컴파일한 프로그램(`exe`)을 자식으로 돌리며 따라갑니다.
-/// 프로그램의 종료 코드를 돌려줍니다.
+/// 프로그램을 자식으로 띄우고, 주고받을 파이프 두 개를 이어 줍니다.
+/// (자식, 자식에게 쓰는 쪽, 자식에게서 읽는 쪽). 실패하면 끝난 코드.
 #[cfg(unix)]
-pub fn run_native(exe: &std::path::Path, args: &[String], dbg: &mut Debugger, prog: &crate::ast::Program) -> i32 {
+fn spawn_piped(exe: &std::path::Path, args: &[String]) -> Result<(std::process::Child, std::fs::File, std::fs::File), i32> {
     use std::os::unix::io::FromRawFd;
     use std::os::unix::process::CommandExt;
     let mut to_child = [0i32; 2];
@@ -430,7 +420,7 @@ pub fn run_native(exe: &std::path::Path, args: &[String], dbg: &mut Debugger, pr
     // 안전: 크기 2 배열에 파이프 두 끝을 받습니다.
     if unsafe { fds::pipe(to_child.as_mut_ptr()) } != 0 || unsafe { fds::pipe(from_child.as_mut_ptr()) } != 0 {
         say(tr!("디버거 파이프를 만들 수 없습니다\n", "cannot create the debugger pipes\n"));
-        return 2;
+        return Err(2);
     }
     let (child_in, parent_out) = (to_child[0], to_child[1]);
     let (parent_in, child_out) = (from_child[0], from_child[1]);
@@ -444,11 +434,11 @@ pub fn run_native(exe: &std::path::Path, args: &[String], dbg: &mut Debugger, pr
             Ok(())
         });
     }
-    let mut child = match cmd.spawn() {
+    let child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
             say(&format!("{}: {}\n", tr!("컴파일한 프로그램을 실행할 수 없습니다", "cannot run the compiled program"), e));
-            return 2;
+            return Err(2);
         }
     };
     unsafe {
@@ -456,8 +446,73 @@ pub fn run_native(exe: &std::path::Path, args: &[String], dbg: &mut Debugger, pr
         fds::close(child_out);
     }
     // 안전: 방금 만든 파이프 끝을 하나씩 파일로 감쌉니다(각각 한 번만).
-    let mut out = unsafe { std::fs::File::from_raw_fd(parent_out) };
-    let inp = std::io::BufReader::new(unsafe { std::fs::File::from_raw_fd(parent_in) });
+    let out = unsafe { std::fs::File::from_raw_fd(parent_out) };
+    let inp = unsafe { std::fs::File::from_raw_fd(parent_in) };
+    Ok((child, out, inp))
+}
+
+#[cfg(windows)]
+mod win {
+    #[repr(C)]
+    pub struct SecurityAttributes {
+        pub len: u32,
+        pub desc: *mut std::ffi::c_void,
+        pub inherit: i32,
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        pub fn CreatePipe(r: *mut isize, w: *mut isize, sa: *mut SecurityAttributes, size: u32) -> i32;
+        pub fn SetHandleInformation(h: isize, mask: u32, flags: u32) -> i32;
+        pub fn CloseHandle(h: isize) -> i32;
+    }
+}
+
+/// 윈도우: 물려줄 수 있는 파이프를 만들고, 자식 쪽 손잡이 값을 SISKIN_DBG_FDS 로 알려 줍니다.
+#[cfg(windows)]
+fn spawn_piped(exe: &std::path::Path, args: &[String]) -> Result<(std::process::Child, std::fs::File, std::fs::File), i32> {
+    use std::os::windows::io::FromRawHandle;
+    let mut sa = win::SecurityAttributes { len: std::mem::size_of::<win::SecurityAttributes>() as u32, desc: std::ptr::null_mut(), inherit: 1 };
+    let (mut child_in, mut parent_out, mut parent_in, mut child_out) = (0isize, 0isize, 0isize, 0isize);
+    // 안전: 손잡이 네 개를 받을 칸을 넘깁니다. 부모 쪽 끝은 물려주지 않게 표시를 뗍니다.
+    let ok = unsafe {
+        win::CreatePipe(&mut child_in, &mut parent_out, &mut sa, 0) != 0
+            && win::CreatePipe(&mut parent_in, &mut child_out, &mut sa, 0) != 0
+            && win::SetHandleInformation(parent_out, 1, 0) != 0
+            && win::SetHandleInformation(parent_in, 1, 0) != 0
+    };
+    if !ok {
+        say(tr!("디버거 파이프를 만들 수 없습니다\n", "cannot create the debugger pipes\n"));
+        return Err(2);
+    }
+    let mut cmd = std::process::Command::new(exe);
+    cmd.args(args).env("SISKIN_DBG_FDS", format!("{},{}", child_in, child_out));
+    let child = cmd.spawn();
+    // 안전: 자식에게 넘겼으니 부모는 자식 쪽 끝을 닫습니다.
+    unsafe {
+        win::CloseHandle(child_in);
+        win::CloseHandle(child_out);
+    }
+    let child = match child {
+        Ok(c) => c,
+        Err(e) => {
+            say(&format!("{}: {}\n", tr!("컴파일한 프로그램을 실행할 수 없습니다", "cannot run the compiled program"), e));
+            return Err(2);
+        }
+    };
+    // 안전: 방금 만든 파이프 끝을 하나씩 파일로 감쌉니다(각각 한 번만).
+    let out = unsafe { std::fs::File::from_raw_handle(parent_out as *mut std::ffi::c_void) };
+    let inp = unsafe { std::fs::File::from_raw_handle(parent_in as *mut std::ffi::c_void) };
+    Ok((child, out, inp))
+}
+
+/// 멈출 자리를 넣어 컴파일한 프로그램(`exe`)을 자식으로 돌리며 따라갑니다.
+/// 프로그램의 종료 코드를 돌려줍니다.
+pub fn run_native(exe: &std::path::Path, args: &[String], dbg: &mut Debugger, prog: &crate::ast::Program) -> i32 {
+    let (mut child, mut out, inp) = match spawn_piped(exe, args) {
+        Ok(x) => x,
+        Err(code) => return code,
+    };
+    let inp = std::io::BufReader::new(inp);
     let mut calc = Interp::new();
     calc.debug_prepare(prog);
     let mut lines = inp.lines();

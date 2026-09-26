@@ -8,7 +8,9 @@
    주고받는 말 (한 줄씩):
      프로그램 → siskin:  STOP 줄 깊이 작업번호 / F 함수\t줄 / V 이름\t값 / .
      siskin → 프로그램:  B 줄 줄 ... (멈출 곳 전체) / G 방식 깊이 (s n o c) / Q */
+#ifndef _WIN32
 #include <pthread.h>
+#endif
 
 typedef struct { const char* name; void* p; MiStr (*repr)(void*); } MiDbgVar;
 typedef struct { const char* fn; int64_t line; } MiDbgFrame;
@@ -29,10 +31,21 @@ static _Thread_local int mi_dbg_task = 0;
 
 static void mi_dbg_init(void) {
     const char* e = getenv("SISKIN_DBG_FDS");
+#ifdef _WIN32
+    /* 윈도우: siskin debug 가 물려준 파이프 손잡이(HANDLE) 두 개. */
+    long long ha, hb;
+    if (!e || sscanf(e, "%lld,%lld", &ha, &hb) != 2) return;
+    int a = _open_osfhandle((intptr_t)ha, _O_RDONLY | _O_BINARY);
+    int b = _open_osfhandle((intptr_t)hb, _O_WRONLY | _O_BINARY);
+    if (a < 0 || b < 0) return;
+    mi_dbg_inf = _fdopen(a, "rb");
+    mi_dbg_outf = _fdopen(b, "wb");
+#else
     int a, b;
     if (!e || sscanf(e, "%d,%d", &a, &b) != 2) return;
     mi_dbg_inf = fdopen(a, "r");
     mi_dbg_outf = fdopen(b, "w");
+#endif
     if (!mi_dbg_inf || !mi_dbg_outf) mi_dbg_inf = mi_dbg_outf = NULL;
 }
 

@@ -539,38 +539,74 @@ fn needs_native(prog: &ast::Program) -> bool {
 }
 
 /// C / C++ 컴파일러 이름. 환경변수 `CC` / `CXX` 로 바꿀 수 있습니다.
-/// 윈도우에는 보통 `cc` 가 없어서 gcc(MinGW-w64), clang 순서로 찾습니다.
+/// 윈도우에는 보통 `cc` 가 없어서 clang, gcc 순서로 찾습니다. clang 을 먼저 보는 것은
+/// 헤더 가져오기(`import c`)가 clang 을 쓰므로, 같은 컴파일러로 맞추기 위해서입니다.
 fn c_compiler(cpp: bool) -> String {
     if let Ok(c) = std::env::var(if cpp { "CXX" } else { "CC" }) {
         if !c.trim().is_empty() {
             return c;
         }
     }
-    if cfg!(windows) {
-        let cands: &[&str] = if cpp { &["g++", "clang++", "c++"] } else { &["gcc", "clang", "cc"] };
-        for c in cands {
-            let found = std::process::Command::new(c)
-                .arg("--version")
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-            if found {
-                return c.to_string();
+    // C 컴파일러를 CC 로 정했으면 C++ 도 같은 식구를 씁니다.
+    if cpp {
+        if let Ok(c) = std::env::var("CC") {
+            let c = c.trim().to_string();
+            if c.ends_with("clang") || c.ends_with("clang.exe") {
+                return format!("{}++", c.trim_end_matches(".exe"));
+            }
+            if c.ends_with("gcc") || c.ends_with("gcc.exe") {
+                return format!("{}g++", c.trim_end_matches(".exe").trim_end_matches("gcc"));
             }
         }
-        return cands[0].to_string();
+    }
+    if cfg!(windows) {
+        static FOUND: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
+        let (c, cxx) = FOUND.get_or_init(|| {
+            let works = |c: &str| {
+                std::process::Command::new(c)
+                    .arg("--version")
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false)
+            };
+            if works("clang") {
+                ("clang".to_string(), "clang++".to_string())
+            } else if works("gcc") {
+                ("gcc".to_string(), "g++".to_string())
+            } else {
+                ("clang".to_string(), "clang++".to_string())
+            }
+        });
+        return if cpp { cxx.clone() } else { c.clone() };
     }
     (if cpp { "c++" } else { "cc" }).to_string()
+}
+
+/// 헤더를 읽을 clang. `CC` 가 clang 이면 그것을, 아니면 `clang` 을 씁니다.
+pub fn header_clang() -> String {
+    match std::env::var("CC") {
+        Ok(c) if c.contains("clang") => c,
+        _ => "clang".to_string(),
+    }
+}
+
+/// 컴파일러가 MinGW 용(윈도우의 gcc, llvm-mingw 의 clang)인가. 이때만 정적으로 묶습니다.
+fn targets_mingw(cc: &str) -> bool {
+    std::process::Command::new(cc)
+        .arg("-dumpmachine")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains("mingw"))
+        .unwrap_or(false)
 }
 
 /// 컴파일러를 못 찾았을 때의 안내. 무엇을 깔면 되는지까지 알려 줍니다.
 fn no_compiler(what: &str, e: std::io::Error) -> String {
     let hint = if cfg!(windows) {
         tr!(
-            "\nC 컴파일러(gcc)가 필요합니다. 예: `winget install BrechtSanders.WinLibs.POSIX.UCRT` 로 MinGW-w64 를 깔고 새 터미널을 여세요",
-            "\na C compiler (gcc) is needed. e.g. install MinGW-w64 with `winget install BrechtSanders.WinLibs.POSIX.UCRT`, then open a new terminal"
+            "\nC 컴파일러가 필요합니다: `winget install MartinStorsjo.LLVM-MinGW.UCRT` 로 깔고 새 터미널을 여세요",
+            "\na C compiler is needed: install it with `winget install MartinStorsjo.LLVM-MinGW.UCRT`, then open a new terminal"
         )
     } else if cfg!(target_os = "macos") {
         tr!("\nC 컴파일러가 필요합니다: `xcode-select --install`", "\na C compiler is needed: `xcode-select --install`")
@@ -681,8 +717,8 @@ fn compile_native(
     if cfg!(windows) {
         // 윈도우: 만든 .exe 가 MinGW 의 DLL 없이도 돌도록 정적으로 묶고,
         // 명령줄 인자를 UTF-8 로 읽는 데 쓰는 shell32 를 붙입니다.
-        // (-static 은 MinGW gcc 용입니다. MSVC 용 clang 은 원래 DLL 없이 돕니다.)
-        if c_compiler(needs_cxx).contains("gcc") || c_compiler(needs_cxx).contains("g++") {
+        // (-static 은 MinGW 용입니다. MSVC 용 clang 은 원래 MinGW DLL 이 필요 없습니다.)
+        if targets_mingw(&c_compiler(needs_cxx)) {
             cc.arg("-static");
         }
         cc.arg("-lshell32");

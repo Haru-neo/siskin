@@ -343,14 +343,15 @@ fn hash64(s: &str) -> u64 {
 fn run_clang(header: &str, cpp: bool, incdirs: &[String]) -> Result<String, String> {
     let d = temp_dir();
     let src = d.join(if cpp { "probe.cpp" } else { "probe.c" });
-    let include = if header.starts_with('.') || header.starts_with('/') {
+    let include = if header.starts_with('.') || std::path::Path::new(header).is_absolute() {
         format!("#include \"{}\"\n", header)
     } else {
         format!("#include <{}>\n", header)
     };
     std::fs::write(&src, &include).map_err(|e| tr!(format!("임시 파일을 쓸 수 없습니다: {}", e), format!("cannot write temporary file: {}", e)))?;
 
-    let mut cmd = Command::new("clang");
+    // 컴파일에 쓰는 것과 같은 clang 으로 읽어야 타입 크기·헤더 위치가 맞습니다.
+    let mut cmd = Command::new(crate::header_clang());
     cmd.arg("-x").arg(if cpp { "c++" } else { "c" });
     if cpp {
         cmd.arg("-std=c++17");
@@ -368,13 +369,15 @@ fn run_clang(header: &str, cpp: bool, incdirs: &[String]) -> Result<String, Stri
                 format!(
                     "clang을 실행할 수 없습니다 ({}).\n\
                      헤더를 자동으로 가져오려면 clang이 필요합니다. \
-                     우분투/데비안이면 `apt install clang`, macOS면 `xcode-select --install`.",
+                     우분투/데비안이면 `apt install clang`, macOS면 `xcode-select --install`, \
+                     윈도우면 `winget install MartinStorsjo.LLVM-MinGW.UCRT`.",
                     e
                 ),
                 format!(
                     "cannot run clang ({}).\n\
                      clang is needed to import headers automatically. \
-                     on Ubuntu/Debian: `apt install clang`; on macOS: `xcode-select --install`",
+                     on Ubuntu/Debian: `apt install clang`; on macOS: `xcode-select --install`; \
+                     on Windows: `winget install MartinStorsjo.LLVM-MinGW.UCRT`",
                     e
                 )
             ))
@@ -1023,7 +1026,7 @@ fn walk_cpp(node: &JRef, ns: &str, ctx: &mut CppCtx, cur: &mut String) {
                 if !in_header {
                     continue;
                 }
-                if ctx.out.header_path.is_empty() || !ctx.out.header_path.starts_with('/') {
+                if ctx.out.header_path.is_empty() || !std::path::Path::new(&ctx.out.header_path).is_absolute() {
                     ctx.out.header_path = cur.clone();
                 }
                 cpp_entity(&c, &kind, ns, &name, ctx);

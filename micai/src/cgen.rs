@@ -26,6 +26,11 @@ const RUNTIME: &str = r##"/* ------- Siskin 런타임 (자동 생성) ------- */
    UTF-8 로 다루므로 이렇게 해야 두 방식의 결과가 같습니다. */
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0A00
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <shellapi.h>
 #include <io.h>
@@ -72,6 +77,42 @@ static void mi_win_init(int* argc, char*** argv) {
     a[n] = NULL;
     LocalFree(wa);
     *argc = n; *argv = a;
+}
+/* 런타임(동시성·네트워크·디버거)이 쓰는 pthread 몇 개를 윈도우 스레드로 옮겨 둡니다.
+   MSVC 용 clang 에는 pthread 가 없고, MinGW 에서도 따로 DLL 을 안 달고 다니게 됩니다. */
+typedef HANDLE pthread_t;
+typedef SRWLOCK pthread_mutex_t;
+typedef CONDITION_VARIABLE pthread_cond_t;
+typedef struct { size_t stack; } pthread_attr_t;
+#define PTHREAD_MUTEX_INITIALIZER SRWLOCK_INIT
+#define PTHREAD_COND_INITIALIZER CONDITION_VARIABLE_INIT
+#define PTHREAD_CREATE_DETACHED 1
+static int pthread_mutex_lock(pthread_mutex_t* m) { AcquireSRWLockExclusive(m); return 0; }
+static int pthread_mutex_init(pthread_mutex_t* m, void* a) { (void)a; InitializeSRWLock(m); return 0; }
+static int pthread_mutex_unlock(pthread_mutex_t* m) { ReleaseSRWLockExclusive(m); return 0; }
+static int pthread_cond_wait(pthread_cond_t* c, pthread_mutex_t* m) { SleepConditionVariableSRW(c, m, INFINITE, 0); return 0; }
+static int pthread_cond_broadcast(pthread_cond_t* c) { WakeAllConditionVariable(c); return 0; }
+static int pthread_attr_init(pthread_attr_t* a) { a->stack = 0; return 0; }
+static int pthread_attr_setstacksize(pthread_attr_t* a, size_t n) { a->stack = n; return 0; }
+static int pthread_attr_setdetachstate(pthread_attr_t* a, int d) { (void)a; (void)d; return 0; }
+static int pthread_attr_destroy(pthread_attr_t* a) { (void)a; return 0; }
+typedef struct { void* (*f)(void*); void* arg; } MiThrStart;
+static unsigned __stdcall mi_thr_tramp(void* p) {
+    MiThrStart s = *(MiThrStart*)p;
+    free(p);
+    s.f(s.arg);
+    return 0;
+}
+/* 늘 떼어 놓은(detached) 스레드로 만듭니다. 여기서는 그렇게만 씁니다. */
+static int pthread_create(pthread_t* t, const pthread_attr_t* a, void* (*f)(void*), void* arg) {
+    MiThrStart* s = (MiThrStart*)malloc(sizeof(MiThrStart));
+    if (!s) return 1;
+    s->f = f; s->arg = arg;
+    uintptr_t h = _beginthreadex(NULL, (unsigned)(a ? a->stack : 0), mi_thr_tramp, s, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
+    if (!h) { free(s); return 1; }
+    CloseHandle((HANDLE)h);
+    *t = NULL;
+    return 0;
 }
 #else
 #include <unistd.h>
@@ -1428,7 +1469,11 @@ fn generate_opts(prog: &Program, src_path: &str, dbg: bool) -> Result<(String, V
             .replace("GLOBALS_INIT ", if g.has_globals { "mi_init_globals(); " } else { "" }),
         );
         let mut links = g.ty.links.clone();
-        if g.uses_net && !links.iter().any(|l| l == "dl") {
+        if g.uses_net && cfg!(windows) {
+            // 윈도우: 소켓(ws2_32)과 인증서 목록(crypt32).
+            links.push("ws2_32".into());
+            links.push("crypt32".into());
+        } else if g.uses_net && !links.iter().any(|l| l == "dl") {
             links.push("dl".into());
         }
         if (g.uses_conc || g.uses_net || g.dbg) && !cfg!(windows) && !links.iter().any(|l| l == "pthread") {
@@ -5404,15 +5449,6 @@ impl CGen {
             "pid" => "((int64_t)getpid())".into(),
             // ---- std.net (네이티브 전용) ----
             n if n.starts_with("__net_") || n.starts_with("__http") || n == "__url_encode" => {
-                if cfg!(windows) && !self.uses_net {
-                    // 네트워크 런타임(rt_net.c)은 아직 유닉스 소켓만 씁니다.
-                    self.errors.push(cerr(
-                        "C0025",
-                        tr!("std.net 은 아직 윈도우에서 쓸 수 없습니다 (리눅스·맥에서는 됩니다)", "std.net is not supported on Windows yet (it works on Linux and macOS)"),
-                        line,
-                        1,
-                    ));
-                }
                 self.uses_net = true;
                 let mut v: Vec<String> = Vec::new();
                 for (i, a) in args.iter().enumerate() {

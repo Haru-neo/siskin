@@ -19,9 +19,11 @@ fn main():
 필요한 것:
 
 - **Rust** (컴파일러를 만들 때만): https://rustup.rs 에서 설치합니다.
-- **C 컴파일러** (`siskin build` 가 씁니다). 리눅스는 `gcc`, 맥은 `xcode-select --install`,
-  윈도우는 MinGW-w64 의 `gcc` (예: `winget install BrechtSanders.WinLibs.POSIX.UCRT` 뒤 새 터미널). 다른 컴파일러는 환경변수 `CC` 로 고릅니다.
-- 있으면 좋은 것: C++ 라이브러리를 쓰려면 `c++`, https 를 쓰려면 OpenSSL(리눅스에는 대개 있습니다).
+- **C 컴파일러** (`siskin build` 가 씁니다). 리눅스는 `gcc`, 맥은 `xcode-select --install`.
+  **윈도우는 `winget install MartinStorsjo.LLVM-MinGW.UCRT` 하나면 됩니다** (clang 과 헤더·라이브러리가 다 들어 있습니다. 설치 뒤 새 터미널).
+  이미 Visual Studio 와 LLVM(clang) 이 있거나 MinGW gcc 가 있어도 됩니다. 다른 컴파일러는 환경변수 `CC` 로 고릅니다.
+- 있으면 좋은 것: C 헤더 가져오기(`import c`)에는 `clang`(윈도우는 위 설치본에 들어 있음), https 에는 OpenSSL
+  (리눅스에는 대개 있고, 맥은 `brew install openssl@3`, 윈도우는 Git for Windows 에 들어 있는 것을 씁니다).
 
 ```
 git clone https://github.com/Haru-neo/siskin
@@ -36,7 +38,7 @@ siskin run examples/01_hello.skn
 ```
 
 > 리눅스·윈도우·macOS 에서 GitHub Actions 로 매번 시험합니다(`tests/same.sh`: run 과 build 의 결과가 같은지).
-> 윈도우에서 아직 안 되는 것: `std.net`, C 라이브러리·std.net·spawn 을 쓰는 프로그램의 `siskin debug`.
+> 윈도우에서도 run·build·디버거·패키지·https 까지 리눅스와 같은 시험을 통과합니다. C 라이브러리(zlib 등)는 그 운영체제에 깔려 있어야 합니다.
 
 ## 써 보기
 

@@ -222,7 +222,7 @@ There is no rounding function that takes a number of digits, like `round(x, 1)`.
 ```siskin
 let label = "even" if n % 2 == 0 else "odd"    # pick a value by condition (C++'s ? :)
 var k = 10
-k += 1        # -= *= /= %= also exist
+k += 1        # -= *= /= %= **= also exist
 if [1, 2] == [1, 2]:                           # lists, structs, enums, tuples and dicts compare with == too
     pass                                       # a do-nothing placeholder (same as Python)
 ```
@@ -234,6 +234,30 @@ if [1, 2] == [1, 2]:                           # lists, structs, enums, tuples a
 | `and` `or` `not` | `&&` `\|\|` `!` | Logical operators. Words, not symbols |
 | `true` `false` `none` | `true` `false` `nullptr` | All lowercase |
 | `x in xs` `x not in xs` | `std::find(...) != end` | In a list, a key in a dict, or a substring in a string |
+
+### Bits and powers
+
+```siskin
+let flags = 0x13                               # hex; also 0b1010 (binary) and 0o17 (octal), `_` allowed: 0xFFFF_FFFF
+if flags & 0x10 != 0:                          # is bit 4 set?
+    pass
+var f = 0
+f |= 1 << 3                                    # set bit 3 (&= |= ^= <<= >>= exist too)
+f &= ~1                                        # clear bit 0
+let area = 2 ** 10                             # power: 1024. Float too: 2.0 ** 0.5, x ** 2
+```
+
+| Siskin | C++ | Meaning |
+|---|---|---|
+| `a & b` `a \| b` `a ^ b` `~a` | same | Bitwise AND, OR, XOR, NOT. Int only |
+| `a << n` `a >> n` | same | Shift left / right. `n` must be 0 to 63; `>>` keeps the sign |
+| `a ** b` | `std::pow(a, b)` | Power. `Int ** Int` stays an Int (a negative exponent is an error); `Float ** Float` and `Float ** Int` give a Float |
+
+**Unlike C, `flags & BIT == BIT` means `(flags & BIT) == BIT`.** Bit operators bind tighter than
+comparisons (as in Python), so you don't need extra parentheses. From loosest to tightest:
+`or`, `and`, `not`, comparisons, `|`, `^`, `&`, `<<` `>>`, `+` `-`, `*` `/` `%`, unary `-` `~`, `**`.
+`**` groups to the right and binds tighter than a minus in front: `-2 ** 2` is `-4`, `2 ** 3 ** 2` is `512`.
+Like `*`, `<<` and `**` wrap around silently when the result does not fit in 64 bits.
 
 If you forget the f, `"value is {x}"` prints literally. The compiler warns you about it (W0001).
 Format widths must be written as numbers (`{s:<8}`). If the width is a variable, use `s.pad_right(w)`.
@@ -1202,6 +1226,7 @@ For zlib, 80 of 81 functions are available right away; for sqlite3, 283 of 291; 
 | `const char *` | `Str` |
 | `int *`, `float *`, `VkInstance *` … ("write the result here") | pass a `var` variable; C's write lands in it |
 | `const VkInstanceCreateInfo *` ("read this") | pass the value itself, e.g. a struct |
+| a pointer typedef such as `png_imagep` (= `png_image *`) | the same as the `*` it stands for: pass a `var` struct variable |
 | `void *`, `FILE *`, `sqlite3 *` | `Int` — a handle (or a `*T` pointer) |
 | a struct by value (`Vec2`, `div_t`) | that struct |
 | function pointer parameter (callback) | pass one of your named functions |
@@ -1649,6 +1674,7 @@ See the example `examples/15_concurrency.skn`.
 | `with arena a:` | A memory store for one block | a scope-bound memory pool |
 | `unsafe:` | My responsibility from here | (no marker) |
 | `*Int` | Raw pointer to an Int | `long long*` |
+| `**Int` | Pointer to a pointer | `long long**` |
 | `alloc[Int](4)` | Get 4 slots | `new long long[4]` |
 | `free(p)` | Give back | `delete[] p` |
 | `from std.x import y` | Import one name | `#include` + `using` |
@@ -1672,6 +1698,9 @@ See the example `examples/15_concurrency.skn`.
 | `import a as b` | Another name for a module | `namespace b = a;` |
 | `spawn f(x)` | Run concurrently | `std::async(f, x)` |
 | `channel[Int]()` | Pipe between tasks | thread-safe queue |
+| `&` `\|` `^` `~` `<<` `>>` | Bit operators (bind tighter than `==`) | same symbols |
+| `a ** b` | Power | `std::pow(a, b)` |
+| `0xFF` `0b1010` `0o17` | Hex, binary, octal numbers | `0xFF` `0b1010` `017` |
 
 ---
 

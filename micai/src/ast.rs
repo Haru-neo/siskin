@@ -71,6 +71,12 @@ pub enum BinOp {
     Ge,
     And,
     Or,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
+    Pow,
 }
 
 impl BinOp {
@@ -89,6 +95,12 @@ impl BinOp {
             BinOp::Ge => ">=",
             BinOp::And => "and",
             BinOp::Or => "or",
+            BinOp::BitAnd => "&",
+            BinOp::BitOr => "|",
+            BinOp::BitXor => "^",
+            BinOp::Shl => "<<",
+            BinOp::Shr => ">>",
+            BinOp::Pow => "**",
         }
     }
 }
@@ -97,6 +109,8 @@ impl BinOp {
 pub enum UnOp {
     Neg,
     Not,
+    /// `~x`: flips every bit of an Int.
+    BitNot,
 }
 
 /// Call argument. Supports named arguments like `Token(kind: "word", text: w)`.

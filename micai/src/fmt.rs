@@ -238,9 +238,16 @@ impl Scan {
                 continue;
             }
             self.i += 1;
+            let three: String = [c, self.peek(0), self.peek(1)].iter().collect();
+            if matches!(three.as_str(), "**=" | "<<=" | ">>=") {
+                self.i += 2;
+                toks.push(T::Op(three));
+                continue;
+            }
             let two: String = [c, self.peek(0)].iter().collect();
             match two.as_str() {
-                "==" | "!=" | "<=" | ">=" | "+=" | "-=" | "*=" | "/=" | "%=" | "->" => {
+                "==" | "!=" | "<=" | ">=" | "+=" | "-=" | "*=" | "/=" | "%=" | "->" | "**" | "<<" | ">>" | "&=" | "|="
+                | "^=" => {
                     self.i += 1;
                     toks.push(T::Op(two));
                     continue;
@@ -308,11 +315,11 @@ fn is_kw_word(t: &T) -> bool {
     }
 }
 
-/// Whether this operator is a prefix (`-x`, `!Int`, `?Str`, `*p`).
+/// Whether this operator is a prefix (`-x`, `!Int`, `?Str`, `*p`, `**p`, `~x`).
 fn is_prefix(op: &str, prev: Option<&T>, prev_prefix: bool) -> bool {
     match op {
-        "!" | "?" => true,
-        "-" | "*" => match prev {
+        "!" | "?" | "~" => true,
+        "-" | "*" | "**" => match prev {
             None => true,
             Some(T::Open(_)) | Some(T::Comma) | Some(T::Colon) | Some(T::Nl(_)) => true,
             Some(T::Op(_)) => true,

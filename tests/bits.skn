@@ -1,0 +1,34 @@
+# Bit operators, hex/binary literals and `**` (run == build)
+fn has(flags: Int, bit: Int) -> Bool:
+    return flags & bit == bit
+
+fn ptr_to_ptr() -> **Int:
+    unsafe:
+        return alloc[*Int](1)
+
+fn main():
+    let a = 0b1100
+    print(f"{a & 10} {a | 3} {a ^ 5} {~a}\n")
+    print(f"{1 << 4} {256 >> 2} {-16 >> 2} {1 << 63} {-1 >> 63}\n")
+    print(f"{0xFF & ~0x0F} {0o17} {0xFFFF_FFFF} {0xFFFFFFFFFFFFFFFF}\n")
+    print(f"{has(0x13, 0x10)} {has(0x13, 0x08)}\n")
+    # shifts bind tighter than &, & tighter than ^, ^ tighter than |, all looser than + and -
+    print(f"{1 | 2 ^ 3 & 4 << 1} {1 + 2 << 3}\n")
+    var f = 0
+    f |= 1 << 3
+    f |= 1
+    f &= ~1
+    f ^= 0xF0
+    f <<= 1
+    f >>= 2
+    print(f"{f}\n")
+    print(f"{2 ** 10} {2 ** 3 ** 2} {-2 ** 2} {(-2) ** 3} {7 ** 0}\n")
+    print(f"{3 ** 40} {2 ** 64} {2 ** 63}\n")
+    print(f"{2.0 ** 0.5} {1.5 ** 2} {10.0 ** -2}\n")
+    var x = 3.0
+    x **= 2
+    var n = 5
+    n **= 3
+    print(f"{x} {n}\n")
+    let pp = ptr_to_ptr()
+    print(f"{address_of(pp) != 0}\n")

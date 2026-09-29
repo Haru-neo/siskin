@@ -63,6 +63,17 @@ SISKIN_REGISTRY="$(furl "$T/reg")" "$M" add loud > /dev/null && [ "$("$M" run ma
 SISKIN_REGISTRY="$(furl "$T/reg")" "$M" add lod 2>&1 | grep -q "did you mean: loud" && ok || bad "registry similar name"
 unset SISKIN_HOME
 
+# bit operators and `**`: fmt spaces them, and a bad shift amount or negative Int exponent halts in both run and build
+printf 'fn main():\n    var x = 1<<3|0x4&~2\n    x**=2\n    print(f"{x}\\n")\n' > "$T/ops.skn"
+"$M" fmt --stdout "$T/ops.skn" | grep -q "var x = 1 << 3 | 0x4 & ~2" && "$M" fmt --stdout "$T/ops.skn" | grep -q "x \*\*= 2" && ok || bad "fmt bit operators"
+printf 'fn main():\n    let n = 64\n    print(f"{1 << n}\\n")\n' > "$T/shift.skn"
+printf 'fn main():\n    let e = -1\n    print(f"{2 ** e}\\n")\n' > "$T/pow.skn"
+for f in shift pow; do
+  "$M" run "$T/$f.skn" > "$T/$f.run" 2>&1; rc1=$?
+  "$M" build "$T/$f.skn" -o "$T/$f" > /dev/null 2>&1 && "$T/$f" > "$T/$f.bld" 2>&1; rc2=$?
+  { [ $rc1 = 1 ] && [ $rc2 = 1 ] && grep -qi "shift amount\|negative exponent" "$T/$f.run" && grep -qi "shift amount\|negative exponent" "$T/$f.bld"; } && ok || bad "runtime error: $f"
+done
+
 # https server: create a test certificate and check that run and build match
 if command -v openssl > /dev/null; then
   # (MSYS_NO_PATHCONV: stops Git Bash from converting /CN=localhost into a path)

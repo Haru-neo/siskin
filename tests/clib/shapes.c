@@ -23,3 +23,9 @@ Shape* shape_list(int n) {
 #ifdef SHAPES_EXTRA
 int shapes_extra(void) { return SHAPES_EXTRA; }
 #endif
+
+void image_grow(Imagep img, int by) {
+    img->w += by;
+    img->h += by;
+    img->flags |= 0x4u;
+}

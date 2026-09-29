@@ -259,6 +259,30 @@ static int64_t mi_mod_i64(int64_t a, int64_t b) {
     return a % b;
 }
 
+/* Bit shifts: the amount must be 0..63 (C leaves anything else undefined). `<<` works on the
+   unsigned bits so bits pushed off the top are dropped; `>>` keeps the sign, like the interpreter. */
+static int64_t mi_shl_i64(int64_t a, int64_t n) {
+    if (n < 0 || n > 63) mi_panic(MI_T("시프트 칸 수는 0부터 63까지여야 합니다", "shift amount must be between 0 and 63"));
+    return (int64_t)((uint64_t)a << n);
+}
+
+static int64_t mi_shr_i64(int64_t a, int64_t n) {
+    if (n < 0 || n > 63) mi_panic(MI_T("시프트 칸 수는 0부터 63까지여야 합니다", "shift amount must be between 0 and 63"));
+    return a < 0 ? ~(~a >> n) : a >> n;
+}
+
+/* `x ** y` for Ints: repeated squaring on unsigned bits, so overflow wraps like the interpreter. */
+static int64_t mi_pow_i64(int64_t x, int64_t y) {
+    if (y < 0) mi_panic(MI_T("Int의 거듭제곱에 음수 지수를 쓸 수 없습니다", "an Int power cannot have a negative exponent"));
+    uint64_t base = (uint64_t)x, e = (uint64_t)y, r = 1;
+    while (e) {
+        if (e & 1) r *= base;
+        base *= base;
+        e >>= 1;
+    }
+    return (int64_t)r;
+}
+
 /* Float division by zero also halts, like the interpreter (no silent inf). */
 static double mi_div_f64(double a, double b) {
     if (b == 0.0) mi_panic(MI_T("0으로 나눌 수 없습니다", "division by zero"));
@@ -2578,6 +2602,16 @@ impl CGen {
     // ------------------------------------------------------------- value coercion
 
     /// Wraps a C expression of type `from` so it fits where type `to` is expected.
+    /// Int operators that need a runtime helper (range checks, wrapping): `<<`, `>>`, `**`.
+    fn int_op_fn(op: BinOp, t: &Ty) -> Option<&'static str> {
+        match (op, t) {
+            (BinOp::Shl, Ty::Int) => Some("mi_shl_i64"),
+            (BinOp::Shr, Ty::Int) => Some("mi_shr_i64"),
+            (BinOp::Pow, Ty::Int) => Some("mi_pow_i64"),
+            _ => None,
+        }
+    }
+
     fn coerce(&mut self, code: String, from: &Ty, to: &Ty, line: usize) -> String {
         if from == to {
             return code;
@@ -2862,12 +2896,20 @@ impl CGen {
                         (BinOp::Div, Ty::Float) => self.w(&format!("{} = mi_div_f64({}, {});", t, t, v)),
                         (BinOp::Mod, Ty::Float) => self.w(&format!("{} = fmod({}, {});", t, t, v)),
                         (BinOp::Add, Ty::Str) => self.w(&format!("{} = mi_cat({}, {});", t, t, v)),
+                        (o, _) if Self::int_op_fn(*o, &tt).is_some() => {
+                            let f = Self::int_op_fn(*o, &tt).unwrap();
+                            self.w(&format!("{} = {}({}, {});", t, f, t, v));
+                        }
+                        (BinOp::Pow, _) => self.w(&format!("{} = pow({}, (double)({}));", t, t, v)),
                         _ => {
                             let sym = match o {
                                 BinOp::Add => "+=",
                                 BinOp::Sub => "-=",
                                 BinOp::Mul => "*=",
                                 BinOp::Div => "/=",
+                                BinOp::BitAnd => "&=",
+                                BinOp::BitOr => "|=",
+                                BinOp::BitXor => "^=",
                                 _ => "+=",
                             };
                             self.w(&format!("{} {} {};", t, sym, v));
@@ -3945,6 +3987,7 @@ impl CGen {
                 match op {
                     UnOp::Neg => format!("(-{})", c),
                     UnOp::Not => format!("(!{})", c),
+                    UnOp::BitNot => format!("(~{})", c),
                 }
             }
 
@@ -4040,6 +4083,12 @@ impl CGen {
                         return if *op == Eq { e } else { format!("(!{})", e) };
                     }
                 }
+                if let Some(f) = Self::int_op_fn(*op, &at) {
+                    return format!("{}({}, {})", f, ca, cb);
+                }
+                if *op == Pow {
+                    return format!("pow({}, (double)({}))", ca, cb);
+                }
                 if at == Ty::Int && *op == Div {
                     return format!("mi_div_i64({}, {})", ca, cb);
                 }
@@ -4066,6 +4115,10 @@ impl CGen {
                     Ge => ">=",
                     And => "&&",
                     Or => "||",
+                    BitAnd => "&",
+                    BitOr => "|",
+                    BitXor => "^",
+                    Shl | Shr | Pow => unreachable!(),
                 };
                 format!("({} {} {})", ca, sym, cb)
             }

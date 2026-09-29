@@ -23,6 +23,12 @@ fn main():
     count_up(n, small)
     print(f"scaled {w.x} {w.y}, counters {n} {small}\n")
 
+    # A pointer typedef (`Imagep` = `Image*`) takes the struct variable too.
+    var img = Image(w: 2, h: 3, flags: 0x1)
+    image_grow(img, 1)
+    img.flags |= 0x10
+    print(f"image {img.w}x{img.h} flags {img.flags} has 4: {img.flags & 4 != 0}\n")
+
     # Fixed arrays, char arrays, nested structs, string and callback fields.
     var s = Shape(kind: KIND_CIRCLE, name: "circle-too-long", pos: w, size: [2.0, 0.5])
     s.color.rgba = [255, 128, 7]

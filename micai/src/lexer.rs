@@ -35,6 +35,21 @@ pub enum Tok {
     StarEq,
     SlashEq,
     PercentEq,
+    /// Bit operators: `&` `|` `^` `~` `<<` `>>`, and their `&=` style assignments.
+    Amp,
+    Pipe,
+    Caret,
+    Tilde,
+    Shl,
+    Shr,
+    AmpEq,
+    PipeEq,
+    CaretEq,
+    ShlEq,
+    ShrEq,
+    /// Power: `**` and `**=`.
+    StarStar,
+    StarStarEq,
     LParen,
     RParen,
     LBracket,
@@ -82,6 +97,19 @@ impl fmt::Display for Tok {
             Tok::StarEq => "`*=`",
             Tok::SlashEq => "`/=`",
             Tok::PercentEq => "`%=`",
+            Tok::Amp => "`&`",
+            Tok::Pipe => "`|`",
+            Tok::Caret => "`^`",
+            Tok::Tilde => "`~`",
+            Tok::Shl => "`<<`",
+            Tok::Shr => "`>>`",
+            Tok::AmpEq => "`&=`",
+            Tok::PipeEq => "`|=`",
+            Tok::CaretEq => "`^=`",
+            Tok::ShlEq => "`<<=`",
+            Tok::ShrEq => "`>>=`",
+            Tok::StarStar => "`**`",
+            Tok::StarStarEq => "`**=`",
             Tok::LParen => "`(`",
             Tok::RParen => "`)`",
             Tok::LBracket => "`[`",
@@ -416,13 +444,36 @@ impl Lexer {
                 }
             }
             '*' => {
-                if self.peek() == '=' {
+                if self.peek() == '*' {
+                    self.bump();
+                    if self.peek() == '=' {
+                        self.bump();
+                        Tok::StarStarEq
+                    } else {
+                        Tok::StarStar
+                    }
+                } else if self.peek() == '=' {
                     self.bump();
                     Tok::StarEq
                 } else {
                     Tok::Star
                 }
             }
+            '&' | '|' | '^' => {
+                let eq = self.peek() == '=';
+                if eq {
+                    self.bump();
+                }
+                match (c, eq) {
+                    ('&', false) => Tok::Amp,
+                    ('&', true) => Tok::AmpEq,
+                    ('|', false) => Tok::Pipe,
+                    ('|', true) => Tok::PipeEq,
+                    ('^', false) => Tok::Caret,
+                    _ => Tok::CaretEq,
+                }
+            }
+            '~' => Tok::Tilde,
             '/' => {
                 if self.peek() == '=' {
                     self.bump();
@@ -456,7 +507,15 @@ impl Lexer {
                 }
             }
             '<' => {
-                if self.peek() == '=' {
+                if self.peek() == '<' {
+                    self.bump();
+                    if self.peek() == '=' {
+                        self.bump();
+                        Tok::ShlEq
+                    } else {
+                        Tok::Shl
+                    }
+                } else if self.peek() == '=' {
                     self.bump();
                     Tok::Le
                 } else {
@@ -464,7 +523,15 @@ impl Lexer {
                 }
             }
             '>' => {
-                if self.peek() == '=' {
+                if self.peek() == '>' {
+                    self.bump();
+                    if self.peek() == '=' {
+                        self.bump();
+                        Tok::ShrEq
+                    } else {
+                        Tok::Shr
+                    }
+                } else if self.peek() == '=' {
                     self.bump();
                     Tok::Ge
                 } else {
@@ -514,6 +581,37 @@ impl Lexer {
     }
 
     fn lex_number(&mut self, line: usize, col: usize) -> Result<(), SiskinError> {
+        // `0xFF`, `0b1010`, `0o17`: handy for bit flags. Up to 64 bits; the top bit makes the Int negative
+        // (`0xFFFFFFFFFFFFFFFF` is -1, the same bits as C's `~0ULL`).
+        let radix = match (self.peek(), self.peek_at(1)) {
+            ('0', 'x' | 'X') => 16,
+            ('0', 'b' | 'B') => 2,
+            ('0', 'o' | 'O') => 8,
+            _ => 0,
+        };
+        if radix != 0 {
+            self.bump();
+            self.bump();
+            let mut s = String::new();
+            while self.peek().is_ascii_alphanumeric() || self.peek() == '_' {
+                let c = self.bump();
+                if c != '_' {
+                    s.push(c);
+                }
+            }
+            let v = u64::from_str_radix(&s, radix).map_err(|_| {
+                let (ko, en) = if s.is_empty() {
+                    ("`0x`/`0b`/`0o` 뒤에 숫자가 와야 합니다".to_string(), "`0x`/`0b`/`0o` must be followed by digits".to_string())
+                } else if s.chars().any(|c| !c.is_digit(radix)) {
+                    (format!("`{}`는 {}진수 숫자가 아닙니다", s, radix), format!("`{}` is not a base-{} number", s, radix))
+                } else {
+                    (format!("정수 `{}`가 64비트를 넘습니다", s), format!("integer `{}` does not fit in 64 bits", s))
+                };
+                SiskinError::new("E0006", tr!(ko, en), line, col)
+            })?;
+            self.emit(Tok::Int(v as i64), line, col);
+            return Ok(());
+        }
         let mut s = String::new();
         while self.peek().is_ascii_digit() || self.peek() == '_' {
             let c = self.bump();

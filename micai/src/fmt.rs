@@ -378,6 +378,8 @@ fn render_toks(toks: &[T], level: usize, orig_indent: usize) -> String {
             (None, _) | (Some(T::Nl(_)), _) => false,
             (Some(T::Comment(..)), _) => false,
             (_, T::Close(_)) | (_, T::Comma) | (_, T::Colon) | (_, T::Dot) => false,
+            // `[F32; 3]` — like a comma.
+            (_, T::Op(o)) if o == ";" => false,
             (Some(T::Dot), _) => false,
             (Some(T::Open(_)), _) => false,
             (Some(T::Comma), _) | (Some(T::Colon), _) => true,

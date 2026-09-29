@@ -151,8 +151,8 @@ To handle several connections at once, `spawn` a task per connection.
 **Package list**: the default package list repository is [`https://github.com/Haru-neo/siskin-registry`](https://github.com/Haru-neo/siskin-registry) (public since 2026-09-24).
 No packages have been published yet. How to publish one is described in that repository's README and in [registry-template/](registry-template/).
 
-**Not yet on the library side**: variadic functions like `printf`,
-functions that pass or return structs by value, and importing C++ templates wholesale ahead of time.
+**Not yet on the library side**: variadic functions like `printf`, function-like macros,
+and importing C++ templates wholesale ahead of time.
 
 ## Libraries
 
@@ -165,6 +165,7 @@ Name a header file (the library's description) and every function in it becomes 
 import c "zlib.h" link "z"          # opens 80 zlib functions
 import c "sqlite3.h" link "sqlite3" # opens 283 sqlite3 functions
 import cpp "shapes.hpp" also "shapes.cpp"
+import c "vulkan/vulkan.h" link "vulkan"   # 623 functions, 4403 constants, 933 structs
 ```
 
 Measured results:
@@ -176,16 +177,21 @@ Measured results:
 | libpng (images) | 246 of 246 (100%) |
 | curses (terminal UI) | 444 of 456 (97%) |
 | expat (XML) | 66 of 67 (98%) |
+| GLFW (windows, input) | 116 of 116 (100%) |
+| Vulkan (GPU) | 623 of 623 (100%) |
 
 `siskin ffi <header>` shows what was opened and what was left out, and why.
-Out-parameters (such as the second argument of `sqlite3_open`) work, as do callbacks
-that pass your own functions to a library. From C++, classes, virtual functions, templates and `std::string`
-all come through. What doesn't work yet: variadic functions like `printf` and
-functions that pass or return structs by value.
+Besides functions, a header's `#define` and `enum` constants, its structs and unions (with C's exact layout),
+and its function pointer types come through. Pointer parameters take a `var` for C to write into,
+structs pass by value, callbacks take your own named functions, and function pointers returned by C
+can be called. Your own structs can use C-sized fields (`F32`, `U8`, `[F32; 3]`) so a vertex buffer goes
+to the GPU as-is. From C++, classes, virtual functions, templates and `std::string` all come through.
+What doesn't work yet: variadic functions like `printf`.
 
 See the examples [examples/08_cffi.skn](examples/08_cffi.skn) (C),
 [examples/10_sqlite.skn](examples/10_sqlite.skn) (database) and
-[examples/11_cpp.skn](examples/11_cpp.skn) (C++); the full guide is [LIBS.md](LIBS.md).
+[examples/11_cpp.skn](examples/11_cpp.skn) (C++), [examples/17_glfw.skn](examples/17_glfw.skn) (a window)
+and [examples/18_vulkan.skn](examples/18_vulkan.skn) (the GPU); the full guide is [LIBS.md](LIBS.md).
 
 The standard library is kept deliberately small.
 

@@ -68,6 +68,63 @@ pub struct ImportedFn {
     pub outs: Vec<bool>,
     /// For each parameter that takes a function, that function's shape.
     pub cbs: Vec<Option<CbSig>>,
+    /// Siskin-side parameter types written as type text (`CPtr[U32]`, `VkExtent2D`, ...).
+    /// Empty for C++ imports, which use `params` instead.
+    pub tys: Vec<String>,
+    /// Siskin-side return type as type text. Empty means "use `ret`".
+    pub ret_ty: String,
+}
+
+/// A value from `#define NAME 42` or a C `enum` constant.
+#[derive(Clone, Debug)]
+pub enum CVal {
+    Int(i64),
+    Float(f64),
+    Str(String),
+}
+
+#[derive(Clone, Debug)]
+pub struct CConst {
+    pub name: String,
+    pub val: CVal,
+}
+
+/// One field of a C struct/union imported from a header.
+#[derive(Clone, Debug)]
+pub struct CField {
+    pub name: String,
+    /// Siskin storage type as type text: `F32`, `[F32; 4]`, `VkExtent2D`, `Int` (pointer), `Str` (char array).
+    pub ty: String,
+    /// The C type as written in the header. Used for casts when storing pointers.
+    pub c_ty: String,
+    /// A pointer field (the Siskin side sees an address as Int).
+    pub ptr: bool,
+    /// A `const char*` / `char*` field: a Siskin string may be stored into it.
+    pub charp: bool,
+    /// A `char name[N]` field: read as Str, and a Str is copied in.
+    pub chars: usize,
+    /// A function-pointer field: a named Siskin function may be stored into it.
+    pub cb: Option<CbSig>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CStruct {
+    /// Name on the Siskin side (the typedef name if there is one, otherwise the tag).
+    pub name: String,
+    /// How C spells the type: `VkExtent2D` or `struct timespec`.
+    pub c_name: String,
+    pub is_union: bool,
+    pub fields: Vec<CField>,
+    /// (field, reason it could not be imported)
+    pub skipped: Vec<(String, String)>,
+}
+
+/// A function pointer type such as `typedef void (*GLFWkeyfun)(GLFWwindow*, int, int, int, int)`.
+/// `GLFWkeyfun(addr)` turns an address into a Siskin function value that can be called.
+#[derive(Clone, Debug)]
+pub struct CFnPtr {
+    pub name: String,
+    pub sig: CbSig,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -77,6 +134,15 @@ pub struct Imported {
     pub skipped: Vec<(String, String)>,
     /// The actual path of the header found by clang.
     pub header_path: String,
+    /// `#define` number/string constants and `enum` constants.
+    pub consts: Vec<CConst>,
+    /// Complete struct/union definitions.
+    pub structs: Vec<CStruct>,
+    /// Function pointer typedefs.
+    pub fnptrs: Vec<CFnPtr>,
+    /// Every header file read for this import (the header plus the `#include "..."` it follows),
+    /// with modification times, so the cache is dropped when any of them changes.
+    pub files: Vec<(String, u64)>,
 }
 
 // --------------------------------------------------------------- JSON helpers
@@ -290,9 +356,33 @@ fn parse_fnptr(q: &str, td: &HashMap<String, String>) -> Option<CbSig> {
     if !rest.starts_with('(') {
         return None;
     }
-    let (_, params) = split_sig(&format!("x {}", rest));
+    let (_, mut params) = split_sig(&format!("x {}", rest));
     if params.iter().any(|p| p.contains("...") || p.contains("(*")) {
         return None;
+    }
+    // Resolving typedefs drops `const`, but `const char*` (a string C hands us) and `char*`
+    // (a buffer) mean different things. Take the parameters from the written text when it has them.
+    let mut raw = q.trim().to_string();
+    for _ in 0..16 {
+        if raw.contains("(*") {
+            break;
+        }
+        match td.get(tidy(&raw).trim()) {
+            Some(u) if *u != raw => raw = u.clone(),
+            _ => break,
+        }
+    }
+    if let Some(o) = raw.find("(*") {
+        let after = &raw[o..];
+        if let Some(c) = after.find(')') {
+            let rest = after[c + 1..].trim_start();
+            if rest.starts_with('(') {
+                let (_, written) = split_sig(&format!("x {}", rest));
+                if written.len() == params.len() {
+                    params = written;
+                }
+            }
+        }
     }
     let mut ps = Vec::new();
     for p in &params {
@@ -342,15 +432,40 @@ fn hash64(s: &str) -> u64 {
     h
 }
 
-fn run_clang(header: &str, cpp: bool, incdirs: &[String]) -> Result<String, String> {
-    let d = temp_dir();
-    let src = d.join(if cpp { "probe.cpp" } else { "probe.c" });
-    let include = if header.starts_with('.') || std::path::Path::new(header).is_absolute() {
+/// `#include <zlib.h>` or `#include "./local.h"`.
+fn include_line(header: &str) -> String {
+    if header.starts_with('.') || std::path::Path::new(header).is_absolute() {
         format!("#include \"{}\"\n", header)
     } else {
         format!("#include <{}>\n", header)
-    };
-    std::fs::write(&src, &include).map_err(|e| tr!(format!("임시 파일을 쓸 수 없습니다: {}", e), format!("cannot write temporary file: {}", e)))?;
+    }
+}
+
+fn clang_missing(e: std::io::Error) -> String {
+    tr!(
+        format!(
+            "clang을 실행할 수 없습니다 ({}).\n\
+             헤더를 자동으로 가져오려면 clang이 필요합니다. \
+             우분투/데비안이면 `apt install clang`, macOS면 `xcode-select --install`, \
+             윈도우면 `winget install MartinStorsjo.LLVM-MinGW.UCRT`.",
+            e
+        ),
+        format!(
+            "cannot run clang ({}).\n\
+             clang is needed to import headers automatically. \
+             on Ubuntu/Debian: `apt install clang`; on macOS: `xcode-select --install`; \
+             on Windows: `winget install MartinStorsjo.LLVM-MinGW.UCRT`",
+            e
+        )
+    )
+}
+
+/// Writes `text` to a probe file and runs clang on it with `mode` (`-E -dD` or the JSON AST dump).
+fn run_clang(text: &str, cpp: bool, incdirs: &[String], defines: &[String], mode: &[&str], header: &str) -> Result<String, String> {
+    let d = temp_dir();
+    // One probe file per process, so two `siskin` runs at once don't overwrite each other's probe.
+    let src = d.join(format!("probe-{}{}", std::process::id(), if cpp { ".cpp" } else { ".c" }));
+    std::fs::write(&src, text).map_err(|e| tr!(format!("임시 파일을 쓸 수 없습니다: {}", e), format!("cannot write temporary file: {}", e)))?;
 
     // Read with the same clang used for compiling so type sizes and header locations match.
     let mut cmd = Command::new(crate::header_clang());
@@ -358,33 +473,20 @@ fn run_clang(header: &str, cpp: bool, incdirs: &[String]) -> Result<String, Stri
     if cpp {
         cmd.arg("-std=c++17");
     }
-    cmd.arg("-Xclang").arg("-ast-dump=json").arg("-fsyntax-only").arg("-w");
+    for m in mode {
+        cmd.arg(m);
+    }
+    cmd.arg("-w").arg("-ferror-limit=0");
+    for def in defines {
+        cmd.arg(format!("-D{}", def));
+    }
     for i in incdirs {
         cmd.arg(format!("-I{}", i));
     }
     cmd.arg(&src);
 
-    let out = match cmd.output() {
-        Ok(o) => o,
-        Err(e) => {
-            return Err(tr!(
-                format!(
-                    "clang을 실행할 수 없습니다 ({}).\n\
-                     헤더를 자동으로 가져오려면 clang이 필요합니다. \
-                     우분투/데비안이면 `apt install clang`, macOS면 `xcode-select --install`, \
-                     윈도우면 `winget install MartinStorsjo.LLVM-MinGW.UCRT`.",
-                    e
-                ),
-                format!(
-                    "cannot run clang ({}).\n\
-                     clang is needed to import headers automatically. \
-                     on Ubuntu/Debian: `apt install clang`; on macOS: `xcode-select --install`; \
-                     on Windows: `winget install MartinStorsjo.LLVM-MinGW.UCRT`",
-                    e
-                )
-            ))
-        }
-    };
+    let out = cmd.output().map_err(clang_missing)?;
+    let _ = std::fs::remove_file(&src);
     if out.stdout.is_empty() {
         let err = String::from_utf8_lossy(&out.stderr);
         let first: Vec<&str> = err.lines().filter(|l| l.contains("error")).take(3).collect();
@@ -416,7 +518,7 @@ fn collect_typedefs(root: &JRef, td: &mut HashMap<String, String>) {
     }
 }
 
-// ------------------------------------------------------------------ main work
+// ------------------------------------------------------------ which files count
 
 /// Whether a header path ends with the requested name. `"sys/stat.h"`
 /// matches `/usr/include/x86_64-linux-gnu/sys/stat.h`.
@@ -434,48 +536,663 @@ fn is_wanted(path: &str, header: &str) -> bool {
     p.ends_with(&format!("{}_{}", dir, file))
 }
 
+fn canon(p: &str) -> String {
+    match crate::canonicalize(p) {
+        Ok(c) => c.to_string_lossy().replace('\\', "/"),
+        Err(_) => p.replace('\\', "/"),
+    }
+}
+
+fn mtime(p: &str) -> u64 {
+    std::fs::metadata(p)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// The header plus every file it pulls in with `#include "..."` (quotes), transitively.
+/// `vulkan/vulkan.h` is only a list of `#include "vulkan_core.h"` lines, and
+/// `SDL.h` includes `"SDL_video.h"` and friends this way, so those count as the same library.
+/// `#include <...>` (angle brackets) usually means another library (`<stdio.h>`), so it is not followed.
+fn follow_includes(start: &str, incdirs: &[String]) -> Vec<String> {
+    let mut out = vec![canon(start)];
+    let mut i = 0;
+    while i < out.len() {
+        let f = out[i].clone();
+        i += 1;
+        let text = match std::fs::read(&f) {
+            Ok(b) => String::from_utf8_lossy(&b).to_string(),
+            Err(_) => continue,
+        };
+        let dir = std::path::Path::new(&f).parent().map(|p| p.to_path_buf()).unwrap_or_default();
+        for line in text.lines() {
+            let t = line.trim_start();
+            let t = match t.strip_prefix('#') {
+                Some(r) => r.trim_start(),
+                None => continue,
+            };
+            let rest = match t.strip_prefix("include") {
+                Some(r) => r.trim_start(),
+                None => continue,
+            };
+            let name = match rest.strip_prefix('"').and_then(|r| r.split('"').next()) {
+                Some(n) if !n.is_empty() => n,
+                _ => continue,
+            };
+            let mut cands = vec![dir.join(name)];
+            for d in incdirs {
+                cands.push(std::path::Path::new(d).join(name));
+            }
+            if let Some(found) = cands.iter().find(|p| p.is_file()) {
+                let c = canon(&found.to_string_lossy());
+                if !out.contains(&c) {
+                    out.push(c);
+                }
+            }
+        }
+    }
+    out
+}
+
+struct Wanted {
+    set: std::collections::HashSet<String>,
+    header: String,
+    memo: HashMap<String, bool>,
+}
+
+impl Wanted {
+    fn has(&mut self, file: &str) -> bool {
+        if let Some(b) = self.memo.get(file) {
+            return *b;
+        }
+        let b = self.set.contains(&canon(file)) || is_wanted(file, &self.header);
+        self.memo.insert(file.to_string(), b);
+        b
+    }
+}
+
+// ---------------------------------------------------------------- #define values
+
+enum MacroKind {
+    Str(String),
+    Float(f64),
+    /// Anything else. Evaluated by clang as an integer constant expression.
+    Expr,
+}
+
+/// Strip parentheses that wrap the whole text: `((1 << 3))` → `1 << 3`.
+fn strip_parens(s: &str) -> &str {
+    let mut t = s.trim();
+    loop {
+        if !(t.starts_with('(') && t.ends_with(')')) {
+            return t;
+        }
+        let mut depth = 0i32;
+        let mut whole = true;
+        for (i, ch) in t.char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 && i != t.len() - 1 {
+                        whole = false;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if !whole {
+            return t;
+        }
+        t = t[1..t.len() - 1].trim();
+    }
+}
+
+/// `"abc" "def"` → `abcdef`. None if it is not only string literals.
+fn c_strings(s: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut it = s.trim().chars().peekable();
+    let mut any = false;
+    loop {
+        while matches!(it.peek(), Some(c) if c.is_whitespace()) {
+            it.next();
+        }
+        match it.next() {
+            None => return if any { Some(out) } else { None },
+            Some('"') => {}
+            Some(_) => return None,
+        }
+        any = true;
+        loop {
+            match it.next()? {
+                '"' => break,
+                '\\' => match it.next()? {
+                    'n' => out.push('\n'),
+                    't' => out.push('\t'),
+                    'r' => out.push('\r'),
+                    '0' => out.push('\0'),
+                    other => out.push(other),
+                },
+                c => out.push(c),
+            }
+        }
+    }
+}
+
+fn classify_macro(body: &str) -> Option<MacroKind> {
+    let t = strip_parens(body);
+    if t.is_empty() {
+        return None;
+    }
+    if t.starts_with('"') {
+        return c_strings(t).map(MacroKind::Str);
+    }
+    // A float literal: `3.14f`, `-0.5`, `1e-3`. Hex numbers and integers are left to clang.
+    let lit = t.trim_start_matches('-');
+    if !lit.starts_with("0x") && !lit.starts_with("0X") && (lit.contains('.') || lit.contains('e') || lit.contains('E')) {
+        let is_f32 = lit.ends_with('f') || lit.ends_with('F');
+        let num = lit.trim_end_matches(['f', 'F', 'l', 'L']);
+        if !num.is_empty() && num.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | 'e' | 'E' | '+' | '-')) {
+            if let Ok(v) = num.parse::<f64>() {
+                let v = if t.starts_with('-') { -v } else { v };
+                // `3.14f` is a C float: keep exactly the value C sees.
+                let v = if is_f32 { v as f32 as f64 } else { v };
+                return Some(MacroKind::Float(v));
+            }
+        }
+    }
+    Some(MacroKind::Expr)
+}
+
+/// Runs the preprocessor and collects object-like `#define`s from the wanted files.
+/// Returns (the header path clang found, [(name, body, file)]).
+fn read_macros(
+    header: &str,
+    cpp: bool,
+    incdirs: &[String],
+    defines: &[String],
+) -> Result<(String, Vec<(String, String, String)>), String> {
+    let text = run_clang(&include_line(header), cpp, incdirs, defines, &["-E", "-dD"], header)?;
+    let mut cur = String::new();
+    let mut header_path = String::new();
+    let mut out = Vec::new();
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("# ") {
+            // `# 12 "/usr/include/zlib.h" 1`
+            if let Some(q) = rest.find('"') {
+                let after = &rest[q + 1..];
+                if let Some(end) = after.rfind('"') {
+                    let file = after[..end].replace("\\\\", "\\");
+                    let flags = after[end + 1..].trim();
+                    let special = file.starts_with('<') || file.contains("probe-");
+                    if header_path.is_empty() && !special && flags.split_whitespace().next() == Some("1") {
+                        header_path = file.clone();
+                    }
+                    cur = file;
+                }
+            }
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("#define ") {
+            let name_end = rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(rest.len());
+            let name = &rest[..name_end];
+            if name.is_empty() || rest[name_end..].starts_with('(') {
+                continue; // function-like macro
+            }
+            out.push((name.to_string(), rest[name_end..].trim().to_string(), cur.clone()));
+        }
+    }
+    Ok((header_path, out))
+}
+
+/// The first `"value"` in a subtree. For `enum { X = (expr) }` clang records the
+/// computed value on the `ConstantExpr` that wraps the expression.
+fn first_value(n: &JRef) -> Option<String> {
+    if let Some(v) = dstr(n, "value") {
+        return Some(v);
+    }
+    for c in dlist(n, "inner") {
+        if let Some(v) = first_value(&c) {
+            return Some(v);
+        }
+    }
+    None
+}
+
+fn parse_c_int(v: &str) -> Option<i64> {
+    v.parse::<i64>().ok().or_else(|| v.parse::<u64>().ok().map(|u| u as i64))
+}
+
+// ----------------------------------------------------------- C types → storage
+
+/// C scalar type → Siskin storage type (`F32`, `U32`, ...). The name is after typedefs are followed.
+fn scalar_storage(r: &str) -> Option<&'static str> {
+    let win = cfg!(windows);
+    // Plain `char` is unsigned on ARM Linux, signed elsewhere.
+    let char_unsigned = cfg!(all(target_arch = "aarch64", not(target_vendor = "apple"), not(windows)));
+    Some(match r {
+        "char" => if char_unsigned { "U8" } else { "I8" },
+        "signed char" => "I8",
+        "unsigned char" => "U8",
+        "short" | "short int" | "signed short" | "signed short int" => "I16",
+        "unsigned short" | "unsigned short int" => "U16",
+        "int" | "signed" | "signed int" => "I32",
+        "unsigned int" | "unsigned" => "U32",
+        "long" | "long int" | "signed long" | "signed long int" => if win { "I32" } else { "Int" },
+        "unsigned long" | "unsigned long int" => if win { "U32" } else { "U64" },
+        "long long" | "long long int" | "signed long long" => "Int",
+        "unsigned long long" | "unsigned long long int" => "U64",
+        "__size_t" => "U64",
+        "__signed_size_t" | "__ptrdiff_t" => "Int",
+        "wchar_t" => if win { "U16" } else { "I32" },
+        "_Bool" | "bool" => "Bool",
+        "float" => "F32",
+        "double" => "Float",
+        _ => return None,
+    })
+}
+
+/// Siskin value type of a storage type: what you get when you read it.
+fn value_of_storage(s: &str) -> &'static str {
+    match s {
+        "F32" | "Float" => "Float",
+        "Bool" => "Bool",
+        _ => "Int",
+    }
+}
+
+fn is_fnptr_text(r: &str) -> bool {
+    r.contains("(*") || r.contains("(^")
+}
+
+fn cb_ty_text(cb: &CbSig) -> String {
+    format!(
+        "({}) -> {}",
+        cb.params.iter().map(|m| m.siskin()).collect::<Vec<_>>().join(", "),
+        cb.ret.map(|m| m.siskin()).unwrap_or("Unit")
+    )
+}
+
+/// Whether the thing a pointer points to is `const` (`const T *`, `T *const *`).
+fn pointee_const(q: &str) -> bool {
+    let t = q.trim_end();
+    let t = t.strip_suffix('*').unwrap_or(t).trim_end();
+    t.ends_with("const") || (!t.contains('*') && t.split_whitespace().any(|w| w == "const"))
+}
+
+struct Scope<'a> {
+    td: &'a HashMap<String, String>,
+    /// How C spells a struct type (`VkExtent2D`, `struct VkExtent2D`) → Siskin name.
+    smap: HashMap<String, String>,
+}
+
+impl<'a> Scope<'a> {
+    fn struct_of(&self, q: &str) -> Option<String> {
+        let t = tidy(q);
+        if let Some(n) = self.smap.get(&t) {
+            return Some(n.clone());
+        }
+        let r = resolve(q, self.td, 0);
+        self.smap.get(&r).cloned()
+    }
+
+    /// The storage type of what a pointer points to, for `CPtr[...]`.
+    fn pointee(&self, q: &str) -> String {
+        let r = resolve(q, self.td, 0).replace(" *", "*");
+        let r = r.trim();
+        if r.ends_with('*') || is_fnptr_text(r) {
+            return "Int".into(); // a pointer to a pointer: each slot is an address
+        }
+        if let Some(s) = self.struct_of(q) {
+            return s;
+        }
+        if let Some(s) = scalar_storage(r) {
+            return s.into();
+        }
+        if r.starts_with("enum ") {
+            return "I32".into();
+        }
+        "Unit".into() // void, or a struct we only know by name (a handle)
+    }
+
+    /// One function parameter. Yields (Siskin type text, callback shape if it takes a function).
+    fn param(&self, q: &str) -> Result<(String, MTy, Option<CbSig>), String> {
+        let r = resolve(q, self.td, 0).replace(" *", "*");
+        let r = r.trim().to_string();
+        if is_fnptr_text(&r) && !r.ends_with("**") {
+            if let Some(cb) = parse_fnptr(q, self.td) {
+                return Ok((cb_ty_text(&cb), MTy::Int, Some(cb)));
+            }
+            return Err(why_callback().into());
+        }
+        if let Some(s) = self.struct_of(q) {
+            if !r.ends_with('*') {
+                return Ok((s, MTy::Int, None)); // struct by value
+            }
+        }
+        if r.ends_with('*') || r.ends_with(']') {
+            let inner = if r.ends_with(']') {
+                r[..r.find('[').unwrap_or(r.len())].trim().to_string()
+            } else {
+                r[..r.len() - 1].trim().to_string()
+            };
+            let depth = r.chars().filter(|c| *c == '*').count();
+            let bytelike = matches!(inner.as_str(), "char" | "signed char" | "unsigned char");
+            let konst = pointee_const(q) || {
+                let base = tidy(q).trim_end_matches('*').trim().to_string();
+                self.td.get(&base).map(|u| u.contains("const")).unwrap_or(false)
+            };
+            if depth == 1 && bytelike && konst {
+                return Ok(("Str".into(), MTy::Str, None));
+            }
+            // What it points to, as written when the star is visible (keeps typedef names like `VkExtent2D`);
+            // for a pointer hidden in a typedef (`VkDevice` = `struct VkDevice_T *`), the resolved type.
+            let written = tidy(q).replace(" *", "*");
+            let target = if r.ends_with(']') {
+                self.pointee(&inner)
+            } else if let Some(w) = written.strip_suffix('*') {
+                self.pointee(w.trim())
+            } else {
+                self.pointee(&inner)
+            };
+            let k = if konst { "CConst" } else { "CPtr" };
+            return Ok((format!("{}[{}]", k, target), MTy::Int, None));
+        }
+        match map_ty(q, self.td, false) {
+            Ok(m) => Ok((m.siskin().into(), m, None)),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn ret(&self, q: &str) -> Result<(String, MTy), String> {
+        let r = resolve(q, self.td, 0).replace(" *", "*");
+        if is_fnptr_text(&r) {
+            return Ok(("Int".into(), MTy::Int)); // a function pointer comes back as an address
+        }
+        if !r.trim().ends_with('*') {
+            if let Some(s) = self.struct_of(q) {
+                return Ok((s, MTy::Int));
+            }
+        }
+        map_ty(q, self.td, true).map(|m| (m.siskin().to_string(), m))
+    }
+
+    /// One struct field.
+    fn field(&self, name: &str, q: &str) -> Result<CField, String> {
+        let t = tidy(q);
+        let mut f = CField { name: name.to_string(), ty: String::new(), c_ty: q.to_string(), ptr: false, charp: false, chars: 0, cb: None };
+        if let Some(open) = t.find('[') {
+            let base = t[..open].trim().to_string();
+            let mut dims = Vec::new();
+            let mut rest = &t[open..];
+            while let Some(r) = rest.strip_prefix('[') {
+                let close = r.find(']').ok_or("?")?;
+                let n: usize = r[..close].trim().parse().map_err(|_| tr!("크기가 정해지지 않은 배열", "array without a fixed size").to_string())?;
+                dims.push(n);
+                rest = r[close + 1..].trim_start();
+            }
+            if dims.is_empty() || dims.contains(&0) {
+                return Err(tr!("크기가 정해지지 않은 배열", "array without a fixed size").into());
+            }
+            let rb = resolve(&base, self.td, 0);
+            if dims.len() == 1 && rb == "char" {
+                f.ty = "Str".into();
+                f.chars = dims[0];
+                return Ok(f);
+            }
+            let elem = self.field("", &base)?;
+            if elem.chars > 0 || elem.cb.is_some() {
+                return Err(tr!("배열 안에 배열·함수", "array of arrays of text or of functions").into());
+            }
+            let mut ty = elem.ty;
+            for d in dims.iter().rev() {
+                ty = format!("[{}; {}]", ty, d);
+            }
+            f.ty = ty;
+            return Ok(f);
+        }
+        if let Some(s) = self.struct_of(q) {
+            f.ty = s;
+            return Ok(f);
+        }
+        let r = resolve(q, self.td, 0).replace(" *", "*");
+        let r = r.trim();
+        if is_fnptr_text(r) && !r.ends_with("**") {
+            f.ty = "Int".into();
+            f.ptr = true;
+            f.cb = parse_fnptr(q, self.td);
+            return Ok(f);
+        }
+        if r.ends_with('*') {
+            f.ty = "Int".into();
+            f.ptr = true;
+            let pointee = r[..r.len() - 1].trim();
+            f.charp = matches!(pointee, "char" | "signed char" | "unsigned char");
+            return Ok(f);
+        }
+        if let Some(s) = scalar_storage(r) {
+            f.ty = s.into();
+            return Ok(f);
+        }
+        if r.starts_with("enum ") {
+            f.ty = "I32".into();
+            return Ok(f);
+        }
+        if r.contains("(anonymous") || r.contains("(unnamed") {
+            return Err(tr!("이름 없는 구조체 타입의 필드", "field of an unnamed struct type").into());
+        }
+        if r.starts_with("struct ") || r.starts_with("union ") {
+            return Err(tr!("가져오지 않은 구조체", "a struct that was not imported").into());
+        }
+        Err(format!("{} `{}`", why_unknown_type(), t))
+    }
+}
+
+fn is_true(n: &JRef, k: &str) -> bool {
+    matches!(dget(n, k).map(|v| matches!(&*v.borrow(), JsonVal::Bool(true))), Some(true))
+}
+
+/// Fields of one record. Fields of an unnamed inner struct/union are lifted up, as C lets you write them.
+fn record_fields(rec: &JRef, sc: &Scope, out: &mut CStruct) {
+    let mut last_anon: Option<JRef> = None;
+    for c in dlist(rec, "inner") {
+        match dstr(&c, "kind").as_deref() {
+            Some("RecordDecl") => {
+                last_anon = if dstr(&c, "name").map(|n| n.is_empty()).unwrap_or(true) { Some(c.clone()) } else { None };
+            }
+            Some("FieldDecl") => {
+                let q = dget(&c, "type").and_then(|t| dstr(&t, "qualType")).unwrap_or_default();
+                match dstr(&c, "name").filter(|n| !n.is_empty()) {
+                    None => {
+                        if let Some(inner) = last_anon.take() {
+                            record_fields(&inner, sc, out);
+                        }
+                    }
+                    Some(name) => match sc.field(&name, &q) {
+                        Ok(f) => out.fields.push(f),
+                        Err(why) => out.skipped.push((name, why)),
+                    },
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The record id a typedef names: `typedef struct {..} Vector2;` → the unnamed record.
+fn typedef_record_id(n: &JRef) -> Option<String> {
+    for c in dlist(n, "inner") {
+        if dstr(&c, "kind").as_deref() == Some("RecordType") {
+            if let Some(d) = dget(&c, "decl") {
+                return dstr(&d, "id");
+            }
+        }
+        if let Some(id) = typedef_record_id(&c) {
+            return Some(id);
+        }
+    }
+    None
+}
+
+// ------------------------------------------------------------------ main work
+
 pub fn import_header(
     header: &str,
     cpp: bool,
     incdirs: &[String],
     only: &[String],
+    defines: &[String],
 ) -> Result<Imported, String> {
-    // Skip-reason texts differ by language, so the cache is per language too (Korean keeps the old key).
-    let key = format!("{}|{}|{}|v9{}", header, cpp, incdirs.join(":"), tr!("", "|en"));
+    // Skip-reason texts differ by language, so the cache is per language too.
+    let key = format!("{}|{}|{}|{}|v11{}", header, cpp, incdirs.join(":"), defines.join(":"), tr!("", "|en"));
     let cache = temp_dir().join(format!("{:016x}.txt", hash64(&key)));
     if let Some(hit) = load_cache(&cache) {
         return Ok(filter_only(hit, only));
     }
 
-    let text = run_clang(header, cpp, incdirs)?;
+    if cpp {
+        let text = run_clang(&include_line(header), true, incdirs, defines, &["-Xclang", "-ast-dump=json", "-fsyntax-only"], header)?;
+        let root = json::parse(&text).map_err(|e| tr!(format!("clang이 낸 내용을 읽지 못했습니다: {}", e), format!("cannot parse clang output: {}", e)))?;
+        let mut td: HashMap<String, String> = HashMap::new();
+        collect_typedefs(&root, &mut td);
+        let mut res = import_cpp(&root, header, &td);
+        abs_path(&mut res);
+        res.files = vec![(res.header_path.clone(), mtime(&res.header_path))];
+        save_cache(&cache, &res);
+        return Ok(filter_only(res, only));
+    }
+
+    // 1. The preprocessor: where the header is, which files it pulls in, and its `#define`s.
+    let (found, macros) = read_macros(header, false, incdirs, defines)?;
+    let files = if found.is_empty() { Vec::new() } else { follow_includes(&found, incdirs) };
+    let mut wanted = Wanted { set: files.iter().cloned().collect(), header: header.to_string(), memo: HashMap::new() };
+
+    // 2. Macros that might be numbers are handed back to clang to compute, as `enum` values
+    //    appended after the header. Ones that are not integer constants simply fail and are dropped.
+    let mut cands: Vec<(String, MacroKind)> = Vec::new();
+    for (name, body, file) in &macros {
+        if name.starts_with('_') || !wanted.has(file) {
+            continue;
+        }
+        if let Some(k) = classify_macro(body) {
+            cands.push((name.clone(), k));
+        }
+    }
+    let mut probe = include_line(header);
+    for (i, (name, k)) in cands.iter().enumerate() {
+        if matches!(k, MacroKind::Expr) {
+            probe.push_str(&format!("enum {{ __siskin_c{} = ({}) }};\n", i, name));
+        }
+    }
+
+    let text = run_clang(&probe, false, incdirs, defines, &["-Xclang", "-ast-dump=json", "-fsyntax-only"], header)?;
     let root = json::parse(&text).map_err(|e| tr!(format!("clang이 낸 내용을 읽지 못했습니다: {}", e), format!("cannot parse clang output: {}", e)))?;
 
     let mut td: HashMap<String, String> = HashMap::new();
     collect_typedefs(&root, &mut td);
 
-    if cpp {
-        let mut res = import_cpp(&root, header, &td);
-        abs_path(&mut res);
-        save_cache(&cache, &res);
-        return Ok(filter_only(res, only));
+    let mut res = Imported::default();
+    res.header_path = found.clone();
+    let top = dlist(&root, "inner");
+
+    // 3. Structs: first learn every name each record goes by, then read the fields.
+    let mut cur = String::new();
+    let mut recs: Vec<(String, JRef, Option<String>, bool)> = Vec::new(); // (id, node, tag, is_union)
+    let mut td_of: HashMap<String, String> = HashMap::new();
+    let mut evals: HashMap<String, i64> = HashMap::new();
+    let mut enum_consts: Vec<(String, i64)> = Vec::new();
+    for n in &top {
+        cur = loc_file(n, &cur);
+        let kind = dstr(n, "kind").unwrap_or_default();
+        if kind == "EnumDecl" {
+            let mine = wanted.has(&cur);
+            let mut prev: i64 = -1;
+            for c in dlist(n, "inner") {
+                if dstr(&c, "kind").as_deref() != Some("EnumConstantDecl") {
+                    continue;
+                }
+                let name = dstr(&c, "name").unwrap_or_default();
+                let v = first_value(&c).and_then(|v| parse_c_int(&v)).unwrap_or(prev.wrapping_add(1));
+                prev = v;
+                if let Some(i) = name.strip_prefix("__siskin_c").and_then(|x| x.parse::<usize>().ok()) {
+                    if first_value(&c).is_some() {
+                        if let Some((mname, _)) = cands.get(i) {
+                            evals.insert(mname.clone(), v);
+                        }
+                    }
+                } else if mine && !name.is_empty() {
+                    enum_consts.push((name, v));
+                }
+            }
+            continue;
+        }
+        if !wanted.has(&cur) {
+            continue;
+        }
+        if kind == "RecordDecl" && is_true(n, "completeDefinition") {
+            let id = dstr(n, "id").unwrap_or_default();
+            let tag = dstr(n, "name").filter(|s| !s.is_empty());
+            let is_union = dstr(n, "tagUsed").as_deref() == Some("union");
+            recs.push((id, n.clone(), tag, is_union));
+        } else if kind == "TypedefDecl" {
+            let name = dstr(n, "name").unwrap_or_default();
+            if let Some(id) = typedef_record_id(n) {
+                td_of.entry(id).or_insert(name);
+            }
+        }
+    }
+    let mut sc = Scope { td: &td, smap: HashMap::new() };
+    let mut named: Vec<(String, String, JRef, bool)> = Vec::new(); // (siskin name, c name, node, union)
+    for (id, node, tag, is_union) in &recs {
+        let kw = if *is_union { "union" } else { "struct" };
+        let (name, c_name) = match (td_of.get(id), tag) {
+            (Some(t), _) => (t.clone(), t.clone()),
+            (None, Some(tag)) => (tag.clone(), format!("{} {}", kw, tag)),
+            (None, None) => continue,
+        };
+        if sc.smap.values().any(|v| v == &name) {
+            continue;
+        }
+        sc.smap.insert(c_name.clone(), name.clone());
+        sc.smap.insert(name.clone(), name.clone());
+        if let Some(tag) = tag {
+            sc.smap.insert(format!("{} {}", kw, tag), name.clone());
+        }
+        named.push((name, c_name, node.clone(), *is_union));
+    }
+    for (name, c_name, node, is_union) in &named {
+        let mut st = CStruct { name: name.clone(), c_name: c_name.clone(), is_union: *is_union, fields: Vec::new(), skipped: Vec::new() };
+        record_fields(node, &sc, &mut st);
+        res.structs.push(st);
     }
 
-    let mut res = Imported::default();
-    let mut cur = String::new();
+    // 4. Functions and function pointer types.
     let mut seen: HashMap<String, ()> = HashMap::new();
-
-    for n in dlist(&root, "inner") {
-        cur = loc_file(&n, &cur);
-        if dstr(&n, "kind").as_deref() != Some("FunctionDecl") {
+    cur.clear();
+    for n in &top {
+        cur = loc_file(n, &cur);
+        let kind = dstr(n, "kind").unwrap_or_default();
+        if !wanted.has(&cur) {
             continue;
         }
-        if !is_wanted(&cur, header) {
+        if kind == "TypedefDecl" {
+            let name = dstr(n, "name").unwrap_or_default();
+            let q = dget(n, "type").and_then(|t| dstr(&t, "qualType")).unwrap_or_default();
+            let r = resolve(&q, &td, 0);
+            if is_fnptr_text(&r) && !r.contains("**") && !name.starts_with('_') {
+                if let Some(sig) = parse_fnptr(&q, &td) {
+                    res.fnptrs.push(CFnPtr { name, sig });
+                }
+            }
             continue;
         }
-        if res.header_path.is_empty() {
-            res.header_path = cur.clone();
+        if kind != "FunctionDecl" {
+            continue;
         }
-        let name = match dstr(&n, "name") {
+        let name = match dstr(n, "name") {
             Some(x) => x,
             None => continue,
         };
@@ -484,7 +1201,7 @@ pub fn import_header(
         }
         seen.insert(name.clone(), ());
 
-        let ty = match dget(&n, "type") {
+        let ty = match dget(n, "type") {
             Some(t) => t,
             None => continue,
         };
@@ -493,21 +1210,10 @@ pub fn import_header(
             res.skipped.push((name, why_variadic()));
             continue;
         }
-        // The return type is everything in the signature before the first `(`.
-        let ret_c = match qual.find('(') {
-            Some(i) => qual[..i].trim().to_string(),
-            None => qual.trim().to_string(),
-        };
+        let (ret_c, _) = split_sig(&qual);
+        let params_c = param_types(n);
 
-        let mut params_c: Vec<String> = Vec::new();
-        for c in dlist(&n, "inner") {
-            if dstr(&c, "kind").as_deref() == Some("ParmVarDecl") {
-                let pt = dget(&c, "type").and_then(|t| dstr(&t, "qualType")).unwrap_or_default();
-                params_c.push(pt);
-            }
-        }
-
-        let ret = match map_ty(&ret_c, &td, true) {
+        let (ret_ty, ret) = match sc.ret(&ret_c) {
             Ok(t) => t,
             Err(why) => {
                 res.skipped.push((name, why));
@@ -515,23 +1221,17 @@ pub fn import_header(
             }
         };
         let mut params = Vec::new();
+        let mut tys = Vec::new();
         let mut cbs: Vec<Option<CbSig>> = Vec::new();
         let mut bad = None;
         for p in &params_c {
-            match map_ty(p, &td, false) {
-                Ok(t) => {
-                    params.push(t);
-                    cbs.push(None);
+            match sc.param(p) {
+                Ok((t, m, cb)) => {
+                    tys.push(t);
+                    params.push(m);
+                    cbs.push(cb);
                 }
                 Err(why) => {
-                    // For a parameter that takes a function, record its shape and continue.
-                    if why == why_callback() {
-                        if let Some(cb) = parse_fnptr(p, &td) {
-                            params.push(MTy::Int);
-                            cbs.push(Some(cb));
-                            continue;
-                        }
-                    }
                     bad = Some(why);
                     break;
                 }
@@ -541,11 +1241,38 @@ pub fn import_header(
             res.skipped.push((name, why));
             continue;
         }
-        let outs: Vec<bool> = params_c.iter().map(|p| is_out_param(p, &td)).collect();
-        res.fns.push(ImportedFn { name, ret, params, c_ret: ret_c, c_params: params_c, cpp_shim: None, outs, cbs });
+        let outs = vec![false; params.len()];
+        res.fns.push(ImportedFn { name, ret, params, c_ret: ret_c, c_params: params_c, cpp_shim: None, outs, cbs, tys, ret_ty });
+    }
+
+    // 5. Constants: enum values first, then `#define`s, in the order they appear.
+    let mut taken: std::collections::HashSet<String> = res.fns.iter().map(|f| f.name.clone()).collect();
+    taken.extend(res.structs.iter().map(|s| s.name.clone()));
+    taken.extend(res.fnptrs.iter().map(|f| f.name.clone()));
+    let mut push = |res: &mut Imported, name: &str, val: CVal| {
+        if taken.contains(name) || crate::lexer::is_keyword(name) || crate::types::SISKIN_BUILTINS.contains(&name) {
+            return;
+        }
+        taken.insert(name.to_string());
+        res.consts.push(CConst { name: name.to_string(), val });
+    };
+    for (n, v) in &enum_consts {
+        push(&mut res, n, CVal::Int(*v));
+    }
+    for (name, k) in cands {
+        let val = match k {
+            MacroKind::Str(s) => CVal::Str(s),
+            MacroKind::Float(f) => CVal::Float(f),
+            MacroKind::Expr => match evals.get(&name) {
+                Some(v) => CVal::Int(*v),
+                None => continue,
+            },
+        };
+        push(&mut res, &name, val);
     }
 
     abs_path(&mut res);
+    res.files = files.iter().map(|f| (f.clone(), mtime(f))).collect();
     save_cache(&cache, &res);
     Ok(filter_only(res, only))
 }
@@ -564,47 +1291,114 @@ fn filter_only(mut im: Imported, only: &[String]) -> Imported {
         return im;
     }
     im.fns.retain(|f| only.iter().any(|o| o == &f.name));
+    im.consts.retain(|f| only.iter().any(|o| o == &f.name));
+    im.fnptrs.retain(|f| only.iter().any(|o| o == &f.name));
     im
 }
 
 // -------------------------------------------------------------------- cache
-// clang takes over a second, so results are cached. Discarded when the header changes.
+// clang takes over a second, so results are cached. Discarded when a header changes.
+// Lists inside one column are joined with \x1f, and a callback shape's parts with \x1e.
+
+const SEP: char = '\u{1f}';
+const SUB: char = '\u{1e}';
+
+fn esc(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('\n', "\\n").replace('\t', "\\t")
+}
+
+fn enc_cb(cb: &Option<CbSig>) -> String {
+    match cb {
+        None => "-".into(),
+        Some(cb) => format!(
+            "{}{s}{}{s}{}{s}{}",
+            cb.ret.map(|m| m.siskin().to_string()).unwrap_or_default(),
+            cb.params.iter().map(|m| m.siskin()).collect::<Vec<_>>().join(","),
+            cb.c_ret,
+            cb.c_params.join("\u{1d}"),
+            s = SUB
+        ),
+    }
+}
+
+fn dec_cb(x: &str) -> Option<CbSig> {
+    if x == "-" {
+        return None;
+    }
+    let q: Vec<&str> = x.split(SUB).collect();
+    if q.len() < 4 {
+        return None;
+    }
+    Some(CbSig {
+        ret: if q[0].is_empty() { None } else { Some(mty_of(q[0])) },
+        params: if q[1].is_empty() { Vec::new() } else { q[1].split(',').map(mty_of).collect() },
+        c_ret: q[2].to_string(),
+        c_params: if q[3].is_empty() { Vec::new() } else { q[3].split('\u{1d}').map(|x| x.to_string()).collect() },
+    })
+}
+
+fn join(v: &[String]) -> String {
+    v.join(&SEP.to_string())
+}
+
+fn split(s: &str) -> Vec<String> {
+    if s.is_empty() {
+        Vec::new()
+    } else {
+        s.split(SEP).map(|x| x.to_string()).collect()
+    }
+}
 
 fn save_cache(path: &PathBuf, im: &Imported) {
-    let mut s = String::from("siskin-ffi 9\n");
-    let stamp = std::fs::metadata(&im.header_path)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    s.push_str(&format!("H\t{}\t{}\n", im.header_path, stamp));
+    let mut s = String::from("siskin-ffi 11\n");
+    s.push_str(&format!("H\t{}\n", im.header_path));
+    for (f, t) in &im.files {
+        s.push_str(&format!("W\t{}\t{}\n", f, t));
+    }
     for f in &im.fns {
         let ps: Vec<String> = f.params.iter().map(|t| t.siskin().to_string()).collect();
         s.push_str(&format!(
-            "F\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            "F\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
             f.name,
             f.ret.siskin(),
-            ps.join(","),
+            join(&ps),
             f.c_ret,
-            f.c_params.join("|"),
+            join(&f.c_params),
             f.outs.iter().map(|b| if *b { '1' } else { '0' }).collect::<String>(),
-            f.cbs
-                .iter()
-                .map(|c| match c {
-                    None => String::from("-"),
-                    Some(cb) => format!(
-                        "{};{};{};{}",
-                        cb.ret.map(|m| m.siskin().to_string()).unwrap_or_default(),
-                        cb.params.iter().map(|m| m.siskin()).collect::<Vec<_>>().join(","),
-                        cb.c_ret,
-                        cb.c_params.join(",")
-                    ),
-                })
-                .collect::<Vec<_>>()
-                .join("~"),
-            f.cpp_shim.clone().unwrap_or_default().replace('\\', "\\\\").replace('\n', "\\n").replace('\t', "\\t")
+            f.cbs.iter().map(enc_cb).collect::<Vec<_>>().join(&SEP.to_string()),
+            esc(&f.cpp_shim.clone().unwrap_or_default()),
+            join(&f.tys),
+            f.ret_ty,
         ));
+    }
+    for c in &im.consts {
+        let (k, v) = match &c.val {
+            CVal::Int(i) => ("i", i.to_string()),
+            CVal::Float(f) => ("f", format!("{:?}", f)),
+            CVal::Str(x) => ("s", esc(x)),
+        };
+        s.push_str(&format!("C\t{}\t{}\t{}\n", c.name, k, v));
+    }
+    for st in &im.structs {
+        s.push_str(&format!("T\t{}\t{}\t{}\n", st.name, st.c_name, if st.is_union { 1 } else { 0 }));
+        for f in &st.fields {
+            s.push_str(&format!(
+                "f\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                f.name,
+                f.ty,
+                f.c_ty,
+                if f.ptr { 1 } else { 0 },
+                if f.charp { 1 } else { 0 },
+                f.chars,
+                enc_cb(&f.cb)
+            ));
+        }
+        for (n, w) in &st.skipped {
+            s.push_str(&format!("x\t{}\t{}\n", n, w));
+        }
+    }
+    for p in &im.fnptrs {
+        s.push_str(&format!("P\t{}\t{}\n", p.name, enc_cb(&Some(p.sig.clone()))));
     }
     for (n, w) in &im.skipped {
         s.push_str(&format!("S\t{}\t{}\n", n, w));
@@ -643,74 +1437,67 @@ fn mty_of(s: &str) -> MTy {
 fn load_cache(path: &PathBuf) -> Option<Imported> {
     let s = std::fs::read_to_string(path).ok()?;
     let mut lines = s.lines();
-    if lines.next()? != "siskin-ffi 9" {
+    if lines.next()? != "siskin-ffi 11" {
         return None;
     }
     let mut im = Imported::default();
     for line in lines {
         let f: Vec<&str> = line.split('\t').collect();
         match f.first() {
-            Some(&"H") if f.len() >= 3 => {
-                im.header_path = f[1].to_string();
+            Some(&"H") if f.len() >= 2 => im.header_path = f[1].to_string(),
+            Some(&"W") if f.len() >= 3 => {
                 let want: u64 = f[2].parse().unwrap_or(0);
-                let now = std::fs::metadata(f[1])
-                    .and_then(|m| m.modified())
-                    .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-                if now != want {
-                    return None; // the header changed
+                if mtime(f[1]) != want {
+                    return None; // a header changed
                 }
+                im.files.push((f[1].to_string(), want));
             }
-            Some(&"F") if f.len() >= 6 => {
-                let outs: Vec<bool> = f.get(6).map(|x| x.chars().map(|c| c == '1').collect()).unwrap_or_default();
-                let cbs: Vec<Option<CbSig>> = f
-                    .get(7)
-                    .map(|x| {
-                        if x.is_empty() {
-                            Vec::new()
-                        } else {
-                            x.split('~')
-                                .map(|part| {
-                                    if part == "-" {
-                                        return None;
-                                    }
-                                    let q: Vec<&str> = part.split(';').collect();
-                                    if q.len() < 4 {
-                                        return None;
-                                    }
-                                    Some(CbSig {
-                                        ret: if q[0].is_empty() { None } else { Some(mty_of(q[0])) },
-                                        params: if q[1].is_empty() { Vec::new() } else { q[1].split(',').map(mty_of).collect() },
-                                        c_ret: q[2].to_string(),
-                                        c_params: if q[3].is_empty() { Vec::new() } else { q[3].split(',').map(|x| x.to_string()).collect() },
-                                    })
-                                })
-                                .collect()
-                        }
-                    })
-                    .unwrap_or_default();
-                let shim = f.get(8).map(|x| unesc(x)).filter(|x| !x.is_empty());
+            Some(&"F") if f.len() >= 11 => {
                 im.fns.push(ImportedFn {
-                    cpp_shim: shim,
-                    outs,
-                    cbs,
                     name: f[1].to_string(),
                     ret: mty_of(f[2]),
-                    params: if f[3].is_empty() {
-                        Vec::new()
-                    } else {
-                        f[3].split(',').map(mty_of).collect()
-                    },
+                    params: split(f[3]).iter().map(|x| mty_of(x)).collect(),
                     c_ret: f[4].to_string(),
-                    c_params: if f[5].is_empty() {
-                        Vec::new()
-                    } else {
-                        f[5].split('|').map(|x| x.to_string()).collect()
-                    },
+                    c_params: split(f[5]),
+                    outs: f[6].chars().map(|c| c == '1').collect(),
+                    cbs: if f[7].is_empty() { Vec::new() } else { f[7].split(SEP).map(dec_cb).collect() },
+                    cpp_shim: Some(unesc(f[8])).filter(|x| !x.is_empty()),
+                    tys: split(f[9]),
+                    ret_ty: f[10].to_string(),
                 });
             }
+            Some(&"C") if f.len() >= 4 => {
+                let val = match f[2] {
+                    "i" => CVal::Int(f[3].parse().ok()?),
+                    "f" => CVal::Float(f[3].parse().ok()?),
+                    _ => CVal::Str(unesc(f[3])),
+                };
+                im.consts.push(CConst { name: f[1].to_string(), val });
+            }
+            Some(&"T") if f.len() >= 4 => im.structs.push(CStruct {
+                name: f[1].to_string(),
+                c_name: f[2].to_string(),
+                is_union: f[3] == "1",
+                fields: Vec::new(),
+                skipped: Vec::new(),
+            }),
+            Some(&"f") if f.len() >= 8 => {
+                let st = im.structs.last_mut()?;
+                st.fields.push(CField {
+                    name: f[1].to_string(),
+                    ty: f[2].to_string(),
+                    c_ty: f[3].to_string(),
+                    ptr: f[4] == "1",
+                    charp: f[5] == "1",
+                    chars: f[6].parse().unwrap_or(0),
+                    cb: dec_cb(f[7]),
+                });
+            }
+            Some(&"x") if f.len() >= 3 => {
+                let st = im.structs.last_mut()?;
+                st.skipped.push((f[1].to_string(), f[2].to_string()));
+            }
+            Some(&"P") if f.len() >= 3 => im.fnptrs.push(CFnPtr { name: f[1].to_string(), sig: dec_cb(f[2])? }),
             Some(&"S") if f.len() >= 3 => im.skipped.push((f[1].to_string(), f[2].to_string())),
             _ => {}
         }
@@ -918,6 +1705,8 @@ impl<'a> CppCtx<'a> {
             cpp_shim: Some(shim),
             outs: vec![false; slots.len()],
             cbs: vec![None; slots.len()],
+            tys: Vec::new(),
+            ret_ty: String::new(),
         });
     }
 }

@@ -18,8 +18,182 @@ pub const SISKIN_BUILTINS: &[&str] = &[
     "stringify", "jnull", "jlist", "jdict", "jbool", "jint", "jfloat", "jstr", "test", "find",
     "find_all", "groups", "split_re", "replace", "round", "floor", "ceil", "pow", "read_text",
     "write_text", "alloc", "free", "cast", "main", "cstr", "ptr_get", "sleep", "env", "set_env",
-    "cwd", "set_cwd", "pid", "list_dir", "make_dir", "is_dir", "channel",
+    "cwd", "set_cwd", "pid", "list_dir", "make_dir", "is_dir", "channel", "size_of", "offset_of",
+    "c_string", "ptr_set", "address_of",
 ];
+
+/// Fixed-size number types for memory laid out like C (struct fields, `*T` pointers).
+/// Reading one gives an ordinary `Int` or `Float`; storing converts (wrapping like C, or rounding to 32-bit float).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NumK {
+    I8,
+    I16,
+    I32,
+    U8,
+    U16,
+    U32,
+    U64,
+    F32,
+}
+
+impl NumK {
+    pub fn from_name(n: &str) -> Option<NumK> {
+        Some(match n {
+            "I8" => NumK::I8,
+            "I16" => NumK::I16,
+            "I32" => NumK::I32,
+            "U8" | "Byte" => NumK::U8,
+            "U16" => NumK::U16,
+            "U32" => NumK::U32,
+            "U64" => NumK::U64,
+            "F32" => NumK::F32,
+            _ => return None,
+        })
+    }
+    pub fn name(&self) -> &'static str {
+        match self {
+            NumK::I8 => "I8",
+            NumK::I16 => "I16",
+            NumK::I32 => "I32",
+            NumK::U8 => "U8",
+            NumK::U16 => "U16",
+            NumK::U32 => "U32",
+            NumK::U64 => "U64",
+            NumK::F32 => "F32",
+        }
+    }
+    pub fn c_type(&self) -> &'static str {
+        match self {
+            NumK::I8 => "int8_t",
+            NumK::I16 => "int16_t",
+            NumK::I32 => "int32_t",
+            NumK::U8 => "uint8_t",
+            NumK::U16 => "uint16_t",
+            NumK::U32 => "uint32_t",
+            NumK::U64 => "uint64_t",
+            NumK::F32 => "float",
+        }
+    }
+    pub fn size(&self) -> usize {
+        match self {
+            NumK::I8 | NumK::U8 => 1,
+            NumK::I16 | NumK::U16 => 2,
+            NumK::I32 | NumK::U32 | NumK::F32 => 4,
+            NumK::U64 => 8,
+        }
+    }
+    pub fn is_float(&self) -> bool {
+        matches!(self, NumK::F32)
+    }
+    /// What a stored Int becomes (C's wrap-around conversion).
+    pub fn wrap_int(&self, v: i64) -> i64 {
+        match self {
+            NumK::I8 => v as i8 as i64,
+            NumK::I16 => v as i16 as i64,
+            NumK::I32 => v as i32 as i64,
+            NumK::U8 => v as u8 as i64,
+            NumK::U16 => v as u16 as i64,
+            NumK::U32 => v as u32 as i64,
+            NumK::U64 | NumK::F32 => v,
+        }
+    }
+}
+
+/// The type you get when you read a value stored as `t`: `F32` reads as Float, `I32` as Int,
+/// a fixed array `[F32; 4]` as a list `[Float]`, a C pointer parameter type as an Int address.
+pub fn value_of(t: &Ty) -> Ty {
+    match t {
+        Ty::Num(k) => {
+            if k.is_float() {
+                Ty::Float
+            } else {
+                Ty::Int
+            }
+        }
+        Ty::Array(e, _) => Ty::List(Box::new(value_of(e))),
+        Ty::CPtr(..) => Ty::Int,
+        other => other.clone(),
+    }
+}
+
+/// A fixed-size number type (or a fixed array) used where only values can go
+/// (a variable, a list, a parameter). Pointers (`*F32`) are fine. Returns the offending type.
+pub fn storage_misuse(t: &Ty) -> Option<Ty> {
+    match t {
+        Ty::Num(_) | Ty::Array(..) | Ty::CPtr(..) => Some(t.clone()),
+        Ty::Raw(_) => None,
+        Ty::List(a) | Ty::Optional(a) | Ty::Task(a) | Ty::Chan(a) => storage_misuse(a),
+        Ty::Fallible(a, e) => storage_misuse(a).or_else(|| storage_misuse(e)),
+        Ty::Dict(a, b) => storage_misuse(a).or_else(|| storage_misuse(b)),
+        Ty::Tuple(ts) => ts.iter().find_map(storage_misuse),
+        Ty::Fn(ps, r) => ps.iter().find_map(storage_misuse).or_else(|| storage_misuse(r)),
+        _ => None,
+    }
+}
+
+fn storage_err(bad: &Ty, line: usize) -> SiskinError {
+    let v = value_of(bad);
+    err(
+        "T0078",
+        tr!(
+            format!("{} 은(는) 메모리 배치용 타입이라 구조체 필드와 `*{}` 포인터에만 씁니다", bad, bad),
+            format!("{} is a memory-layout type; use it only for struct fields and `*{}` pointers", bad, bad)
+        ),
+        line,
+        1,
+    )
+    .with_fix(tr!(
+        format!("변수·인자·리스트에는 {} 을(를) 쓰세요. 필드에서 읽으면 {} 로 나옵니다", v, v),
+        format!("use {} for variables, parameters and lists; reading the field gives a {}", v, v)
+    ))
+}
+
+/// C layout of a type: (size, alignment) in bytes. None if the type is not made only of
+/// numbers, Bool, fixed arrays and such structs (a Str or list has no fixed C layout).
+pub fn c_layout(t: &Ty, structs: &HashMap<String, crate::ast::Shared<StructDecl>>, ty: &mut Types) -> Option<(usize, usize)> {
+    match t {
+        Ty::Int | Ty::Float => Some((8, 8)),
+        Ty::Bool => Some((1, 1)),
+        Ty::Num(k) => Some((k.size(), k.size())),
+        Ty::Array(e, n) => {
+            let (s, a) = c_layout(e, structs, ty)?;
+            Some((s * n, a))
+        }
+        Ty::Struct(name) => {
+            let sd = structs.get(name)?.clone();
+            if sd.c.is_some() || !sd.generics.is_empty() {
+                return None;
+            }
+            let mut off = 0usize;
+            let mut align = 1usize;
+            for f in &sd.fields {
+                let ft = ty.resolve(f.ty.as_ref()?, sd.line);
+                let (s, a) = c_layout(&ft, structs, ty)?;
+                off = off.div_ceil(a) * a;
+                off += s;
+                align = align.max(a);
+            }
+            Some((off.max(1).div_ceil(align) * align, align))
+        }
+        _ => None,
+    }
+}
+
+/// Byte offset of `field` inside Siskin struct `name` (C layout rules).
+pub fn c_offset(name: &str, field: &str, structs: &HashMap<String, crate::ast::Shared<StructDecl>>, ty: &mut Types) -> Option<usize> {
+    let sd = structs.get(name)?.clone();
+    let mut off = 0usize;
+    for f in &sd.fields {
+        let ft = ty.resolve(f.ty.as_ref()?, sd.line);
+        let (s, a) = c_layout(&ft, structs, ty)?;
+        off = off.div_ceil(a) * a;
+        if f.name == field {
+            return Some(off);
+        }
+        off += s;
+    }
+    None
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Ty {
@@ -53,6 +227,14 @@ pub enum Ty {
     Task(Box<Ty>),
     /// Channel created by `channel[T]()`. Tasks pass values through it (copied on send).
     Chan(Box<Ty>),
+    /// `F32`, `I32`, `U8` ... — fixed-size numbers stored like C. Only in struct fields and behind `*T`.
+    Num(NumK),
+    /// `[T; N]` — fixed-size array inside a struct, laid out like C's `T x[N]`. Reads as a list.
+    Array(Box<Ty>, usize),
+    /// A pointer parameter of a C function (`uint32_t*`, `const VkInstanceCreateInfo*`, `void*`).
+    /// Accepts a variable (C gets its address, like `&x`), a `*T` pointer, or an Int address.
+    /// The flag is true when C only reads through it (`const`).
+    CPtr(Box<Ty>, bool),
     /// Not yet determined (empty list, etc.). Matches anything.
     Unknown,
 }
@@ -93,6 +275,9 @@ impl fmt::Display for Ty {
             }
             Ty::Var(n) => write!(f, "{}", n),
             Ty::Task(t) => write!(f, "Task[{}]", t),
+            Ty::Num(k) => write!(f, "{}", k.name()),
+            Ty::Array(t, n) => write!(f, "[{}; {}]", t, n),
+            Ty::CPtr(t, konst) => write!(f, "{}[{}]", if *konst { "CConst" } else { "CPtr" }, t),
             Ty::Chan(t) => write!(f, "Chan[{}]", t),
             Ty::Unknown => write!(f, "_"),
         }
@@ -679,9 +864,17 @@ impl Types {
             }
         }
         match te {
+            TypeExpr::Named(n, args) if (n == "CPtr" || n == "CConst") && args.len() == 1 && !self.structs.contains_key(n.as_str()) => {
+                let inner = self.resolve(&args[0], line);
+                Ty::CPtr(Box::new(inner), n == "CConst")
+            }
+            TypeExpr::Named(n, _) if NumK::from_name(n).is_some() && !self.structs.contains_key(n.as_str()) => {
+                Ty::Num(NumK::from_name(n).unwrap())
+            }
+            TypeExpr::Array(t, n) => Ty::Array(Box::new(self.resolve(t, line)), *n),
             TypeExpr::Named(n, _) => match n.as_str() {
-                "Int" => Ty::Int,
-                "Float" => Ty::Float,
+                "Int" | "I64" => Ty::Int,
+                "Float" | "F64" => Ty::Float,
                 "Bool" => Ty::Bool,
                 "Str" => Ty::Str,
                 // Means there is no value to return. Used when only failure is signalled, as in `-> !Unit`.
@@ -1096,6 +1289,16 @@ impl Types {
                     && pa.iter().zip(pb).all(|(x, y)| self.compatible(x, y))
                     && self.compatible(ra, rb)
             }
+            // Storing into an `F32` field takes a Float; into `I32`, an Int.
+            (Num(_), b) => value_of(want) == *b,
+            // A fixed array is filled from a list.
+            (Array(e, _), List(b)) => self.compatible(&value_of(e), b),
+            // A C pointer parameter: an address, a `*T` of the same kind, or a value of what it points to.
+            (CPtr(t, _), b) => match b {
+                Int => true,
+                Raw(u) => **t == Unit || **t == **u || value_of(t) == value_of(u),
+                other => **t != Unit && (value_of(t) == *other || matches!((&**t, other), (Struct(x), Struct(y)) if x == y)),
+            },
             (a, b) => a == b,
         }
     }
@@ -1197,7 +1400,22 @@ impl Types {
                     let saved = std::mem::replace(&mut self.cur_generics, sd.generics.iter().cloned().collect());
                     for f in &sd.fields {
                         if let Some(te) = &f.ty {
-                            let _ = self.resolve(te, sd.line);
+                            let t = self.resolve(te, sd.line);
+                            // A field may itself be `F32` or `[F32; 4]`, but not a list of them.
+                            let inner = match &t {
+                                Ty::Num(_) => None,
+                                Ty::Array(e, _) => {
+                                    let mut e = (**e).clone();
+                                    while let Ty::Array(x, _) = e {
+                                        e = *x;
+                                    }
+                                    if matches!(e, Ty::Num(_)) { None } else { storage_misuse(&e) }
+                                }
+                                other => storage_misuse(other),
+                            };
+                            if let Some(bad) = inner {
+                                self.errors.push(storage_err(&bad, sd.line));
+                            }
                         }
                     }
                     self.cur_generics = saved;
@@ -1306,6 +1524,12 @@ impl Types {
 
     fn check_fn(&mut self, f: &crate::ast::Shared<FnDecl>, self_ty: Option<Ty>) {
         let sig = self.sig_of(f, self_ty);
+        if !f.is_extern {
+            let bad = sig.params.iter().find_map(|(_, t)| storage_misuse(t)).or_else(|| storage_misuse(&sig.ret));
+            if let Some(bad) = bad {
+                self.errors.push(storage_err(&bad, f.line));
+            }
+        }
         let prev_ret = std::mem::replace(&mut self.cur_ret, sig.ret.clone());
         let prev_fn = std::mem::replace(&mut self.cur_fn, f.name.clone());
         let prev_generics =
@@ -1684,6 +1908,9 @@ impl Types {
                     let l = *line;
                     self.resolve(t, l)
                 });
+                if let Some(bad) = declared.as_ref().and_then(storage_misuse) {
+                    self.errors.push(storage_err(&bad, *line));
+                }
                 if let Some(d) = &declared {
                     if !self.compatible(d, &vt) {
                         self.errors.push(
@@ -1884,7 +2111,14 @@ impl Types {
                         *col,
                     ));
                 }
-                if !self.compatible(&tt, &vt) {
+                let c_ok = match target {
+                    Expr::Field(o, n, _, _) => {
+                        let ot = self.infer_quiet(o);
+                        self.c_field_accepts(&ot, n, &vt)
+                    }
+                    _ => false,
+                };
+                if !c_ok && !self.compatible(&tt, &vt) {
                     self.errors.push(
                         err("T0008", tr!(format!("{} 자리에 {} 값을 넣을 수 없습니다", tt, vt), format!("cannot assign {} to {}", vt, tt)), *line, *col)
                             .with_fix(tr!("Siskin에는 암묵적 형변환이 없습니다", "Siskin has no implicit conversions")),
@@ -2814,7 +3048,7 @@ impl Types {
                             *c,
                         ));
                     }
-                    return (**t).clone();
+                    return value_of(t);
                 }
                 match &ot {
                     Ty::List(t) => {
@@ -2869,7 +3103,11 @@ impl Types {
                             if let Some(f) = sd.fields.iter().find(|f| &f.name == name) {
                                 let line = *l;
                                 return match &f.ty {
-                                    Some(te) => self.resolve(te, line),
+                                    // `F32` fields read as Float, `[F32; 4]` as a list.
+                                    Some(te) => {
+                                        let t = self.resolve(te, line);
+                                        value_of(&t)
+                                    }
                                     None => Ty::Unknown,
                                 };
                             }
@@ -3023,6 +3261,26 @@ impl Types {
                 }
             }
             let ot = self.infer(obj);
+            // A fixed array keeps its length: list methods that change the length or order don't apply.
+            if matches!(mname.as_str(), "push" | "pop" | "insert" | "remove" | "clear" | "reverse" | "sort" | "sort_by" | "extend") {
+                if self.is_fixed_array(obj) {
+                    self.errors.push(
+                        err(
+                            "T0080",
+                            tr!(
+                                format!("고정 배열에는 `{}` 을(를) 쓸 수 없습니다 (길이가 정해져 있습니다)", mname),
+                                format!("`{}` cannot be used on a fixed array (its length is fixed)", mname)
+                            ),
+                            *l,
+                            *c,
+                        )
+                        .with_fix(tr!(
+                            "`let xs = s.field` 로 리스트로 복사해서 쓰거나, `s.field[i] = 값` 으로 칸을 바꾸세요",
+                            "copy it into a list with `let xs = s.field`, or change one slot with `s.field[i] = value`"
+                        )),
+                    );
+                }
+            }
             // Calling a function-typed field: `self.on_click(x)`
             if let Some(Ty::Fn(ps, r)) = self.fn_field(&ot, mname) {
                 return self.check_indirect_call(&ps, *r, args, *l, *c);
@@ -3269,6 +3527,16 @@ impl Types {
                         if inout {
                             self.check_inout_arg(&args[i].value, name, *l, *c);
                         }
+                        // A variable passed to a C pointer that C writes through must be a `var`.
+                        if let Ty::CPtr(inner, false) = &t {
+                            let a = &args[i].value;
+                            let is_slot = matches!(a, Expr::Ident(..) | Expr::Field(..) | Expr::Index(..))
+                                && **inner != Ty::Unit
+                                && (value_of(inner) == *at || matches!((&**inner, at), (Ty::Struct(x), Ty::Struct(y)) if x == y));
+                            if is_slot {
+                                self.check_inout_arg(a, name, *l, *c);
+                            }
+                        }
                     }
                 }
                 if positional < want.len() && arg_tys.iter().all(|(n, _)| n.is_none()) {
@@ -3330,8 +3598,82 @@ impl Types {
                     }
                 };
             }
+            // `size_of[T]()` / `offset_of[T]("field")` — C layout sizes, for handing memory to C or the GPU.
+            if (name == "size_of" || name == "offset_of") && !self.fns.contains_key(name.as_str()) {
+                let arg_tys: Vec<Ty> = args.iter().map(|a| self.infer(&a.value)).collect();
+                let t = match targs.first() {
+                    Some(te) => self.resolve(te, *l),
+                    None => {
+                        self.errors.push(
+                            err("T0079", tr!(format!("`{}` 에는 타입을 적어야 합니다", name), format!("`{}` needs a type argument", name)), *l, *c)
+                                .with_fix(tr!(format!("`{}[Vertex]()` 처럼 씁니다", name), format!("write it like `{}[Vertex]()`", name))),
+                        );
+                        return Ty::Int;
+                    }
+                };
+                let is_c = matches!(&t, Ty::Struct(n) if self.structs.get(n).map(|sd| sd.c.is_some()).unwrap_or(false));
+                let structs = self.structs.clone();
+                if !is_c && c_layout(&t, &structs, self).is_none() && t != Ty::Unknown {
+                    self.errors.push(
+                        err(
+                            "T0079",
+                            tr!(
+                                format!("{} 은(는) C 와 같은 메모리 배치가 없습니다", t),
+                                format!("{} has no C memory layout", t)
+                            ),
+                            *l,
+                            *c,
+                        )
+                        .with_fix(tr!(
+                            "숫자(Int, Float, F32, U8 ...), Bool, 고정 배열과 그런 것만 담은 구조체만 됩니다",
+                            "only numbers (Int, Float, F32, U8 ...), Bool, fixed arrays and structs made of those have one"
+                        )),
+                    );
+                }
+                if name == "offset_of" {
+                    let field = match args.first().map(|a| &a.value) {
+                        Some(Expr::Str(f)) => Some(f.to_string()),
+                        _ => None,
+                    };
+                    let ok = match (&t, &field) {
+                        (Ty::Struct(sn), Some(f)) => {
+                            self.structs.get(sn).map(|sd| sd.fields.iter().any(|x| &x.name == f)).unwrap_or(false)
+                        }
+                        (Ty::Unknown, _) => true,
+                        _ => false,
+                    };
+                    if !ok || arg_tys.len() != 1 {
+                        self.errors.push(
+                            err("T0079", tr!("`offset_of` 는 구조체 타입과 필드 이름 글자 하나를 받습니다", "`offset_of` takes a struct type and one field name in quotes"), *l, *c)
+                                .with_fix(tr!("`offset_of[Vertex](\"color\")` 처럼 씁니다", "write it like `offset_of[Vertex](\"color\")`")),
+                        );
+                    }
+                } else if !arg_tys.is_empty() {
+                    self.no_args(name, &arg_tys, *l, *c);
+                }
+                return Ty::Int;
+            }
+            // `c_string(s)` — a C string (address) with the same text, kept alive until the program ends.
+            if name == "c_string" && !self.fns.contains_key(name.as_str()) {
+                let arg_tys: Vec<Ty> = args.iter().map(|a| self.infer(&a.value)).collect();
+                if arg_tys.len() != 1 || !self.compatible(&Ty::Str, &arg_tys[0]) {
+                    self.errors.push(err("T0046", tr!("`c_string` 은 Str 하나를 받습니다", "`c_string` takes one Str"), *l, *c));
+                }
+                return Ty::Int;
+            }
+            // `address_of(p)` — the C address a `*T` pointer holds, as an Int (for C function values and `ptr_get`).
+            if name == "address_of" && !self.fns.contains_key(name.as_str()) {
+                let arg_tys: Vec<Ty> = args.iter().map(|a| self.infer(&a.value)).collect();
+                if arg_tys.len() != 1 || !matches!(arg_tys[0], Ty::Raw(_) | Ty::Unknown) {
+                    self.errors.push(
+                        err("T0046", tr!("`address_of` 는 `*T` 포인터 하나를 받습니다", "`address_of` takes one `*T` pointer"), *l, *c)
+                            .with_fix(tr!("`alloc[U32](1)` 로 만든 포인터를 넘기세요", "pass a pointer made with `alloc[U32](1)`")),
+                    );
+                }
+                return Ty::Int;
+            }
             // Memory Level 2 builtins
-            if matches!(name.as_str(), "alloc" | "free" | "cast" | "cstr" | "ptr_get") {
+            if matches!(name.as_str(), "alloc" | "free" | "cast" | "cstr" | "ptr_get" | "ptr_set") {
                 if self.unsafe_depth == 0 {
                     self.errors.push(
                         err(
@@ -3358,15 +3700,33 @@ impl Types {
                         }
                         Ty::Str
                     }
-                    // Reads the i-th value from the slot the handle points to (8 bytes each).
+                    // Reads the i-th value from the slot the handle points to (8 bytes each, or `T` with `ptr_get[T]`).
                     "ptr_get" => {
-                        if arg_tys.len() != 2 || !matches!(arg_tys.first(), Some(Ty::Int)) {
+                        if arg_tys.len() != 2 || !matches!(arg_tys.first(), Some(Ty::Int)) || !self.compatible(&Ty::Int, &arg_tys[1]) {
                             self.errors.push(
                                 err("T0047", tr!("`ptr_get`은 손잡이와 몇 번째인지를 받습니다", "`ptr_get` takes a handle and an index"), *l, *c)
-                                    .with_fix(tr!("`ptr_get(손잡이, 0)` 처럼 씁니다", "write it like `ptr_get(handle, 0)`")),
+                                    .with_fix(tr!("`ptr_get(손잡이, 0)` 이나 `ptr_get[F32](손잡이, 0)` 처럼 씁니다", "write it like `ptr_get(handle, 0)` or `ptr_get[F32](handle, 0)`")),
                             );
                         }
-                        Ty::Int
+                        match targ {
+                            Some(t) => value_of(&t),
+                            None => Ty::Int,
+                        }
+                    }
+                    // Writes the i-th `T` at an address received from C.
+                    "ptr_set" => {
+                        let t = targ.clone().unwrap_or(Ty::Int);
+                        let ok = arg_tys.len() == 3
+                            && matches!(arg_tys[0], Ty::Int | Ty::Unknown)
+                            && self.compatible(&Ty::Int, &arg_tys[1])
+                            && (self.compatible(&value_of(&t), &arg_tys[2]));
+                        if !ok {
+                            self.errors.push(
+                                err("T0047", tr!("`ptr_set`은 손잡이, 몇 번째인지, 넣을 값을 받습니다", "`ptr_set` takes a handle, an index and the value to store"), *l, *c)
+                                    .with_fix(tr!("`ptr_set[F32](손잡이, 0, 1.5)` 처럼 씁니다", "write it like `ptr_set[F32](handle, 0, 1.5)`")),
+                            );
+                        }
+                        Ty::Unit
                     }
                     "alloc" => match targ {
                         Some(t) => Ty::Raw(Box::new(t)),
@@ -3404,6 +3764,64 @@ impl Types {
         }
         self.errors.push(err("T0031", tr!("호출할 수 없는 대상입니다", "this expression is not callable"), line, col));
         Ty::Unknown
+    }
+
+    /// The declared (storage) type of a field, e.g. `[F32; 4]` rather than the `[Float]` it reads as.
+    pub fn field_storage(&mut self, ot: &Ty, fname: &str) -> Option<Ty> {
+        let sn = match ot {
+            Ty::Struct(n) => n.clone(),
+            _ => return None,
+        };
+        let sd = self.structs.get(&sn)?.clone();
+        let f = sd.fields.iter().find(|f| f.name == fname)?;
+        let te = f.ty.clone()?;
+        Some(self.resolve(&te, sd.line))
+    }
+
+    /// The storage type of a fixed array expression (`s.color`, or `s.m[i]` for a row), if it is one.
+    pub fn fixed_array(&mut self, e: &Expr) -> Option<Ty> {
+        match e {
+            Expr::Field(o, n, _, _) => {
+                let ot = self.infer_quiet(o);
+                match self.field_storage(&ot, n) {
+                    Some(t @ Ty::Array(..)) => Some(t),
+                    _ => None,
+                }
+            }
+            Expr::Index(o, _, _, _) => match self.fixed_array(o) {
+                Some(Ty::Array(el, _)) if matches!(*el, Ty::Array(..)) => Some(*el),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn is_fixed_array(&mut self, e: &Expr) -> bool {
+        self.fixed_array(e).is_some()
+    }
+
+    /// What C knows about field `fname` of `ot`, if `ot` is a struct imported from a C header.
+    pub fn c_field(&self, ot: &Ty, fname: &str) -> Option<crate::ast::CFieldInfo> {
+        let sn = match ot {
+            Ty::Struct(n) => n,
+            _ => return None,
+        };
+        let sd = self.structs.get(sn)?;
+        let c = sd.c.as_ref()?;
+        let i = sd.fields.iter().position(|f| f.name == fname)?;
+        c.fields.get(i).cloned()
+    }
+
+    /// Beyond their Siskin type, pointer fields of a C struct take a `*T` pointer,
+    /// `char*` fields a string, and function pointer fields a named function.
+    fn c_field_accepts(&self, ot: &Ty, fname: &str, got: &Ty) -> bool {
+        let info = match self.c_field(ot, fname) {
+            Some(i) => i,
+            None => return false,
+        };
+        (info.ptr && matches!(got, Ty::Raw(_) | Ty::Int))
+            || (info.charp && *got == Ty::Str)
+            || (info.cb.is_some() && matches!(got, Ty::Fn(..)))
     }
 
     fn check_ctor(
@@ -3451,7 +3869,11 @@ impl Types {
             };
             if let Some(te) = target {
                 let want = self.resolve(&te, l);
-                if !self.compatible(&want, at) {
+                let fname = match an {
+                    Some(n) => n.clone(),
+                    None => fields.get(pi.saturating_sub(1)).map(|f| f.name.clone()).unwrap_or_default(),
+                };
+                if !self.c_field_accepts(&result, &fname, at) && !self.compatible(&want, at) {
                     self.errors.push(
                         err(
                             "T0033",
@@ -3467,8 +3889,10 @@ impl Types {
                 }
             }
         }
+        // Fields of a C struct that are not given start as zero, as in C (`VkFoo info = {0};`).
+        let is_c = matches!(&result, Ty::Struct(n) if self.structs.get(n).map(|sd| sd.c.is_some()).unwrap_or(false));
         for f in fields {
-            if !seen.contains(&f.name) && f.default.is_none() {
+            if !is_c && !seen.contains(&f.name) && f.default.is_none() {
                 self.errors.push(
                     err("T0034", tr!(format!("`{}`의 필드 `{}`이(가) 빠졌습니다", name, f.name), format!("missing field `{}` in `{}`", f.name, name)), l, c)
                         .with_fix(format!(

@@ -1,0 +1,45 @@
+# Talk to the GPU with Vulkan: create an instance, list the devices, read their properties.
+# Needs the Vulkan loader and a driver (Ubuntu: apt install libvulkan-dev mesa-vulkan-drivers).
+# Vulkan's structs, enums and function pointer types all come from the header.
+
+import c "vulkan/vulkan.h" link "vulkan"
+
+fn main():
+    unsafe:
+        # Struct fields keep C's names. Fields not given start as zero.
+        let app = alloc[VkApplicationInfo](1)
+        app[0] = VkApplicationInfo(sType: VK_STRUCTURE_TYPE_APPLICATION_INFO, pApplicationName: "siskin", apiVersion: VK_API_VERSION_1_0)
+        # A pointer field takes a `*T` pointer (or an address as Int).
+        var info = VkInstanceCreateInfo(sType: VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, pApplicationInfo: app)
+
+        # `const VkInstanceCreateInfo*` takes the struct itself; `VkInstance*` takes a var that C fills in.
+        # `0` is a null pointer.
+        var instance = 0
+        let r = vkCreateInstance(info, 0, instance)
+        if r != VK_SUCCESS:
+            print(f"vkCreateInstance failed: {r}\n")
+            return
+
+        var count = 0
+        vkEnumeratePhysicalDevices(instance, count, 0)
+        print(f"{count} device(s)\n")
+        let devices = alloc[Int](count)
+        vkEnumeratePhysicalDevices(instance, count, devices)
+
+        var i = 0
+        while i < count:
+            var props = VkPhysicalDeviceProperties()
+            vkGetPhysicalDeviceProperties(devices[i], props)
+            # The version packs major/minor into bits: major is bits 22 and up, minor the next 10 bits.
+            let major = props.apiVersion / 4194304
+            let minor = (props.apiVersion / 4096) % 1024
+            print(f"  {props.deviceName}: Vulkan {major}.{minor}, max 2D image {props.limits.maxImageDimension2D}\n")
+            i += 1
+
+        # Functions looked up at run time come back as addresses. The PFN_ type turns one into a function.
+        let addr = vkGetInstanceProcAddr(instance, "vkDestroyInstance")
+        let destroy = PFN_vkDestroyInstance(addr)
+        destroy(instance, 0)
+        free(devices)
+        free(app)
+    print("done\n")

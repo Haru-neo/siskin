@@ -47,6 +47,8 @@ pub enum Tok {
     Arrow,
     Question,
     Bang,
+    /// Only used in fixed-size array types: `[F32; 4]`.
+    Semi,
 
     Newline,
     Indent,
@@ -91,6 +93,7 @@ impl fmt::Display for Tok {
             Tok::Dot => "`.`",
             Tok::Arrow => "`->`",
             Tok::Question => "`?`",
+            Tok::Semi => "`;`",
             Tok::Bang => "`!`",
             Tok::Newline => tr!("줄바꿈", "newline"),
             Tok::Indent => tr!("들여쓰기", "indent"),
@@ -496,6 +499,7 @@ impl Lexer {
             ':' => Tok::Colon,
             '.' => Tok::Dot,
             '?' => Tok::Question,
+            ';' => Tok::Semi,
             _ => {
                 return Err(SiskinError::new(
                     "E0004",

@@ -233,7 +233,7 @@ impl Ctx {
                     self.ty(a, line);
                 }
             }
-            TypeExpr::Optional(i) | TypeExpr::Fallible(i, None) | TypeExpr::List(i) | TypeExpr::Raw(i) => {
+            TypeExpr::Optional(i) | TypeExpr::Fallible(i, None) | TypeExpr::List(i) | TypeExpr::Raw(i) | TypeExpr::Array(i, _) => {
                 self.ty(i, line)
             }
             TypeExpr::Fallible(i, Some(e)) => {

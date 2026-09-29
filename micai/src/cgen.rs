@@ -8,7 +8,7 @@
 
 use crate::ast::*;
 use crate::error::SiskinError;
-use crate::types::{Region, Ty, Types};
+use crate::types::{value_of, Region, Ty, Types};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
@@ -17,6 +17,7 @@ const RUNTIME: &str = r##"/* ------- Siskin runtime (auto-generated) ------- */
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stddef.h>
 #include <stdbool.h>
 #include <ctype.h>
 #include <math.h>
@@ -543,6 +544,37 @@ static void* mi_list_at(MiList* l, int64_t i) {
         mi_panic(buf);
     }
     return (char*)l->data + i * l->esz;
+}
+
+/* Fixed arrays (`[F32; 4]` struct fields): bounds check with the same message as lists. */
+static int64_t mi_arr_idx(int64_t i, int64_t n) {
+    if (i < 0 || i >= n) {
+        char buf[96];
+        snprintf(buf, sizeof buf, MI_T("인덱스 %lld이(가) 범위를 벗어납니다 (길이 %lld)", "index %lld out of range (length %lld)"),
+                 (long long)i, (long long)n);
+        mi_panic(buf);
+    }
+    return i;
+}
+static void mi_arr_over(int64_t n, int64_t got) {
+    char buf[128];
+    snprintf(buf, sizeof buf, MI_T("고정 배열에는 값이 %lld개까지 들어가는데 %lld개를 넣었습니다", "a fixed array holds %lld values, but %lld were given"),
+             (long long)n, (long long)got);
+    mi_panic(buf);
+}
+/* `char name[N]` fields of C structs: read up to the first NUL, store with truncation. */
+static MiStr mi_from_chars(const char* p, int64_t n) {
+    int64_t k = 0;
+    while (k < n && p[k]) k++;
+    char* b = mi_alloc(k);
+    memcpy(b, p, (size_t)k);
+    return mi_mk(b, k);
+}
+static void mi_to_chars(char* dst, int64_t n, MiStr s) {
+    int64_t k = s.len < n - 1 ? s.len : n - 1;
+    if (k < 0) k = 0;
+    memset(dst, 0, (size_t)n);
+    memcpy(dst, s.p, (size_t)k);
 }
 
 static void mi_list_sort(MiList* l, int kind) {
@@ -1338,6 +1370,43 @@ pub fn generate_debug(prog: &Program, src_path: &str) -> Result<(String, Vec<Str
     generate_opts(prog, src_path, true)
 }
 
+/// `#include` lines (with their `define "X"` macros) for every C header the program imported from.
+/// They come before Siskin's own declarations, which may mention C struct types.
+fn c_includes(prog: &Program) -> String {
+    let mut out = String::new();
+    let mut seen: Vec<(String, Vec<String>)> = Vec::new();
+    for s in &prog.stmts {
+        let (h, defs) = match s {
+            Stmt::Fn(f) => match &f.c_sig {
+                Some(cs) if !cs.cpp => (cs.header.clone(), cs.defines.clone()),
+                _ => continue,
+            },
+            Stmt::Struct(sd) => match &sd.c {
+                Some(c) => (c.header.clone(), c.defines.clone()),
+                None => continue,
+            },
+            _ => continue,
+        };
+        if h.is_empty() || seen.iter().any(|(x, d)| *x == h && *d == defs) {
+            continue;
+        }
+        for d in &defs {
+            let (name, val) = match d.split_once('=') {
+                Some((n, v)) => (n.trim(), v.trim()),
+                None => (d.trim(), "1"),
+            };
+            let _ = writeln!(out, "#ifndef {}\n#define {} {}\n#endif", name, name, val);
+        }
+        if h.starts_with('.') || h.starts_with('/') || std::path::Path::new(h.as_str()).is_absolute() {
+            let _ = writeln!(out, "#include \"{}\"", h);
+        } else {
+            let _ = writeln!(out, "#include <{}>", h);
+        }
+        seen.push((h, defs));
+    }
+    out
+}
+
 fn generate_opts(prog: &Program, src_path: &str, dbg: bool) -> Result<(String, Vec<String>, Option<String>), Vec<SiskinError>> {
     let mut ty = Types::new(prog);
     ty.errors.clear();
@@ -1439,6 +1508,7 @@ fn generate_opts(prog: &Program, src_path: &str, dbg: bool) -> Result<(String, V
         }
         out.push_str(RUNTIME_RE);
         out.push_str(RUNTIME_JSON);
+        out.push_str(&c_includes(prog));
         out.push_str(&g.decls);
         out.push('\n');
         out.push_str(&g.ordered_tdefs());
@@ -1557,8 +1627,13 @@ impl CGen {
             Ty::Unit => "void".into(),
             Ty::List(_) => "MiList".into(),
             Ty::Dict(_, _) => "MiDict".into(),
-            Ty::Struct(n) => format!("struct {}", mangle(n)),
+            Ty::Struct(n) => match self.c_info(n) {
+                Some(c) => c.c_name,
+                None => format!("struct {}", mangle(n)),
+            },
             Ty::Enum(n) => format!("struct {}", mangle(n)),
+            Ty::Num(k) => k.c_type().into(),
+            Ty::CPtr(..) => "void*".into(),
             Ty::Raw(inner) => {
                 let c = self.ctype(inner, line);
                 format!("MI_PTR({})", c)
@@ -1698,8 +1773,8 @@ impl CGen {
                     self.cpp_ffi.push_str(&inc);
                 }
             } else if !seen.contains(&h) {
+                // C headers already went out before the type declarations (`c_includes`).
                 seen.push(h.clone());
-                self.ffi.push_str(&inc);
             }
         }
         if !self.cpp_ffi.is_empty() {
@@ -1770,10 +1845,10 @@ impl CGen {
                     continue;
                 }
                 ps.push(format!("{} a{}", c, i));
-                // Convert back to the original C type before passing.
+                // Convert back to the original C type before passing (a struct passed by value is already C's).
                 match cs.params.get(i) {
-                    Some(ct) => args.push(format!("({})a{}", ct, i)),
-                    None => args.push(format!("a{}", i)),
+                    Some(ct) if !matches!(t, Ty::Struct(_)) => args.push(format!("({})a{}", ct, i)),
+                    _ => args.push(format!("a{}", i)),
                 }
             }
             let plist = if ps.is_empty() { "void".to_string() } else { ps.join(", ") };
@@ -1789,6 +1864,8 @@ impl CGen {
                     body.push_str(l);
                     body.push('\n');
                 }
+            } else if post.is_empty() && matches!(ret_ty, Ty::Struct(_)) {
+                body.push_str(&format!("    return {};\n", call));
             } else if post.is_empty() {
                 body.push_str(&format!("    return ({}){};\n", rt, call));
             } else {
@@ -2035,7 +2112,7 @@ impl CGen {
         // Declare all structs·enums first (so pointers and function prototypes can use them).
         for s in &prog.stmts {
             match s {
-                Stmt::Struct(sd) => {
+                Stmt::Struct(sd) if sd.c.is_none() => {
                     let _ = writeln!(self.decls, "struct {};", mangle(&sd.name));
                 }
                 Stmt::Enum(ed) => {
@@ -2065,6 +2142,8 @@ impl CGen {
         }
         for s in &prog.stmts {
             match s {
+                // Structs from C headers use the header's own definition.
+                Stmt::Struct(sd) if sd.c.is_some() => {}
                 Stmt::Struct(sd) => {
                     let mut d = format!("struct {} {{\n", mangle(&sd.name));
                     let mut deps = Vec::new();
@@ -2072,6 +2151,13 @@ impl CGen {
                         let t = match &f.ty {
                             Some(te) => {
                                 let r = self.ty.resolve(te, sd.line);
+                                if let Ty::Array(..) = r {
+                                    // A fixed array is laid out in place: `float v_pos[3];`.
+                                    let (b, dims) = self.arr_decl(&r, sd.line);
+                                    let _ = writeln!(d, "    {} {}{};", b, local(&f.name), dims);
+                                    deps.push(b);
+                                    continue;
+                                }
                                 let c = self.ctype(&r, sd.line);
                                 if self.boxed.contains(&(sd.name.clone(), f.name.clone())) {
                                     format!("{}*", c)
@@ -2749,6 +2835,17 @@ impl CGen {
                 }
                 let tt = self.infer(target);
                 let vt = self.infer(value);
+                if op.is_none() {
+                    if let Some((st, info)) = self.special_target(target) {
+                        let t = self.lvalue(target);
+                        self.expect = Some(tt.clone());
+                        let v = self.expr(value);
+                        self.expect = None;
+                        let code = self.store_to(t, &st, info.as_ref(), v, &vt, value, *line);
+                        self.w(&code);
+                        return;
+                    }
+                }
                 let t = self.lvalue(target);
                 self.expect = Some(tt.clone());
                 let v = self.expr(value);
@@ -3217,12 +3314,21 @@ impl CGen {
         match e {
             Expr::Ident(n, _, _) => self.cname(n),
             Expr::Field(o, n, _, _) => {
+                let ot = self.infer(o);
                 let base = self.lvalue(o);
                 let val = if self.ty.narrowed_expr(e).is_some() { ".val" } else { "" };
                 if self.field_boxed(o, n) {
                     return format!("(*{}.{}){}", base, field_c(n), val);
                 }
-                format!("{}.{}{}", base, field_c(n), val)
+                format!("{}.{}{}", base, self.member(&ot, n), val)
+            }
+            Expr::Index(o, i, _, _) if self.ty.fixed_array(o).is_some() => {
+                let n = self.fixed_of(o).map(|x| x.1).unwrap_or(0);
+                let base = self.lvalue(o);
+                let saved = self.expect.take();
+                let idx = self.expr(i);
+                self.expect = saved;
+                format!("{}[mi_arr_idx({}, {})]", base, idx, n)
             }
             Expr::Index(o, i, line, _) => {
                 let ot = self.infer(o);
@@ -3462,8 +3568,14 @@ impl CGen {
                         let (x, y) = if self.boxed.contains(&(n.clone(), f.name.clone())) {
                             (format!("(*a.{})", local(&f.name)), format!("(*b.{})", local(&f.name)))
                         } else {
-                            (format!("a.{}", local(&f.name)), format!("b.{}", local(&f.name)))
+                            let st = Ty::Struct(n.clone());
+                            let info = self.ty.c_field(&st, &f.name);
+                            let m = self.member(&st, &f.name);
+                            let x = self.read_stored(format!("a.{}", m), &ft, info.as_ref(), line);
+                            let y = self.read_stored(format!("b.{}", m), &ft, info.as_ref(), line);
+                            (x, y)
                         };
+                        let ft = value_of(&ft);
                         let e = self.eq_of(&ft, x, y, line);
                         let _ = writeln!(body, "    if (!{}) return false;", e);
                     }
@@ -3564,8 +3676,12 @@ impl CGen {
                     let fe = if self.boxed.contains(&(n.clone(), f.name.clone())) {
                         format!("(*v.{})", local(&f.name))
                     } else {
-                        format!("v.{}", local(&f.name))
+                        let st = Ty::Struct(n.clone());
+                        let info = self.ty.c_field(&st, &f.name);
+                        let m = self.member(&st, &f.name);
+                        self.read_stored(format!("v.{}", m), &ft, info.as_ref(), line)
                     };
+                    let ft = value_of(&ft);
                     let p = self.repr_of(&ft, fe, line);
                     cat(&mut b, &p);
                 }
@@ -3961,6 +4077,11 @@ impl CGen {
                 format!("({} ? {} : {})", c, t, e2)
             }
 
+            Expr::Index(o, _, line, _) if self.ty.fixed_array(o).is_some() => {
+                let el = self.fixed_of(o).map(|x| x.0).unwrap_or(Ty::Int);
+                let place = self.arr_place(e);
+                self.read_stored(place, &el, None, *line)
+            }
             Expr::Index(o, i, line, _) => {
                 let ot = self.infer(o);
                 let saved = self.expect.take();
@@ -3982,7 +4103,9 @@ impl CGen {
                     Ty::Raw(t) => {
                         let c = self.ctype(t, *line);
                         let base = self.expr(o);
-                        format!("MI_AT({}, {}, {})", c, base, idx)
+                        let place = format!("MI_AT({}, {}, {})", c, base, idx);
+                        let t = (**t).clone();
+                        self.read_stored(place, &t, None, *line)
                     }
                     Ty::List(t) => {
                         let c = self.ctype(t, *line);
@@ -4018,7 +4141,21 @@ impl CGen {
                 r
             }
 
-            Expr::Field(o, n, _, _) => {
+            Expr::Field(o, n, l, _) => {
+                let ot = self.infer(o);
+                // Fixed-size numbers, fixed arrays and C pointer fields read as ordinary Siskin values.
+                if let Some(st) = self.ty.field_storage(&ot, n) {
+                    let info = self.ty.c_field(&ot, n);
+                    if matches!(st, Ty::Num(_) | Ty::Array(..)) || info.is_some() {
+                        let place = if matches!(st, Ty::Array(..)) {
+                            self.arr_place(e)
+                        } else {
+                            let base = self.expr(o);
+                            format!("({}).{}", base, self.member(&ot, n))
+                        };
+                        return self.read_stored(place, &st, info.as_ref(), *l);
+                    }
+                }
                 let base = self.expr(o);
                 // A narrowed `?T` field (inside `if t.due != none:`) extracts the value.
                 let val = if self.ty.narrowed_expr(e).is_some() { ".val" } else { "" };
@@ -4632,6 +4769,60 @@ impl CGen {
                     None => format!("mi_chan_new((int64_t)sizeof({}), 0, false)", c),
                 };
             }
+            // C layout built-ins: `size_of[T]()`, `offset_of[T]("field")`, `c_string(s)`, `ptr_set[T](addr, i, v)`.
+            if matches!(name.as_str(), "size_of" | "offset_of" | "c_string" | "ptr_set" | "address_of") && self.ty.fns.get(name).is_none() {
+                let t = match targs.first() {
+                    Some(te) => self.ty.resolve(te, *l),
+                    None => Ty::Int,
+                };
+                let saved = self.expect.take();
+                let r = match name.as_str() {
+                    "size_of" => {
+                        let c = self.sizeof_type(&t, *l);
+                        format!("((int64_t)sizeof({}))", c)
+                    }
+                    "offset_of" => {
+                        let f = match args.first().map(|a| &a.value) {
+                            Some(Expr::Str(s)) => s.to_string(),
+                            _ => String::new(),
+                        };
+                        let c = self.ctype(&t, *l);
+                        format!("((int64_t)offsetof({}, {}))", c, self.member(&t, &f))
+                    }
+                    "address_of" => {
+                        let (v, et) = match args.first() {
+                            Some(a) => {
+                                let et = match self.infer(&a.value) {
+                                    Ty::Raw(t) => (*t).clone(),
+                                    _ => Ty::Int,
+                                };
+                                (self.expr(&a.value), et)
+                            }
+                            None => ("0".into(), Ty::Int),
+                        };
+                        let ec = self.ctype(&et, *l);
+                        format!("((int64_t)(intptr_t)MI_RAW({}, {}))", ec, v)
+                    }
+                    "c_string" => {
+                        let v = args.first().map(|a| self.expr(&a.value)).unwrap_or_else(|| "mi_str(\"\")".into());
+                        format!("((int64_t)(intptr_t)mi_cstr({}))", v)
+                    }
+                    _ => {
+                        let vals: Vec<String> = args.iter().map(|a| self.expr(&a.value)).collect();
+                        let c = self.sizeof_type(&t, *l);
+                        let place = format!("((({}*)(intptr_t)({}))[{}])", c, vals.first().cloned().unwrap_or_else(|| "0".into()), vals.get(1).cloned().unwrap_or_else(|| "0".into()));
+                        let v = vals.get(2).cloned().unwrap_or_else(|| "0".into());
+                        if let Ty::Array(..) = t {
+                            let code = self.arr_store(place, &t, v, *l);
+                            format!("({{ {} }})", code)
+                        } else {
+                            format!("((void)({} = {}))", place, v)
+                        }
+                    }
+                };
+                self.expect = saved;
+                return r;
+            }
             // Memory Level 2 built-ins
             if name == "alloc" {
                 let elem = match targs.first() {
@@ -4660,11 +4851,18 @@ impl CGen {
                 if name == "cstr" {
                     return format!("mi_from_c((const char*)(intptr_t)({}))", vals.first().cloned().unwrap_or_else(|| "0".into()));
                 }
-                return format!(
-                    "((int64_t*)(intptr_t)({}))[{}]",
+                let t = match targs.first() {
+                    Some(te) => self.ty.resolve(te, *l),
+                    None => Ty::Int,
+                };
+                let c = self.sizeof_type(&t, *l);
+                let place = format!(
+                    "(({}*)(intptr_t)({}))[{}]",
+                    c,
                     vals.first().cloned().unwrap_or_else(|| "0".into()),
                     vals.get(1).cloned().unwrap_or_else(|| "0".into())
                 );
+                return self.read_stored(place, &t, None, *l);
             }
             if name == "free" {
                 let p = match args.first() {
@@ -4680,6 +4878,52 @@ impl CGen {
             }
             // Struct construction
             if let Some(sd) = self.ty.structs.get(name).cloned() {
+                // C structs and structs holding fixed arrays are built field by field on a zeroed value.
+                let layout = sd.c.is_some()
+                    || sd.fields.iter().any(|f| matches!(f.ty.as_ref().map(|te| self.ty.resolve(te, *l)), Some(Ty::Array(..))));
+                if layout {
+                    let st = Ty::Struct(sd.name.clone());
+                    let ct = self.ctype(&st, *l);
+                    let t = self.next_tmp();
+                    let mut body = format!("({{ {ct} {t}; memset(&{t}, 0, sizeof {t}); ", ct = ct, t = t);
+                    let mut pi = 0usize;
+                    let saved = self.expect.take();
+                    for (fi, f) in sd.fields.iter().enumerate() {
+                        let val = args
+                            .iter()
+                            .find(|a| a.name.as_deref() == Some(f.name.as_str()))
+                            .map(|a| &a.value)
+                            .or_else(|| {
+                                let v = args.iter().filter(|a| a.name.is_none()).nth(pi).map(|a| &a.value);
+                                pi += 1;
+                                v
+                            })
+                            .or(f.default.as_ref());
+                        let v = match val {
+                            Some(v) => v,
+                            None => continue,
+                        };
+                        let ft = match &f.ty {
+                            Some(te) => self.ty.resolve(te, *l),
+                            None => Ty::Unknown,
+                        };
+                        let want = value_of(&ft);
+                        let info = sd.c.as_ref().and_then(|c| c.fields.get(fi).cloned());
+                        let vt = self.infer(v);
+                        self.expect = Some(want.clone());
+                        let c = self.expr(v);
+                        self.expect = None;
+                        let c = if info.is_some() && vt != want { c } else { self.coerce(c, &vt, &want, *l) };
+                        let c = self.bind_copy(c, v, &want, *l);
+                        let place = format!("{}.{}", t, self.member(&st, &f.name));
+                        let code = self.store_to(place, &ft, info.as_ref(), c, &vt, v, *l);
+                        body.push_str(&code);
+                        body.push(' ');
+                    }
+                    self.expect = saved;
+                    let _ = write!(body, "{}; }})", t);
+                    return body;
+                }
                 let mut inits = Vec::new();
                 let mut pi = 0usize;
                 let saved = self.expect.take();
@@ -4696,7 +4940,7 @@ impl CGen {
                         .or(f.default.as_ref());
                     if let Some(v) = val {
                         let ft = match &f.ty {
-                            Some(te) => self.ty.resolve(te, *l),
+                            Some(te) => value_of(&self.ty.resolve(te, *l)),
                             None => Ty::Unknown,
                         };
                         let vt = self.infer(v);
@@ -4781,7 +5025,19 @@ impl CGen {
                 let saved = self.expect.take();
                 let convs: Vec<Convention> = sig.decl.params.iter().map(|p| p.conv).collect();
                 let cbs = sig.decl.c_sig.as_ref().map(|c| c.cbs.clone()).unwrap_or_default();
+                let cparams = sig.decl.c_sig.as_ref().map(|c| c.params.clone()).unwrap_or_default();
+                // `GLFWkeyfun(addr)`: an address from C becomes a callable function value.
+                if sig.decl.c_sig.as_ref().map(|c| c.fnptr).unwrap_or(false) {
+                    let a = args.first().map(|a| self.expr(&a.value)).unwrap_or_else(|| "0".into());
+                    self.expect = saved;
+                    let tramp = self.c_fnptr_tramp(&sig.decl, &sig.ret, *l);
+                    return format!("((MiClo){{ (void*){}, (void*)(intptr_t)({}) }})", tramp, a);
+                }
                 let mut out: Vec<String> = Vec::new();
+                // C pointer parameters that point at a Siskin variable: a C temporary before the call,
+                // copied back into the variable after it.
+                let mut pre: Vec<String> = Vec::new();
+                let mut post: Vec<String> = Vec::new();
                 for (i, (_, wt)) in sig.params.iter().enumerate() {
                     let v = match args.get(i) {
                         Some(a) => &a.value,
@@ -4790,6 +5046,12 @@ impl CGen {
                     // An `inout` slot must pass the variable's address so C can write into it.
                     if convs.get(i) == Some(&Convention::Inout) {
                         out.push(self.inout_ref(v));
+                        continue;
+                    }
+                    if let Ty::CPtr(inner, konst) = wt {
+                        let ct = cparams.get(i).cloned().unwrap_or_else(|| "void*".into());
+                        let arg = self.c_ptr_arg(v, inner, *konst, &ct, &mut pre, &mut post, *l);
+                        out.push(arg);
                         continue;
                     }
                     let c = self.expr(v);
@@ -4831,10 +5093,19 @@ impl CGen {
                 self.expect = saved;
                 self.used_externs.insert(name.clone());
                 let call = format!("mx_{}({})", name, out.join(", "));
-                return match &sig.ret {
+                let call = match &sig.ret {
                     Ty::Str => format!("mi_from_c({})", call),
                     _ => call,
                 };
+                if pre.is_empty() && post.is_empty() {
+                    return call;
+                }
+                if sig.ret == Ty::Unit {
+                    return format!("({{ {} {}; {} (void)0; }})", pre.join(" "), call, post.join(" "));
+                }
+                let rc = self.ctype(&sig.ret, *l);
+                let r = self.next_tmp();
+                return format!("({{ {} {} {} = {}; {} {}; }})", pre.join(" "), rc, r, call, post.join(" "), r);
             }
             // User functions
             if self.ty.fns.contains_key(name) {
@@ -5645,6 +5916,325 @@ impl CGen {
 
 /// C version of the regex engine. Must use the same algorithm as `src/regex.rs`,
 /// so that `siskin run` and `siskin build` give the same answer.
+// ------------------------------------------- C layout: fixed-size numbers, fixed arrays, C structs
+
+impl CGen {
+    /// What Siskin knows about struct `n` if it was imported from a C header.
+    fn c_info(&self, n: &str) -> Option<CStructInfo> {
+        self.ty.structs.get(n).and_then(|sd| sd.c.clone())
+    }
+
+    /// C member name of field `n` on a value of type `ot`. Structs from headers keep C's own names.
+    fn member(&self, ot: &Ty, n: &str) -> String {
+        if let Ty::Struct(sn) = ot {
+            if self.c_info(sn).is_some() {
+                return n.to_string();
+            }
+        }
+        field_c(n)
+    }
+
+    /// `[[F32; 4]; 2]` → ("float", "[2][4]").
+    fn arr_decl(&mut self, t: &Ty, line: usize) -> (String, String) {
+        let mut dims = String::new();
+        let mut cur = t.clone();
+        while let Ty::Array(e, n) = cur {
+            let _ = write!(dims, "[{}]", n);
+            cur = *e;
+        }
+        (self.ctype(&cur, line), dims)
+    }
+
+    /// C type name usable in `sizeof(...)`.
+    fn sizeof_type(&mut self, t: &Ty, line: usize) -> String {
+        match t {
+            Ty::Array(..) => {
+                let (b, d) = self.arr_decl(t, line);
+                format!("{}{}", b, d)
+            }
+            _ => self.ctype(t, line),
+        }
+    }
+
+    /// Reads a value stored as `st` at C place `place` as the Siskin value it stands for
+    /// (`F32` → Float, `[U8; 4]` → a new `[Int]` list, a C pointer field → an Int address).
+    fn read_stored(&mut self, place: String, st: &Ty, info: Option<&CFieldInfo>, line: usize) -> String {
+        if let Some(i) = info {
+            if i.chars > 0 {
+                return format!("mi_from_chars({}, {})", place, i.chars);
+            }
+            if i.charp && *st == Ty::Str {
+                return format!("mi_from_c((const char*)({}))", place);
+            }
+            if i.ptr || i.charp || i.cb.is_some() {
+                return format!("((int64_t)(intptr_t)({}))", place);
+            }
+        }
+        match st {
+            Ty::Num(k) if k.is_float() => format!("((double)({}))", place),
+            Ty::Num(_) => format!("((int64_t)({}))", place),
+            Ty::Array(..) => {
+                let (b, d) = self.arr_decl(st, line);
+                let a = self.next_tmp();
+                let build = self.arr_build(a.clone(), st, line);
+                format!("({{ {b} {a}{d}; memcpy({a}, {place}, sizeof {a}); {build}; }})", b = b, a = a, d = d, place = place, build = build)
+            }
+            Ty::Int if info.is_some() => format!("((int64_t)({}))", place),
+            Ty::Float if info.is_some() => format!("((double)({}))", place),
+            Ty::Bool if info.is_some() => format!("((bool)({}))", place),
+            _ => place,
+        }
+    }
+
+    /// A list built from C array `a` (no side effects, so it may be named repeatedly).
+    fn arr_build(&mut self, a: String, st: &Ty, line: usize) -> String {
+        let (el, n) = match st {
+            Ty::Array(e, n) => ((**e).clone(), *n),
+            _ => return a,
+        };
+        let vt = value_of(&el);
+        let vc = self.ctype(&vt, line);
+        let l = self.next_tmp();
+        let i = self.next_tmp();
+        let x = self.next_tmp();
+        let item = self.read_stored(format!("{}[{}]", a, i), &el, None, line);
+        format!(
+            "({{ MiList {l} = mi_list_new((int64_t)sizeof({vc})); for (int64_t {i} = 0; {i} < {n}; {i}++) {{ {vc} {x} = {item}; mi_list_push(&{l}, &{x}); }} {l}; }})",
+            l = l,
+            vc = vc,
+            i = i,
+            n = n,
+            x = x,
+            item = item
+        )
+    }
+
+    /// Statement copying list `list` into fixed array `place`: too many values is an error, missing ones are zero.
+    fn arr_store(&mut self, place: String, st: &Ty, list: String, line: usize) -> String {
+        let (el, n) = match st {
+            Ty::Array(e, n) => ((**e).clone(), *n),
+            _ => return format!("{} = {};", place, list),
+        };
+        let vt = value_of(&el);
+        let vc = self.ctype(&vt, line);
+        let l = self.next_tmp();
+        let i = self.next_tmp();
+        let slot = format!("{}[{}]", place, i);
+        let inner = if matches!(el, Ty::Array(..)) {
+            self.arr_store(slot.clone(), &el, format!("*(MiList*)mi_list_at(&{}, {})", l, i), line)
+        } else {
+            format!("{} = *({}*)mi_list_at(&{}, {});", slot, vc, l, i)
+        };
+        format!(
+            "{{ MiList {l} = {list}; if ({l}.len > {n}) mi_arr_over({n}, {l}.len); for (int64_t {i} = 0; {i} < {n}; {i}++) {{ if ({i} < {l}.len) {{ {inner} }} else memset(&{slot}, 0, sizeof {slot}); }} }}",
+            l = l,
+            list = list,
+            n = n,
+            i = i,
+            inner = inner,
+            slot = slot
+        )
+    }
+
+    /// Statement storing Siskin value `v` (of type `vt`, from expression `value`) into a place stored as `st`.
+    fn store_to(&mut self, place: String, st: &Ty, info: Option<&CFieldInfo>, v: String, vt: &Ty, value: &Expr, line: usize) -> String {
+        if let Some(i) = info {
+            if i.chars > 0 {
+                return format!("mi_to_chars({}, {}, {});", place, i.chars, v);
+            }
+            if let Some((cps, cret)) = &i.cb {
+                if let Expr::Ident(fname, fl, _) = value {
+                    if self.ty.fns.contains_key(fname) {
+                        if let Some(t) = self.make_callback(fname, cps, cret, *fl) {
+                            return format!("{} = ({}){};", place, i.c_ty, t);
+                        }
+                    }
+                }
+            }
+            if i.charp && *vt == Ty::Str {
+                return format!("{} = ({})mi_cstr({});", place, i.c_ty, v);
+            }
+            if i.ptr || i.charp || i.cb.is_some() {
+                return match vt {
+                    Ty::Raw(t) => {
+                        let c = self.ctype(t, line);
+                        format!("{} = ({})MI_RAW({}, {});", place, i.c_ty, c, v)
+                    }
+                    _ => format!("{} = ({})(intptr_t)({});", place, i.c_ty, v),
+                };
+            }
+        }
+        if matches!(st, Ty::Array(..)) {
+            return self.arr_store(place, st, v, line);
+        }
+        format!("{} = {};", place, v)
+    }
+
+    /// Storage type and C facts for assignment target `e` when it is not an ordinary Siskin place.
+    fn special_target(&mut self, e: &Expr) -> Option<(Ty, Option<CFieldInfo>)> {
+        match e {
+            Expr::Field(o, n, _, _) => {
+                let ot = self.infer(o);
+                let st = self.ty.field_storage(&ot, n)?;
+                let info = self.ty.c_field(&ot, n);
+                if matches!(st, Ty::Array(..)) || info.as_ref().map(|i| i.chars > 0 || i.ptr || i.charp || i.cb.is_some()).unwrap_or(false) {
+                    Some((st, info))
+                } else {
+                    None
+                }
+            }
+            Expr::Index(..) => match self.ty.fixed_array(e) {
+                Some(t @ Ty::Array(..)) => Some((t, None)),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// A `void*` argument for C pointer parameter `ct` (Siskin `CPtr[inner]`).
+    /// A `*T` or an Int address goes as-is; a value of what it points to goes through a
+    /// C temporary, and a variable gets C's writes copied back (unless the pointer is const).
+    #[allow(clippy::too_many_arguments)]
+    fn c_ptr_arg(&mut self, v: &Expr, inner: &Ty, konst: bool, ct: &str, pre: &mut Vec<String>, post: &mut Vec<String>, line: usize) -> String {
+        fn rooted(e: &Expr) -> bool {
+            match e {
+                Expr::Ident(..) => true,
+                Expr::Field(o, ..) | Expr::Index(o, ..) => rooted(o),
+                _ => false,
+            }
+        }
+        let vt = self.infer(v);
+        if let Ty::Raw(t) = &vt {
+            let c = self.expr(v);
+            let ec = self.ctype(t, line);
+            return format!("(void*)MI_RAW({}, {})", ec, c);
+        }
+        let same_struct = matches!((inner, &vt), (Ty::Struct(x), Ty::Struct(y)) if x == y);
+        // An Int that is not a variable (`0`, `addr + 8`) is an address, even for a pointer to an integer.
+        let is_value = *inner != Ty::Unit && (value_of(inner) == vt || same_struct) && (vt != Ty::Int || rooted(v));
+        if !is_value {
+            let c = self.expr(v);
+            return format!("(void*)(intptr_t)({})", c);
+        }
+        if same_struct && rooted(v) && self.special_target(v).is_none() {
+            let lv = self.lvalue(v);
+            return format!("(void*)&({})", lv);
+        }
+        let ct = ct.trim();
+        let pt = match ct.strip_suffix('*') {
+            Some(p) => p.trim().to_string(),
+            None => format!("__typeof__(*(({})0))", ct),
+        };
+        let c = self.expr(v);
+        let t = self.next_tmp();
+        let conv = match &vt {
+            Ty::Int => format!("({})(intptr_t)({})", pt, c),
+            Ty::Float | Ty::Bool => format!("({})({})", pt, c),
+            _ => c,
+        };
+        pre.push(format!("{} {} = {};", pt, t, conv));
+        if !konst && rooted(v) {
+            let back = match &vt {
+                Ty::Int => format!("(int64_t)(intptr_t)({})", t),
+                Ty::Float => format!("(double)({})", t),
+                Ty::Bool => format!("(bool)({})", t),
+                _ => t.clone(),
+            };
+            let code = match self.special_target(v) {
+                Some((st, info)) => {
+                    let lv = self.lvalue(v);
+                    self.store_to(lv, &st, info.as_ref(), back, &vt, v, line)
+                }
+                None => {
+                    let lv = self.lvalue(v);
+                    format!("{} = {};", lv, back)
+                }
+            };
+            post.push(code);
+        }
+        format!("(void*)&{}", t)
+    }
+
+    /// Bridge that calls the C function at address `env` with Siskin values:
+    /// what `GLFWkeyfun(addr)` turns into a Siskin function value.
+    fn c_fnptr_tramp(&mut self, decl: &FnDecl, ret: &Ty, line: usize) -> String {
+        let name = format!("mi_cfp_{}", decl.name);
+        if !self.cb_done.insert(name.clone()) {
+            return name;
+        }
+        let (params, r) = match ret {
+            Ty::Fn(p, r) => (p.clone(), (**r).clone()),
+            _ => (Vec::new(), Ty::Unit),
+        };
+        let (cps, cret) = decl
+            .c_sig
+            .as_ref()
+            .and_then(|c| c.cbs.first().cloned().flatten())
+            .unwrap_or((Vec::new(), "void".into()));
+        let rc = self.ctype(&r, line);
+        let mut ps = vec!["void* e".to_string()];
+        let mut args = Vec::new();
+        for (i, pt) in params.iter().enumerate() {
+            let pc = self.ctype(pt, line);
+            ps.push(format!("{} a{}", pc, i));
+            let cp = cps.get(i).cloned().unwrap_or_else(|| "int64_t".into());
+            args.push(match pt {
+                Ty::Str => format!("({})mi_cstr(a{})", cp, i),
+                Ty::Int => format!("({})(intptr_t)a{}", cp, i),
+                _ => format!("({})a{}", cp, i),
+            });
+        }
+        let cplist = if cps.is_empty() { "void".to_string() } else { cps.join(", ") };
+        let call = format!("(({} (*)({}))e)({})", cret, cplist, args.join(", "));
+        let body = match &r {
+            Ty::Unit => format!("{};", call),
+            Ty::Str => format!("return mi_from_c({});", call),
+            Ty::Int if cret.contains('*') => format!("return (int64_t)(intptr_t)({});", call),
+            _ => format!("return ({})({});", rc, call),
+        };
+        let _ = writeln!(self.cb_ffi, "/* calls a C function pointer as a Siskin function */\nstatic {} {}({}) {{ {} }}", rc, name, ps.join(", "), body);
+        name
+    }
+
+    /// The element type and length if `o` is a fixed array.
+    fn fixed_of(&mut self, o: &Expr) -> Option<(Ty, usize)> {
+        match self.ty.fixed_array(o) {
+            Some(Ty::Array(e, n)) => Some((*e, n)),
+            _ => None,
+        }
+    }
+
+    /// C place (no conversion) of fixed array expression `o`, for reading.
+    fn arr_place(&mut self, o: &Expr) -> String {
+        fn rooted(e: &Expr) -> bool {
+            match e {
+                Expr::Ident(..) => true,
+                Expr::Field(o, ..) | Expr::Index(o, ..) => rooted(o),
+                _ => false,
+            }
+        }
+        if rooted(o) {
+            return self.lvalue(o);
+        }
+        match o {
+            Expr::Field(b, n, _, _) => {
+                let bt = self.infer(b);
+                let base = self.expr(b);
+                format!("({}).{}", base, self.member(&bt, n))
+            }
+            Expr::Index(b, i, _, _) => {
+                let n = self.fixed_of(b).map(|x| x.1).unwrap_or(0);
+                let base = self.arr_place(b);
+                let saved = self.expect.take();
+                let idx = self.expr(i);
+                self.expect = saved;
+                format!("{}[mi_arr_idx({}, {})]", base, idx, n)
+            }
+            _ => self.expr(o),
+        }
+    }
+}
+
 const RUNTIME_RE: &str = r##"
 /* ---------------- Regex ---------------- */
 #define MI_RE_RANGES 64

@@ -600,7 +600,29 @@ impl Parser {
         let mut links = Vec::new();
         let mut incdirs = Vec::new();
         let mut only = Vec::new();
+        let mut defines = Vec::new();
         loop {
+            // `define "GL_GLEXT_PROTOTYPES"` / `define "NAME=VALUE"` — set a macro before the header is read.
+            if self.at_ident("define") {
+                self.bump();
+                loop {
+                    match self.tok().clone() {
+                        Tok::Str(s) => {
+                            self.bump();
+                            defines.push(s);
+                        }
+                        _ => {
+                            return Err(self
+                                .err("E0159", tr!("정의할 매크로 이름이 필요합니다", "expected a macro name to define"))
+                                .with_fix(tr!("`define \"GL_GLEXT_PROTOTYPES\"` 처럼 따옴표로 적습니다", "write it in quotes: `define \"GL_GLEXT_PROTOTYPES\"`")))
+                        }
+                    }
+                    if !self.eat(&Tok::Comma) {
+                        break;
+                    }
+                }
+                continue;
+            }
             if self.at_ident("link") {
                 self.bump();
                 loop {
@@ -673,7 +695,7 @@ impl Parser {
             break;
         }
         self.expect(Tok::Newline, "E0101", tr!("줄바꿈", "newline"))?;
-        Ok(Stmt::CHeader { header, cpp, links, incdirs, only, line, col })
+        Ok(Stmt::CHeader { header, cpp, links, incdirs, only, defines, line, col })
     }
 
     fn import_stmt(&mut self) -> Result<Stmt, SiskinError> {
@@ -990,7 +1012,7 @@ impl Parser {
             fields.push(FieldDecl { name: fname, ty: Some(ty), default });
         }
         self.eat(&Tok::Dedent);
-        Ok(StructDecl { name, generics, interfaces, fields, methods, doc, line })
+        Ok(StructDecl { name, generics, interfaces, fields, methods, doc, line, c: None })
     }
 
     fn enum_decl(&mut self) -> Result<EnumDecl, SiskinError> {
@@ -1093,6 +1115,22 @@ impl Parser {
         }
         if self.eat(&Tok::LBracket) {
             let inner = self.type_expr()?;
+            // `[F32; 4]` — a fixed-size array, laid out like C's `float x[4]`. Only as a struct field.
+            if self.eat(&Tok::Semi) {
+                let n = match self.tok().clone() {
+                    Tok::Int(n) if n > 0 => {
+                        self.bump();
+                        n as usize
+                    }
+                    _ => {
+                        return Err(self
+                            .err("E0158", tr!("고정 배열에는 크기(양의 정수)가 필요합니다", "a fixed-size array needs a size (a positive integer)"))
+                            .with_fix(tr!("`[F32; 4]` 처럼 씁니다", "write it like `[F32; 4]`")))
+                    }
+                };
+                self.expect(Tok::RBracket, "E0125", "`]`")?;
+                return Ok(TypeExpr::Array(Box::new(inner), n));
+            }
             self.expect(Tok::RBracket, "E0125", "`]`")?;
             return Ok(TypeExpr::List(Box::new(inner)));
         }

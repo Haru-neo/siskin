@@ -881,7 +881,45 @@ the speed matches hand-written C. It catches things while you develop and gets o
 The checks only work if the "this memory is dead" mark can still be read.
 So running in debug uses more memory. It's normal with `--release`.
 
-### 9.5.5 Which level to use when
+### 9.5.5 Laying memory out like C (for the GPU and C libraries)
+
+Ordinary Siskin numbers are 64-bit (`Int`, `Float`). A GPU vertex buffer or a C struct wants
+exact sizes instead, so struct fields and `*T` pointers can use **fixed-size number types**:
+
+| Type | C type | Reads as |
+|---|---|---|
+| `I8`, `I16`, `I32` | `int8_t`, `int16_t`, `int32_t` | `Int` |
+| `U8` (or `Byte`), `U16`, `U32`, `U64` | `uint8_t` … `uint64_t` | `Int` |
+| `F32` | `float` | `Float` |
+| `Int` / `I64`, `Float` / `F64`, `Bool` | `int64_t`, `double`, `bool` | themselves |
+
+A **fixed array** `[T; N]` holds exactly N values in place, like C's `float pos[3]`:
+
+```siskin
+struct Vertex:
+    pos: [F32; 3]
+    color: [U8; 4]
+    uv: [F32; 2]
+
+fn main():
+    var v = Vertex(pos: [0.5, 1.0, 0.0], color: [255, 128, 0, 255], uv: [0.0, 1.0])
+    v.pos[1] = 2.0                  # stores a 32-bit float
+    let uv_at = offset_of[Vertex]("uv")
+    print(f"{v.pos} {size_of[Vertex]()} {uv_at}\n")   # [0.5, 2.0, 0.0] 24 16
+    unsafe:
+        let buf = alloc[Vertex](1000)   # 1000 × 24 bytes, exactly like a C array of structs
+        buf[0] = v
+        free(buf)
+```
+
+- Reading gives an ordinary value: `v.pos` is a `[Float]` list, `v.color[0]` an `Int`.
+- Storing converts like C: a `U8` keeps the low 8 bits (`300` becomes `44`), an `F32` rounds to 32-bit precision.
+- Giving fewer values than the array holds fills the rest with zero; giving more is an error.
+- The field order and padding are C's, so `size_of[Vertex]()` and `offset_of[Vertex]("uv")` match `sizeof`
+  and `offsetof` in C. A buffer made with `alloc[Vertex](n)` can be handed to OpenGL or Vulkan as-is.
+- These types are only for struct fields and `*T` pointers. Variables and parameters use `Int` and `Float`.
+
+### 9.5.6 Which level to use when
 
 | Situation | Level |
 |---|---|
@@ -1162,14 +1200,59 @@ For zlib, 80 of 81 functions are available right away; for sqlite3, 283 of 291; 
 | `float`, `double` | `Float` |
 | `_Bool` | `Bool` |
 | `const char *` | `Str` |
-| other pointers (`FILE*`, `sqlite3*`) | `Int` — a handle |
-| `T **` ("put the result here") | `inout Int` — just pass a `var` variable |
-| function pointers (callbacks) | a function — pass one of your named functions |
+| `int *`, `float *`, `VkInstance *` … ("write the result here") | pass a `var` variable; C's write lands in it |
+| `const VkInstanceCreateInfo *` ("read this") | pass the value itself, e.g. a struct |
+| `void *`, `FILE *`, `sqlite3 *` | `Int` — a handle (or a `*T` pointer) |
+| a struct by value (`Vec2`, `div_t`) | that struct |
+| function pointer parameter (callback) | pass one of your named functions |
+| function pointer return value | `Int` — an address; turn it into a function with its type name |
 
 ```
 var db = 0
 sqlite3_open(":memory:", db)     # the result lands in db
 ```
+
+A plain number that is not a variable, like `0`, is passed as an address, so `0` means a null pointer.
+
+### Constants, structs and function pointers from headers
+
+The header's `#define` numbers and strings and its `enum` values become constants,
+and its structs and unions become Siskin structs with C's own layout and field names.
+Headers it includes with quotes (`#include "vulkan_core.h"`) are read too.
+
+```
+import c "GLFW/glfw3.h" link "glfw"
+
+fn on_key(win: Int, key: Int, scancode: Int, action: Int, mods: Int):
+    if key == GLFW_KEY_ESCAPE and action == GLFW_PRESS:
+        glfwSetWindowShouldClose(win, GLFW_TRUE)
+
+fn main():
+    ...
+    glfwSetKeyCallback(win, on_key)       # returns the previous callback's address
+```
+
+```
+import c "vulkan/vulkan.h" link "vulkan"
+
+var info = VkInstanceCreateInfo(sType: VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO)
+var instance = 0
+vkCreateInstance(info, 0, instance)      # info is read, instance is written
+
+let addr = vkGetInstanceProcAddr(instance, "vkDestroyInstance")
+let destroy = PFN_vkDestroyInstance(addr) # the function pointer type turns an address into a function
+destroy(instance, 0)
+```
+
+- Fields not given start as zero, like `= {0}` in C.
+- Number fields use the fixed-size types from 9.5.5 (`uint32_t` is `U32`), `float color[4]` is `[F32; 4]`,
+  `char name[256]` reads as `Str`, and pointer fields read as addresses (`Int`).
+  A pointer field also takes a `*T` pointer, a `char *` field a string, and a function pointer field a named function.
+- Macros a header expects to be defined go on the import line: `import c "GL/glext.h" define "GL_GLEXT_PROTOTYPES"`
+  (or `define "NAME=1"`). They also apply to C files compiled with `also`.
+
+[examples/17_glfw.skn](examples/17_glfw.skn) opens a window and [examples/18_vulkan.skn](examples/18_vulkan.skn)
+lists the GPUs. Shaders stay in GLSL; Siskin passes them to the library like any other file.
 
 ### Two things to note
 

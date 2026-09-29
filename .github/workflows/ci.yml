@@ -16,11 +16,11 @@ jobs:
             os: ubuntu-latest
           - name: macos
             os: macos-latest
-          # README 가 권하는 윈도우 설치본: LLVM-MinGW (clang 하나에 헤더·라이브러리가 다 들어 있음)
+          # The Windows toolchain the README recommends: LLVM-MinGW (clang with all headers and libraries included)
           - name: windows (llvm-mingw)
             os: windows-latest
             toolchain: llvm-mingw
-          # 윈도우에 Visual Studio 와 LLVM(clang) 만 있는 PC
+          # A Windows PC with only Visual Studio and LLVM (clang)
           - name: windows (clang + MSVC)
             os: windows-latest
             toolchain: msvc-clang

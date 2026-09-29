@@ -1,7 +1,7 @@
-# std.time — 날짜와 시각.
+# std.time — dates and times.
 from std.time import now
-# 이 파일은 컴파일러 안에 들어 있고, `import std.time` 을 쓰면 프로그램에 합쳐집니다.
-# 운영체제에 묻는 부분(__time_parts, __time_make)만 내장이고 나머지는 Siskin 으로 썼습니다.
+# This file is built into the compiler and is merged into your program when you write `import std.time`.
+# Only the parts that ask the operating system (__time_parts, __time_make) are built in; the rest is written in Siskin.
 
 struct DateTime:
     year: Int

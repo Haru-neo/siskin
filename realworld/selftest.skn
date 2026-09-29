@@ -10,6 +10,6 @@ fn main():
     c.bump()
     c.bump()
     c.add(10)
-    print("메서드로 세 번 올린 뒤: " + str(c.n) + "\n")
+    print("after bumping three times via methods: " + str(c.n) + "\n")
     c.n += 1
-    print("직접 올린 뒤: " + str(c.n) + "\n")
+    print("after bumping directly: " + str(c.n) + "\n")

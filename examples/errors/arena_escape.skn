@@ -1,5 +1,5 @@
-# 아레나 안에서 만든 값을 블록 밖으로 내보내려 합니다.
-# 블록이 끝나면 그 메모리는 사라지므로 컴파일이 막습니다.
+# Tries to send a value created inside an arena out of the block.
+# That memory disappears when the block ends, so the compiler stops it.
 fn build() -> [Int]:
     with arena a:
         var xs = a.list[Int]()

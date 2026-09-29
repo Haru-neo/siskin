@@ -1,11 +1,11 @@
-//! `siskin fmt` — 코드 모양을 한 가지로 맞춥니다.
+//! `siskin fmt` — brings code to a single consistent style.
 //!
-//! 하는 일: 들여쓰기를 공백 4칸 단위로(탭도 고칩니다), 연산자·쉼표·콜론 둘레의
-//! 띄어쓰기, 줄 끝 공백 지우기, 빈 줄은 최대 2줄, 파일 끝 줄바꿈 하나.
-//! 하지 않는 일: 줄을 나누거나 합치기, 문자열·주석 내용 바꾸기, 이름 바꾸기.
+//! Does: indentation in units of 4 spaces (tabs are fixed too), spacing around operators,
+//! commas and colons, trailing whitespace removal, at most 2 blank lines, one final newline.
+//! Does not: split or join lines, change string or comment contents, rename anything.
 //!
-//! 안전장치: 정리한 결과를 다시 토큰으로 읽어 원래와 한 토큰도 다르지 않은지
-//! 확인합니다(`check_same`). 다르면 쓰지 않습니다. 모양만 바뀌고 뜻은 그대로입니다.
+//! Safeguard: the result is re-tokenized and checked to be token-for-token identical to the
+//! original (`check_same`). If it differs, nothing is written. Only the layout changes; meaning stays.
 
 use crate::lexer::{is_keyword, tokenize, Tok};
 
@@ -20,17 +20,17 @@ enum T {
     Comma,
     Colon,
     Dot,
-    /// 괄호 안에서 줄이 바뀐 자리. 다음 줄의 원래 들여쓰기 폭을 기억합니다.
+    /// A line break inside brackets. Remembers the original indentation width of the next line.
     Nl(usize),
-    /// 줄 끝 주석. (원래 열 위치, 주석 글)
+    /// End-of-line comment. (original column, comment text)
     Comment(usize, String),
 }
 
 enum Line {
     Blank,
-    /// 주석만 있는 줄: (원래 들여쓰기 폭, 주석 글)
+    /// Comment-only line: (original indentation width, comment text)
     Comment(usize, String),
-    /// 코드 줄: (원래 들여쓰기 폭, 토큰들)
+    /// Code line: (original indentation width, tokens)
     Code(usize, Vec<T>),
 }
 
@@ -47,7 +47,7 @@ impl Scan {
         self.i >= self.s.len()
     }
 
-    /// 줄 머리의 공백 폭. 탭은 4칸으로 셉니다.
+    /// Width of leading whitespace. A tab counts as 4 columns.
     fn indent(&mut self) -> usize {
         let mut w = 0;
         loop {
@@ -69,7 +69,7 @@ impl Scan {
         out.trim_end().to_string()
     }
 
-    /// 문자열 하나를 원래 글자 그대로 읽습니다. 접두사(r, f)는 이미 넣었습니다.
+    /// Read one string exactly as written. The prefix (r, f) has already been pushed.
     fn string(&mut self, out: &mut String, raw: bool) {
         let q = self.peek(0);
         let triple = self.peek(1) == q && self.peek(2) == q;
@@ -81,7 +81,7 @@ impl Scan {
         while !self.eof() {
             let c = self.peek(0);
             if !triple && c == '\n' {
-                return; // 닫히지 않은 문자열: 컴파일러가 알려 줄 일이라 그대로 둡니다.
+                return; // unterminated string: the compiler will report it, so leave it as is.
             }
             if c == '\\' && !raw {
                 out.push(c);
@@ -104,7 +104,7 @@ impl Scan {
         }
     }
 
-    /// f-문자열. `{...}` 안에는 같은 따옴표의 문자열이 또 들어갈 수 있습니다.
+    /// f-string. Inside `{...}` there can be another string using the same quote.
     fn fstring(&mut self, out: &mut String) {
         let q = self.peek(0);
         out.push(q);
@@ -134,7 +134,7 @@ impl Scan {
                 continue;
             }
             if c == '{' {
-                // 식 부분: 괄호 깊이와 안쪽 문자열을 따라가며 닫는 `}` 까지.
+                // Expression part: track bracket depth and inner strings up to the closing `}`.
                 let mut depth = 0i32;
                 out.push(c);
                 self.i += 1;
@@ -170,13 +170,13 @@ impl Scan {
         }
     }
 
-    /// 코드 한 줄(괄호가 열려 있으면 여러 줄)을 토큰으로 읽습니다.
+    /// Tokenize one line of code (several lines if brackets are open).
     fn code_line(&mut self, line_start: usize) -> Vec<T> {
         let mut toks = Vec::new();
         let mut depth = 0i32;
         let mut line_start = line_start;
         loop {
-            // 띄어쓰기는 버립니다.
+            // Whitespace is discarded.
             while matches!(self.peek(0), ' ' | '\t' | '\r') {
                 self.i += 1;
             }
@@ -188,7 +188,7 @@ impl Scan {
                 self.i += 1;
                 if depth > 0 {
                     line_start = self.i;
-                    // 괄호 안의 빈 줄과 주석 줄은 건너뛰지 않고 그대로 둡니다.
+                    // Blank lines and comment lines inside brackets are kept, not skipped.
                     let w = self.indent();
                     toks.push(T::Nl(w));
                     continue;
@@ -308,7 +308,7 @@ fn is_kw_word(t: &T) -> bool {
     }
 }
 
-/// 이 연산자가 앞에 붙는 것(`-x`, `!Int`, `?Str`, `*p`)인가.
+/// Whether this operator is a prefix (`-x`, `!Int`, `?Str`, `*p`).
 fn is_prefix(op: &str, prev: Option<&T>, prev_prefix: bool) -> bool {
     match op {
         "!" | "?" => true,
@@ -329,7 +329,7 @@ fn is_prefix(op: &str, prev: Option<&T>, prev_prefix: bool) -> bool {
 fn render_toks(toks: &[T], level: usize, orig_indent: usize) -> String {
     let pad = level * 4;
     let mut out = " ".repeat(pad);
-    let mut line_begin = 0usize; // out 안에서 지금 줄이 시작한 곳
+    let mut line_begin = 0usize; // where the current line starts in out
     let mut prev: Option<&T> = None;
     let mut prev_prefix = false;
     let mut depth = 0i32;
@@ -341,8 +341,8 @@ fn render_toks(toks: &[T], level: usize, orig_indent: usize) -> String {
         }
         match t {
             T::Nl(_) => {
-                // 괄호 안 줄바꿈: 열린 괄호 하나마다 4칸 더 들여씁니다.
-                // 닫는 괄호로 시작하는 줄은 한 단계 덜 들여씁니다.
+                // Line break inside brackets: indent 4 more columns per open bracket.
+                // A line starting with a closing bracket is indented one level less.
                 while out.ends_with(' ') {
                     out.pop();
                 }
@@ -362,7 +362,7 @@ fn render_toks(toks: &[T], level: usize, orig_indent: usize) -> String {
                 if code_len == 0 || out[line_begin..].trim().is_empty() {
                     out.push_str(text);
                 } else {
-                    // 원래 주석이 줄 맞춰 있었으면 그 열을 지킵니다.
+                    // If the original comments were aligned, keep that column.
                     let want = (*at + pad).saturating_sub(orig_indent);
                     let gap = if want >= code_len + 2 { want - code_len } else { 2 };
                     out.push_str(&" ".repeat(gap));
@@ -381,7 +381,7 @@ fn render_toks(toks: &[T], level: usize, orig_indent: usize) -> String {
             (Some(T::Dot), _) => false,
             (Some(T::Open(_)), _) => false,
             (Some(T::Comma), _) | (Some(T::Colon), _) => true,
-            // `BankError!Int` — 오류 타입과 `!` 는 붙여 씁니다.
+            // `BankError!Int` — the error type and `!` are written without a space.
             (Some(p @ T::Word(_)), T::Op(o)) if o == "!" && !is_kw_word(p) => false,
             (Some(T::Op(_)), _) if prev_prefix => false,
             (Some(T::Op(_)), _) => true,
@@ -414,14 +414,14 @@ fn render_toks(toks: &[T], level: usize, orig_indent: usize) -> String {
     out
 }
 
-/// 코드 모양을 정리한 새 글을 돌려줍니다.
+/// Return the new text with the code formatted.
 pub fn format(src: &str) -> String {
     let lines = split_lines(src);
     let mut stack: Vec<usize> = vec![0];
     let mut out: Vec<String> = Vec::new();
     let mut blanks = 0usize;
-    // 주석 줄은 다음 코드 줄을 봐야 들여쓰기를 정할 수 있어 잠깐 모아 둡니다.
-    let mut pending: Vec<(usize, String, usize)> = Vec::new(); // (폭, 글, 앞의 빈 줄 수)
+    // Comment lines need the next code line to decide their indentation, so they are held briefly.
+    let mut pending: Vec<(usize, String, usize)> = Vec::new(); // (width, text, blank lines before)
 
     let level_for = |stack: &mut Vec<usize>, w: usize| -> usize {
         if w > *stack.last().unwrap() {
@@ -453,10 +453,10 @@ pub fn format(src: &str) -> String {
                 blanks = 0;
             }
             Line::Code(w, toks) => {
-                // 이 줄의 단계를 먼저 정해 두고, 모아 둔 주석의 단계를 거기에 맞춥니다.
+                // Decide this line's level first, then align the pending comments to it.
                 let mut probe = stack.clone();
                 let lv = level_for(&mut probe, *w);
-                // 맨 바깥의 fn / struct / enum 앞에는 빈 줄을 하나 이상 둡니다.
+                // Keep at least one blank line before top-level fn / struct / enum.
                 let is_def = lv == 0
                     && matches!(toks.first(), Some(T::Word(k)) if matches!(k.as_str(), "fn" | "struct" | "enum" | "interface" | "pub" | "extern"));
                 let prev_is_def_head = matches!(out.last(), Some(l) if l.ends_with(':') && !l.starts_with(' '));
@@ -470,7 +470,7 @@ pub fn format(src: &str) -> String {
                     }
                 }
                 for (cw, ct, cb) in pending.drain(..) {
-                    // 주석이 이 줄보다 깊게 적혀 있었으면 (앞 블록의 끝 주석) 그 깊이를 지킵니다.
+                    // If the comment was indented deeper than this line (a trailing comment of the previous block), keep that depth.
                     let clv = if cw > *w {
                         let mut s2 = stack.clone();
                         level_for(&mut s2, cw).max(lv)
@@ -507,8 +507,8 @@ pub fn format(src: &str) -> String {
     s
 }
 
-/// 정리 전후의 토큰이 같은지(뜻이 그대로인지) 봅니다.
-/// 원래 코드가 토큰으로 안 읽히면(탭 들여쓰기 등) 결과가 읽히기만 하면 됩니다.
+/// Check whether tokens before and after formatting are the same (meaning unchanged).
+/// If the original code does not tokenize (tab indentation etc.), it is enough that the result tokenizes.
 pub fn check_same(before: &str, after: &str) -> Result<(), String> {
     let b = tokenize(before);
     let a = tokenize(after).map_err(|e| tr!(format!("정리한 결과를 읽을 수 없습니다 ({}): {}", e.code, e.msg), format!("cannot read the formatted result ({}): {}", e.code, e.msg)))?;

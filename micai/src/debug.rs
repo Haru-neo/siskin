@@ -1,13 +1,13 @@
-//! `siskin debug` — 한 줄씩 따라가며 값을 보는 디버거.
+//! `siskin debug` — a debugger that steps line by line and shows values.
 //!
-//! 두 가지 방식이 같은 명령(n s o c b d p v l w q)을 씁니다.
-//! - 보통 프로그램: 인터프리터 위에서 돕니다. 문장 하나를 실행하기 직전마다
-//!   `Debugger::should_stop` 을 묻고, 멈추면 터미널에서 명령을 받습니다.
-//! - C 라이브러리·std.net 을 쓰는 프로그램: 멈출 자리를 넣어 네이티브로 컴파일한 뒤
-//!   자식 프로세스로 돌립니다(`rt_dbg.c`). 멈추면 그쪽이 줄·호출 경로·변수 값을
-//!   파이프로 보내고, 여기서 명령을 받아 돌려보냅니다. `spawn` 작업(진짜 스레드)도 따라갑니다.
-//! 디버거의 말은 표준 오류로 나가서, 프로그램의 출력(표준 출력)과 섞이지 않습니다.
-//! import 한 파일 안에서도 멈춥니다(`b util.skn:5`). 표준 라이브러리 조각 안에서는 멈추지 않습니다.
+//! Two modes share the same commands (n s o c b d p v l w q):
+//! - Ordinary programs: runs on the interpreter. Right before each statement executes it
+//!   asks `Debugger::should_stop`, and when stopped reads commands from the terminal.
+//! - Programs using C libraries or std.net: compiled natively with stop points, then
+//!   run as a child process (`rt_dbg.c`). When stopped, the child sends the line, call stack and
+//!   variable values over a pipe, and we send commands back. `spawn` tasks (real threads) are followed too.
+//! The debugger writes to stderr, so it does not mix with the program's output (stdout).
+//! It also stops inside imported files (`b util.skn:5`). It never stops inside standard library pieces.
 
 use crate::ast::Stmt;
 use crate::interp::Interp;
@@ -16,23 +16,23 @@ use std::io::{BufRead, Write};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Mode {
-    /// 다음 문장에서 (함수 안으로 들어가도) 멈춤
+    /// Stop at the next statement (even when entering a function)
     Step,
-    /// 이 깊이 이하의 다음 문장에서 멈춤 (함수 호출은 건너뜀)
+    /// Stop at the next statement at this depth or shallower (steps over calls)
     Next(usize),
-    /// 이 깊이보다 얕아지면 멈춤 (지금 함수에서 나가기)
+    /// Stop once shallower than this depth (step out of the current function)
     Out(usize),
-    /// 멈출 곳에서만 멈춤
+    /// Stop only at breakpoints
     Continue,
 }
 
-/// 멈춘 프로그램에게 묻는 것들. 인터프리터와 네이티브가 각자 답합니다.
+/// Queries to a stopped program. The interpreter and native modes each answer them.
 pub trait Target {
-    /// `p 식`
+    /// `p expr`
     fn eval(&mut self, src: &str) -> Result<String, String>;
-    /// 지금 함수의 지역 변수 (이름, 값)
+    /// Local variables of the current function (name, value)
     fn locals(&self) -> Vec<(String, String)>;
-    /// 호출 경로 (함수 이름, 줄), 바깥부터
+    /// Call stack (function name, line), outermost first
     fn stack(&self) -> Vec<(String, usize)>;
 }
 
@@ -49,22 +49,22 @@ impl Target for Interp {
 }
 
 pub struct Debugger {
-    /// 멈출 곳 (전체 줄 번호: import 한 파일은 파일마다 큰 수가 더해져 있습니다)
+    /// Breakpoints (global line numbers: each imported file has a large offset added)
     breaks: BTreeSet<usize>,
     mode: Mode,
     src: Vec<String>,
     last_cmd: String,
     path: String,
-    /// `q` 를 받았습니다. 프로그램을 끝냅니다.
+    /// Got `q`. Terminate the program.
     pub quit: bool,
 }
 
-/// 줄이 표준 라이브러리 조각 안인가 (거기서는 멈추지 않습니다).
+/// Whether a line is inside a standard library piece (never stop there).
 fn in_std(line: usize) -> bool {
     matches!(crate::error::locate(line), Some((f, _, _)) if f.starts_with("<std."))
 }
 
-/// `12` 또는 `util.skn:12` 를 전체 줄 번호로.
+/// `12` or `util.skn:12` to a global line number.
 pub fn parse_break(s: &str) -> Result<usize, String> {
     match s.rsplit_once(':') {
         Some((f, n)) => {
@@ -85,7 +85,7 @@ pub fn parse_break(s: &str) -> Result<usize, String> {
     }
 }
 
-/// 문장이 시작하는 줄. 선언(fn, struct ...)은 멈출 자리가 아닙니다.
+/// Line where a statement starts. Declarations (fn, struct ...) are not stop points.
 pub fn stmt_line(s: &Stmt) -> Option<usize> {
     let l = match s {
         Stmt::Let { line, .. } | Stmt::Assign { line, .. } | Stmt::LetTuple { line, .. } => *line,
@@ -167,7 +167,7 @@ impl Debugger {
         }
     }
 
-    /// 전체 줄 번호 → (보여 줄 파일 경로, 그 파일의 줄들, 그 파일 안의 줄 번호)
+    /// Global line number → (display file path, that file's lines, line number within the file)
     fn file_of(&self, line: usize) -> (String, Vec<String>, usize) {
         match crate::error::locate(line) {
             Some((f, text, l)) => (f, text.split('\n').map(|s| s.to_string()).collect(), l),
@@ -175,7 +175,7 @@ impl Debugger {
         }
     }
 
-    /// 사람에게 보여 줄 줄 이름: main 파일은 `12`, 다른 파일은 `util.skn:5`.
+    /// Human-readable line name: `12` for the main file, `util.skn:5` for other files.
     fn line_name(&self, line: usize) -> String {
         match crate::error::locate(line) {
             Some((f, _, l)) => {
@@ -207,7 +207,7 @@ impl Debugger {
         }
     }
 
-    /// 네이티브 쪽에 보낼 명령: 멈출 곳 전체, 그리고 이어 가는 방식.
+    /// Command for the native side: all breakpoints, plus how to continue.
     fn wire(&self) -> String {
         let bs: Vec<String> = self.breaks.iter().map(|b| b.to_string()).collect();
         let (m, d) = match self.mode {
@@ -219,7 +219,7 @@ impl Debugger {
         format!("B {}\nG {} {}\n", bs.join(" "), m, d)
     }
 
-    /// 멈춰서 명령을 받습니다. 실행을 이어 갈 명령(n s o c)을 받으면 돌아갑니다.
+    /// Stop and read commands. Returns on a command that resumes execution (n s o c).
     pub fn stop_at(&mut self, line: usize, func: &str, depth: usize, it: &mut dyn Target) {
         let _ = std::io::stdout().flush();
         if self.breaks.contains(&line) && self.mode == Mode::Continue {
@@ -353,13 +353,13 @@ impl Debugger {
     }
 }
 
-// ------------------------------------------------------------ 네이티브 방식
+// ------------------------------------------------------------ native mode
 
-/// 멈춘 네이티브 프로그램: 그쪽이 보낸 변수 값과 호출 경로.
+/// A stopped native program: the variable values and call stack it sent.
 struct NativeStop<'a> {
     vars: Vec<(String, String)>,
     frames: Vec<(String, usize)>,
-    /// `p a + b` 처럼 식을 계산할 때 쓰는 인터프리터 (프로그램의 선언만 올려 둠)
+    /// Interpreter used to evaluate expressions like `p a + b` (only the program's declarations are loaded)
     calc: &'a mut Interp,
 }
 
@@ -409,15 +409,15 @@ mod fds {
     }
 }
 
-/// 프로그램을 자식으로 띄우고, 주고받을 파이프 두 개를 이어 줍니다.
-/// (자식, 자식에게 쓰는 쪽, 자식에게서 읽는 쪽). 실패하면 끝난 코드.
+/// Launch the program as a child and connect two pipes to it.
+/// (child, write end to child, read end from child). On failure, an exit code.
 #[cfg(unix)]
 fn spawn_piped(exe: &std::path::Path, args: &[String]) -> Result<(std::process::Child, std::fs::File, std::fs::File), i32> {
     use std::os::unix::io::FromRawFd;
     use std::os::unix::process::CommandExt;
     let mut to_child = [0i32; 2];
     let mut from_child = [0i32; 2];
-    // 안전: 크기 2 배열에 파이프 두 끝을 받습니다.
+    // Safety: receives both pipe ends into an array of size 2.
     if unsafe { fds::pipe(to_child.as_mut_ptr()) } != 0 || unsafe { fds::pipe(from_child.as_mut_ptr()) } != 0 {
         say(tr!("디버거 파이프를 만들 수 없습니다\n", "cannot create the debugger pipes\n"));
         return Err(2);
@@ -426,7 +426,7 @@ fn spawn_piped(exe: &std::path::Path, args: &[String]) -> Result<(std::process::
     let (parent_in, child_out) = (from_child[0], from_child[1]);
     let mut cmd = std::process::Command::new(exe);
     cmd.args(args).env("SISKIN_DBG_FDS", format!("{},{}", child_in, child_out));
-    // 안전: fork 뒤 exec 전에 부모 쪽 끝만 닫습니다(async-signal-safe 인 close 만 부름).
+    // Safety: after fork and before exec, only close the parent's ends (calls only close, which is async-signal-safe).
     unsafe {
         cmd.pre_exec(move || {
             fds::close(parent_out);
@@ -445,7 +445,7 @@ fn spawn_piped(exe: &std::path::Path, args: &[String]) -> Result<(std::process::
         fds::close(child_in);
         fds::close(child_out);
     }
-    // 안전: 방금 만든 파이프 끝을 하나씩 파일로 감쌉니다(각각 한 번만).
+    // Safety: wrap each freshly created pipe end in a File (each exactly once).
     let out = unsafe { std::fs::File::from_raw_fd(parent_out) };
     let inp = unsafe { std::fs::File::from_raw_fd(parent_in) };
     Ok((child, out, inp))
@@ -467,13 +467,13 @@ mod win {
     }
 }
 
-/// 윈도우: 물려줄 수 있는 파이프를 만들고, 자식 쪽 손잡이 값을 SISKIN_DBG_FDS 로 알려 줍니다.
+/// Windows: create inheritable pipes and tell the child its handle values via SISKIN_DBG_FDS.
 #[cfg(windows)]
 fn spawn_piped(exe: &std::path::Path, args: &[String]) -> Result<(std::process::Child, std::fs::File, std::fs::File), i32> {
     use std::os::windows::io::FromRawHandle;
     let mut sa = win::SecurityAttributes { len: std::mem::size_of::<win::SecurityAttributes>() as u32, desc: std::ptr::null_mut(), inherit: 1 };
     let (mut child_in, mut parent_out, mut parent_in, mut child_out) = (0isize, 0isize, 0isize, 0isize);
-    // 안전: 손잡이 네 개를 받을 칸을 넘깁니다. 부모 쪽 끝은 물려주지 않게 표시를 뗍니다.
+    // Safety: passes slots for four handles. Clears the inherit flag on the parent's ends.
     let ok = unsafe {
         win::CreatePipe(&mut child_in, &mut parent_out, &mut sa, 0) != 0
             && win::CreatePipe(&mut parent_in, &mut child_out, &mut sa, 0) != 0
@@ -487,7 +487,7 @@ fn spawn_piped(exe: &std::path::Path, args: &[String]) -> Result<(std::process::
     let mut cmd = std::process::Command::new(exe);
     cmd.args(args).env("SISKIN_DBG_FDS", format!("{},{}", child_in, child_out));
     let child = cmd.spawn();
-    // 안전: 자식에게 넘겼으니 부모는 자식 쪽 끝을 닫습니다.
+    // Safety: handed to the child, so the parent closes the child's ends.
     unsafe {
         win::CloseHandle(child_in);
         win::CloseHandle(child_out);
@@ -499,14 +499,14 @@ fn spawn_piped(exe: &std::path::Path, args: &[String]) -> Result<(std::process::
             return Err(2);
         }
     };
-    // 안전: 방금 만든 파이프 끝을 하나씩 파일로 감쌉니다(각각 한 번만).
+    // Safety: wrap each freshly created pipe end in a File (each exactly once).
     let out = unsafe { std::fs::File::from_raw_handle(parent_out as *mut std::ffi::c_void) };
     let inp = unsafe { std::fs::File::from_raw_handle(parent_in as *mut std::ffi::c_void) };
     Ok((child, out, inp))
 }
 
-/// 멈출 자리를 넣어 컴파일한 프로그램(`exe`)을 자식으로 돌리며 따라갑니다.
-/// 프로그램의 종료 코드를 돌려줍니다.
+/// Run the program compiled with stop points (`exe`) as a child and follow it.
+/// Returns the program's exit code.
 pub fn run_native(exe: &std::path::Path, args: &[String], dbg: &mut Debugger, prog: &crate::ast::Program) -> i32 {
     let (mut child, mut out, inp) = match spawn_piped(exe, args) {
         Ok(x) => x,

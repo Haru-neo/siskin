@@ -1,13 +1,13 @@
-/* ---------------- siskin debug (네이티브) ----------------
-   C 라이브러리·std.net·spawn 을 쓰는 프로그램도 한 줄씩 따라가려고, `siskin debug` 는
-   프로그램을 이 부분을 넣어 컴파일한 뒤 자식 프로세스로 돌립니다.
-   문장마다 MI_DBG(줄, 변수들) 이 "여기서 멈출까" 를 묻고, 멈추면 지금 줄·호출 경로·
-   변수 값(글자로)을 파이프로 `siskin debug` 에 보내고 다음 명령을 기다립니다.
-   화면에 보이는 명령 처리(b, p, l …)는 모두 `siskin debug` 쪽이 합니다.
+/* ---------------- siskin debug (native) ----------------
+   To step through programs that use C libraries, std.net or spawn, `siskin debug`
+   compiles the program with this part included and runs it as a child process.
+   At each statement MI_DBG(line, variables) asks "stop here?"; when stopped, it sends the current line, call stack
+   and variable values (as text) over a pipe to `siskin debug` and waits for the next command.
+   All user-facing command handling (b, p, l …) is done on the `siskin debug` side.
 
-   주고받는 말 (한 줄씩):
-     프로그램 → siskin:  STOP 줄 깊이 작업번호 / F 함수\t줄 / V 이름\t값 / .
-     siskin → 프로그램:  B 줄 줄 ... (멈출 곳 전체) / G 방식 깊이 (s n o c) / Q */
+   Protocol (one line per message):
+     program → siskin:  STOP line depth task_id / F function\tline / V name\tvalue / .
+     siskin → program:  B line line ... (all breakpoints) / G mode depth (s n o c) / Q */
 #ifndef _WIN32
 #include <pthread.h>
 #endif
@@ -32,7 +32,7 @@ static _Thread_local int mi_dbg_task = 0;
 static void mi_dbg_init(void) {
     const char* e = getenv("SISKIN_DBG_FDS");
 #ifdef _WIN32
-    /* 윈도우: siskin debug 가 물려준 파이프 손잡이(HANDLE) 두 개. */
+    /* Windows: the two pipe handles (HANDLE) inherited from siskin debug. */
     long long ha, hb;
     if (!e || sscanf(e, "%lld,%lld", &ha, &hb) != 2) return;
     int a = _open_osfhandle((intptr_t)ha, _O_RDONLY | _O_BINARY);
@@ -112,7 +112,7 @@ static void mi_dbg_stop(int64_t line, MiDbgVar* vs, int n) {
     char buf[16384];
     for (;;) {
         if (!fgets(buf, sizeof buf, mi_dbg_inf)) {
-            /* siskin debug 가 먼저 끝났습니다. 멈추지 않고 끝까지 돕니다. */
+            /* siskin debug exited first. Run to the end without stopping. */
             mi_dbg_outf = NULL;
             break;
         }
@@ -143,6 +143,6 @@ static void mi_dbg_stop(int64_t line, MiDbgVar* vs, int n) {
     pthread_mutex_unlock(&mi_dbg_mu);
 }
 
-/* 멈출 때만 변수 목록을 만듭니다. */
+/* Build the variable list only when stopping. */
 #define MI_DBG(line, ...) do { if (mi_dbg_hit(line)) { MiDbgVar _mi_dv[] = { { "", NULL, NULL }, __VA_ARGS__ }; \
     mi_dbg_stop(line, _mi_dv + 1, (int)(sizeof _mi_dv / sizeof _mi_dv[0]) - 1); } } while (0)

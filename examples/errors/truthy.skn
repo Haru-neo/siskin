@@ -1,4 +1,4 @@
 fn main():
     let n = 5
     if n:
-        print("파이썬이었다면 통과\n")
+        print("would pass in Python\n")

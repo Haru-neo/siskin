@@ -1,29 +1,29 @@
-# 사전 · 정규식 · JSON 을 한 번에 써 보는 예제.
-# 로그를 읽어서 수준별로 세고, 결과를 JSON으로 냅니다.
+# An example using dictionaries, regular expressions and JSON together.
+# Reads a log, counts lines per level, and outputs the result as JSON.
 from std.re import groups, test
 from std.json import jdict, jint, jstr, jlist, stringify, parse
 
 fn main() -> !Unit:
     let log = [
-        "2026-09-19 10:02 ERROR 연결이 끊어졌습니다",
-        "2026-09-19 10:03 INFO 다시 붙었습니다",
-        "2026-09-19 10:07 WARN 응답이 느립니다",
-        "2026-09-19 10:09 ERROR 시간이 초과됐습니다",
-        "쓸모없는 줄",
+        "2026-09-19 10:02 ERROR connection lost",
+        "2026-09-19 10:03 INFO reconnected",
+        "2026-09-19 10:07 WARN slow response",
+        "2026-09-19 10:09 ERROR request timed out",
+        "garbage line",
     ]
 
-    # ---- 정규식으로 줄을 뜯습니다 ----
+    # ---- Split lines with a regular expression ----
     let pattern = r"^(\d+-\d+-\d+) (\d+:\d+) (\w+) (.+)$"
 
-    # ---- 사전으로 셉니다 ----
+    # ---- Count with a dictionary ----
     var counts: {Str: Int} = {}
     var first: {Str: Str} = {}
 
     for line in log:
         if not test(pattern, line):
-            print("건너뜀: " + line + "\n")
+            print("skipped: " + line + "\n")
             continue
-        # groups()는 [전체, 첫 괄호, 둘째, ...] 순서로 냅니다.
+        # groups() returns [whole match, first group, second, ...].
         let g = groups(pattern, line)
         let level = g[3]
         let message = g[4]
@@ -35,9 +35,9 @@ fn main() -> !Unit:
         else:
             counts[level] = c + 1
 
-    print("센 결과: " + str(counts) + "\n")
+    print("counts: " + str(counts) + "\n")
 
-    # ---- JSON으로 냅니다 ----
+    # ---- Output as JSON ----
     let out = jdict()
     let levels = jlist()
     for level in counts.keys():
@@ -56,9 +56,9 @@ fn main() -> !Unit:
     let text = stringify(out)
     print("JSON: " + text + "\n")
 
-    # ---- 다시 읽어서 확인 ----
+    # ---- Read it back to check ----
     let back = try parse(text)
     let ls = back.get("levels")
     if ls != none:
-        print("다시 읽으니 수준 " + str(ls.len()) + "종류\n")
+        print("read back: " + str(ls.len()) + " levels\n")
     return

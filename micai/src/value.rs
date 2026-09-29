@@ -15,23 +15,23 @@ pub struct EnumVal {
     pub fields: Vec<(String, Value)>,
 }
 
-/// 바깥 값을 붙잡은 함수(클로저). 붙잡은 값은 만들 때 복사해 둔 것입니다.
+/// A function that captures outer values (a closure). Captured values are copies taken at creation time.
 #[derive(Debug)]
 pub struct Closure {
     pub decl: crate::ast::Shared<FnDecl>,
     pub env: Vec<(String, Value)>,
 }
 
-/// 작업(스레드) 사이로 옮기는 값.
+/// A value moved between tasks (threads).
 ///
-/// 인터프리터의 값은 `Rc` 라서 두 스레드가 같이 만지면 안 됩니다. 그래서 작업 사이로
-/// 넘기는 값(작업의 결과, 통로로 보내는 값)은 보내는 쪽이 `detach` 로 통째로 새로 만들어,
-/// 아무와도 공유하지 않는 값만 이 상자에 담습니다. 받는 쪽은 꺼내 가거나(`take`),
-/// 상자를 지키는 자물쇠를 쥔 채 다시 새로 만들어(`copy`) 가져갑니다.
+/// Interpreter values are `Rc`, so two threads must never touch the same one. Therefore a value passed
+/// between tasks (a task's result, a value sent through a channel) is rebuilt from scratch by the sender via `detach`,
+/// and only values shared with nobody go into this box. The receiver either takes it out (`take`),
+/// or, while holding the lock guarding the box, rebuilds a fresh copy (`copy`) to take away.
 pub struct Moved(Value);
 
-// 안전: 상자 속 값의 `Rc` 들은 이 상자만 가리킵니다(`detach` 로 새로 만든 것). 상자는 언제나
-// 한 스레드만 만지고(자물쇠 안이나 소유권 이동), 옮기는 순간 자물쇠가 메모리 순서를 맞춰 줍니다.
+// Safety: the `Rc`s in the boxed value point only into this box (freshly built by `detach`). The box is only ever
+// touched by one thread at a time (under the lock, or via ownership transfer), and the lock orders memory at the hand-off.
 unsafe impl Send for Moved {}
 
 impl Moved {
@@ -52,15 +52,15 @@ impl std::fmt::Debug for Moved {
     }
 }
 
-/// `spawn` 이 만든 작업. 끝나면 결과가 들어옵니다. 여러 작업이 같이 보는 손잡이입니다.
+/// A task created by `spawn`. Its result arrives when it finishes. A handle that several tasks can share.
 #[derive(Debug)]
 pub struct TaskCell {
     pub done: std::sync::atomic::AtomicBool,
     pub result: std::sync::Mutex<Option<Moved>>,
 }
 
-/// `channel[T]()` 가 만든 통로. `cap` 이 0 이면 끝없이 쌓입니다.
-/// 상태는 `conc` 의 큰 자물쇠를 쥔 채로만 바꿉니다(기다리는 쪽을 놓치지 않게).
+/// A channel created by `channel[T]()`. If `cap` is 0 it is unbounded.
+/// State is only changed while holding the big `conc` lock (so no waiter is missed).
 #[derive(Debug)]
 pub struct ChanCell {
     pub state: std::sync::Mutex<ChanState>,
@@ -79,13 +79,13 @@ pub struct ChanState {
     pub closed: bool,
 }
 
-/// 원시 포인터가 가리키는 실제 메모리 한 덩어리.
+/// One chunk of actual memory that a raw pointer points to.
 #[derive(Debug)]
 pub struct RawBuf {
     pub data: Vec<Value>,
-    /// `free` 하면 false. 해제 후 접근을 잡아내기 위한 표시입니다.
+    /// false once `free`d. A marker for catching use-after-free.
     pub alive: bool,
-    /// 아레나가 소유한 메모리인가 (그렇다면 개별 free 금지).
+    /// Whether the memory is owned by an arena (if so, individual free is forbidden).
     pub in_arena: bool,
 }
 
@@ -97,36 +97,36 @@ pub enum Value {
     Bool(bool),
     None,
     List(Rc<RefCell<Vec<Value>>>),
-    /// `(a, b, ...)` — 튜플. 불변이라 RefCell이 없습니다.
+    /// `(a, b, ...)` — tuple. Immutable, so no RefCell.
     Tuple(Rc<Vec<Value>>),
     Dict(Rc<RefCell<Vec<(Value, Value)>>>),
     Struct(Rc<RefCell<StructVal>>),
     Enum(Rc<RefCell<EnumVal>>),
-    /// `!T`의 에러 쪽. `try`가 전파하고 `catch`가 받습니다.
+    /// The error side of `!T`. Propagated by `try`, received by `catch`.
     Error(Rc<String>),
-    /// enum 오류 타입(`BankError!T`)의 에러 쪽. 안에 enum 값이 들어 있습니다.
+    /// The error side of an enum error type (`BankError!T`). Holds an enum value.
     ErrorOf(Rc<Value>),
-    /// 프렐류드/표준 라이브러리 함수
+    /// Prelude / standard library function
     Builtin(&'static str),
-    /// 값으로 넘긴 사용자 함수. `(Int) -> Int` 같은 함수 타입의 값입니다.
+    /// A user function passed as a value. A value of a function type such as `(Int) -> Int`.
     Func(crate::ast::Shared<FnDecl>),
-    /// `fn(x): x + k` 나 함수 안의 `fn` 처럼 바깥 값을 붙잡은 함수.
+    /// A function that captures outer values, like `fn(x): x + k` or a `fn` inside a function.
     Closure(Rc<Closure>),
-    /// `import std.fs` 로 들어온 모듈 이름
+    /// Module name brought in by `import std.fs`
     Module(&'static str),
-    /// `with arena a:` 가 만든 아레나
+    /// Arena created by `with arena a:`
     Arena(Rc<RefCell<Vec<Rc<RefCell<RawBuf>>>>>),
-    /// `*T` — 원시 포인터. 덩어리와 그 안의 위치.
+    /// `*T` — raw pointer. A chunk and a position within it.
     Raw(Rc<RefCell<RawBuf>>, usize),
-    /// `std.json` 이 다루는 값.
+    /// A value handled by `std.json`.
     Json(crate::json::JRef),
-    /// `spawn` 이 돌려준 작업 손잡이
+    /// Task handle returned by `spawn`
     Task(std::sync::Arc<TaskCell>),
-    /// 작업끼리 값을 주고받는 통로(손잡이라 복사해도 같은 통로)
+    /// Channel for passing values between tasks (a handle, so copies refer to the same channel)
     Chan(std::sync::Arc<ChanCell>),
 }
 
-/// 실수를 보기 좋게. 정수처럼 딱 떨어지면 `.0` 을 붙입니다.
+/// Formats a float nicely. Appends `.0` if it is a whole number.
 pub fn float_repr(f: f64) -> String {
     if f.is_finite() && f.fract() == 0.0 {
         format!("{:.1}", f)
@@ -161,7 +161,7 @@ impl Value {
         }
     }
 
-    /// 사람이 보는 형태. `print`와 `str()`이 씁니다.
+    /// Human-readable form. Used by `print` and `str()`.
     pub fn display(&self) -> String {
         match self {
             Value::Str(s) => s.as_ref().clone(),
@@ -169,7 +169,7 @@ impl Value {
         }
     }
 
-    /// 디버그/doctest 형태. 문자열에 따옴표가 붙습니다.
+    /// Debug/doctest form. Strings get quotes.
     pub fn repr(&self) -> String {
         match self {
             Value::Int(n) => n.to_string(),
@@ -228,8 +228,8 @@ impl Value {
         }
     }
 
-    /// 값 의미론(설계 문서 §5): `let`/`var`/대입에서 값을 복사합니다.
-    /// 함수 인자는 기본이 빌림이라 복사하지 않습니다.
+    /// Value semantics (design doc §5): `let`/`var`/assignment copy the value.
+    /// Function arguments are borrowed by default, so they are not copied.
     pub fn deep_clone(&self) -> Value {
         match self {
             Value::List(items) => {
@@ -267,9 +267,9 @@ impl Value {
         }
     }
 
-    /// 작업 사이로 넘길 값: `deep_clone` 과 같지만 글자·오류·클로저·JSON 까지 모두 새로 만들어
-    /// 원래 값과 `Rc` 를 하나도 나누지 않습니다. 원시 포인터와 아레나는 넘길 수 없습니다
-    /// (타입 검사가 막음, T0075) — 혹시 오면 none 이 됩니다.
+    /// A value to hand across tasks: like `deep_clone`, but rebuilds strings, errors, closures and JSON too,
+    /// sharing no `Rc` at all with the original. Raw pointers and arenas cannot be passed
+    /// (the type checker forbids it, T0075) — if one slips through it becomes none.
     pub fn detach(&self) -> Value {
         match self {
             Value::Str(s) => Value::Str(Rc::new(s.as_ref().clone())),
@@ -336,7 +336,7 @@ impl Value {
                     && a.fields.iter().zip(b.fields.iter()).all(|(x, y)| x.1.eq_value(&y.1))
             }
             (Value::Dict(a), Value::Dict(b)) => {
-                // 순서와 상관없이 같은 키에 같은 값이 있으면 같습니다 (네이티브와 같은 규칙).
+                // Equal if the same keys have the same values, regardless of order (same rule as native).
                 let (a, b) = (a.borrow(), b.borrow());
                 a.len() == b.len()
                     && a.iter().all(|(k, v)| b.iter().any(|(k2, v2)| k.eq_value(k2) && v.eq_value(v2)))
@@ -357,8 +357,8 @@ pub fn str_value(s: impl Into<String>) -> Value {
     Value::Str(Rc::new(s.into()))
 }
 
-/// f-string 서식 스펙: `{x:[[fill]align][0][width][.prec][type]}`.
-/// 파이썬 서식의 실용적인 부분집합입니다. cgen과 interp가 함께 씁니다.
+/// f-string format spec: `{x:[[fill]align][0][width][.prec][type]}`.
+/// A practical subset of Python's format mini-language. Shared by cgen and interp.
 #[derive(Debug, Clone)]
 pub struct FmtSpec {
     pub fill: char,
@@ -407,8 +407,8 @@ pub fn parse_spec(spec: &str) -> FmtSpec {
     FmtSpec { fill, align, width, prec, ty }
 }
 
-/// 서식 스펙에 읽을 수 없는 부분이 있으면 무엇이 문제인지 돌려줍니다.
-/// (조용히 무시하면 표가 어긋나도 아무도 모릅니다.)
+/// If the format spec has a part that cannot be parsed, returns what the problem is.
+/// (If silently ignored, nobody would notice a misaligned table.)
 pub fn spec_problem(spec: &str) -> Option<String> {
     if spec.contains('{') {
         return Some(tr!("서식 안에는 `{w}` 같은 변수를 쓸 수 없습니다", "variables like `{w}` cannot be used inside a format spec").into());
@@ -438,7 +438,7 @@ pub fn spec_problem(spec: &str) -> Option<String> {
     None
 }
 
-/// 폭/정렬/채움을 문자열에 적용합니다. 폭은 글자 수 기준입니다(Str.len과 같음).
+/// Applies width/alignment/fill to a string. Width counts characters (same as Str.len).
 pub fn pad_spec(s: &str, fs: &FmtSpec, numeric: bool) -> String {
     let len = s.chars().count();
     if len >= fs.width {
@@ -457,7 +457,7 @@ pub fn pad_spec(s: &str, fs: &FmtSpec, numeric: bool) -> String {
     }
 }
 
-/// interp 쪽: 값 하나에 서식을 적용해 문자열을 만듭니다.
+/// interp side: formats a single value into a string.
 pub fn format_value(v: &Value, spec: &str) -> String {
     let fs = parse_spec(spec);
     let numeric = matches!(v, Value::Int(_) | Value::Float(_));
@@ -466,7 +466,7 @@ pub fn format_value(v: &Value, spec: &str) -> String {
 }
 
 fn format_base(v: &Value, fs: &FmtSpec) -> String {
-    // 소수 자릿수: 타입이 f이거나, prec가 있고 값이 수일 때.
+    // Decimal places: when the type is f, or when prec is given and the value is numeric.
     let want_prec = fs.ty == Some('f') || (fs.prec.is_some() && matches!(v, Value::Float(_) | Value::Int(_)));
     if want_prec {
         let x = match v {

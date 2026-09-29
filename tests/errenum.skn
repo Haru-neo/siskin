@@ -36,17 +36,17 @@ fn main() -> BankError!Unit:
         let left = pay(accs, id, amt) catch e:
             match e:
                 case NoFunds(need):
-                    print(f"모자람 {need}\n")
+                    print(f"short by {need}\n")
                 case Unknown(id2):
-                    print(f"없는 계좌 {id2}\n")
+                    print(f"no such account {id2}\n")
                 case BadAmount:
-                    print("금액 오류\n")
+                    print("invalid amount\n")
             continue
-        print(f"남음 {left}\n")
+        print(f"remaining {left}\n")
     let msg = legacy(accs) catch e:
-        print(f"글자 오류: {e}\n")
+        print(f"string error: {e}\n")
         -1
     print(f"{msg}\n")
     try pay(accs, 9, 1)
-    print("안 옴\n")
+    print("never reached\n")
     return

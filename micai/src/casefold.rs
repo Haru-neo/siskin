@@ -1,16 +1,16 @@
-//! 대소문자 완화.
+//! Case-insensitivity relief.
 //!
-//! 규칙은 하나입니다.
-//!   **정확히 쓴 이름이 있으면 그게 이깁니다.**
-//!   없을 때만, 대소문자만 다른 이름이 딱 하나 있으면 그걸로 고쳐 줍니다.
+//! There is one rule:
+//!   **If a name spelled exactly as written exists, it wins.**
+//!   Only when none does, and exactly one name differs only in case, is it corrected to that name.
 //!
-//! 그래서 `struct User` 와 `let user` 가 같이 있어도 아무 문제가 없고
-//! (둘 다 정확히 선언된 이름이라 서로 건드리지 않습니다),
-//! `myvalue` 라고 잘못 쳐도 `myValue` 로 알아서 붙습니다.
-//! 후보가 둘 이상이면 고치지 않고 평소대로 "찾을 수 없습니다" 오류를 냅니다.
+//! So `struct User` and `let user` can coexist without any problem
+//! (both are exactly declared names, so neither touches the other),
+//! and mistyping `myvalue` quietly resolves to `myValue`.
+//! If there are two or more candidates, nothing is corrected and the usual "not found" error is reported.
 //!
-//! 고친 자리는 기록해서 `siskin check`가 정본 철자를 알려줍니다.
-//! 파일은 한 가지 철자로 수렴하므로 검색도 AI도 헷갈리지 않습니다.
+//! Corrected spots are recorded so that `siskin check` can point out the canonical spelling.
+//! Files converge on a single spelling, so neither search nor AI gets confused.
 
 use crate::ast::*;
 use std::collections::{HashMap, HashSet};
@@ -58,7 +58,7 @@ struct Ctx {
     fixes: Vec<CaseFix>,
 }
 
-// ------------------------------------------------------------- 선언 이름 수집
+// ------------------------------------------------------------- collect declared names
 
 fn collect_fn(f: &FnDecl, out: &mut HashSet<String>) {
     out.insert(f.name.clone());
@@ -194,10 +194,10 @@ fn collect_stmt(s: &Stmt, out: &mut HashSet<String>) {
     }
 }
 
-// ------------------------------------------------------------------- 고치기
+// ------------------------------------------------------------------- correction
 
 impl Ctx {
-    /// 정확한 이름이 있으면 그대로. 없고 후보가 딱 하나면 고칩니다.
+    /// If the exact name exists, keep it. Otherwise, if there is exactly one candidate, correct it.
     fn fix(&mut self, name: &mut String, line: usize, col: usize) {
         if self.declared.contains(name.as_str()) {
             return;
@@ -219,8 +219,8 @@ impl Ctx {
     fn ty(&mut self, t: &mut TypeExpr, line: usize) {
         match t {
             TypeExpr::Named(n, args) => {
-                // 타입 자리에서는 타입(대문자로 시작하는 이름)으로만 맞춥니다.
-                // 예전에는 `Result` 가 키워드 `result` 로 바뀌어 오류 메시지가 헷갈렸습니다.
+                // In type position, only match types (names starting with an uppercase letter).
+                // Previously `Result` could turn into the keyword `result`, producing confusing error messages.
                 let orig = n.clone();
                 let before = self.fixes.len();
                 self.fix(n, line, 1);
@@ -320,7 +320,7 @@ impl Ctx {
                 self.expr(b);
             }
             Expr::Lambda(f, _, _) | Expr::Spawn(f, _, _) => {
-                // 익명 함수의 인자 이름도 선언된 이름입니다.
+                // Parameter names of anonymous functions are declared names too.
                 for p in &f.params {
                     if self.declared.insert(p.name.clone()) {
                         self.by_lower.entry(p.name.to_lowercase()).or_default().push(p.name.clone());

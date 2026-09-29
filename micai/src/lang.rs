@@ -1,12 +1,12 @@
-//! 진단 메시지 언어. 기본은 영어이고, `--lang ko` 나 `SISKIN_LANG=ko` 면 한국어입니다.
-//! `siskin build` 는 고른 언어를 실행 파일에 굳혀 넣습니다(`MI_KO`), 그래서
-//! 같은 언어로 돌린 `siskin run` 과 만든 프로그램의 오류 글이 똑같습니다.
+//! Diagnostic message language. English by default; Korean with `--lang ko` or `SISKIN_LANG=ko`.
+//! `siskin build` bakes the chosen language into the executable (`MI_KO`), so
+//! `siskin run` in the same language and the built program print identical error text.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static KO: AtomicBool = AtomicBool::new(false);
 
-/// 지금 한국어로 말하는가.
+/// Whether we are currently speaking Korean.
 pub fn ko() -> bool {
     KO.load(Ordering::Relaxed)
 }
@@ -15,8 +15,8 @@ pub fn set_ko(v: bool) {
     KO.store(v, Ordering::Relaxed);
 }
 
-/// 환경 변수와 명령줄에서 언어를 고릅니다. `--lang` 은 첫 `.skn` 파일 앞에 있을 때만
-/// 컴파일러 옵션으로 보고 지웁니다(그 뒤는 프로그램에 넘길 인자일 수 있습니다).
+/// Pick the language from the environment and the command line. `--lang` is treated as a
+/// compiler option and removed only before the first `.skn` file (after that it may be a program argument).
 pub fn init(args: &mut Vec<String>) {
     if let Ok(v) = std::env::var("SISKIN_LANG") {
         set_ko(v.to_ascii_lowercase().starts_with("ko"));
@@ -40,7 +40,7 @@ pub fn init(args: &mut Vec<String>) {
     }
 }
 
-/// `tr!(한국어, 영어)` — 지금 언어에 맞는 쪽을 고릅니다. 두 쪽은 같은 타입이어야 합니다.
+/// `tr!(korean, english)` — picks the side for the current language. Both sides must have the same type.
 #[macro_export]
 macro_rules! tr {
     ($ko:expr, $en:expr $(,)?) => {

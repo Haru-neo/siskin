@@ -1,4 +1,4 @@
-# 해제한 메모리를 다시 읽습니다. 디버그 빌드가 그 자리에서 잡아냅니다.
+# Reads memory that has already been freed. The debug build catches it right there.
 fn main():
     unsafe:
         let p = alloc[Int](4)

@@ -1,26 +1,26 @@
-/// 문법 나무는 여러 작업(스레드)이 같이 읽으므로 원자적 참조 계수(Arc)를 씁니다.
+/// The syntax tree is read by several tasks (threads) at once, so it uses atomic reference counting (Arc).
 pub type Shared<T> = std::sync::Arc<T>;
 
-/// 타입 표기. P1에서는 파싱해서 보관만 하고 검사하지 않습니다.
-/// 타입 검사기는 P2입니다.
+/// Type annotation. In P1 it is only parsed and stored, not checked.
+/// The type checker is P2.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
     /// `Int`, `Str`, `Stack[Int]`
     Named(String, Vec<TypeExpr>),
-    /// `?T` — 값이 없을 수 있음
+    /// `?T` — value may be absent
     Optional(Box<TypeExpr>),
-    /// `!T` — 실패할 수 있음
-    /// `!T` 또는 `E!T` — 둘째가 오류 타입(없으면 Str).
+    /// `!T` — may fail
+    /// `!T` or `E!T` — the second is the error type (Str if absent).
     Fallible(Box<TypeExpr>, Option<Box<TypeExpr>>),
     /// `[T]`
     List(Box<TypeExpr>),
     /// `{K: V}`
     Dict(Box<TypeExpr>, Box<TypeExpr>),
-    /// `*T` — 원시 포인터 (Level 2, P4)
+    /// `*T` — raw pointer (Level 2, P4)
     Raw(Box<TypeExpr>),
-    /// `(T, U, ...)` — 튜플
+    /// `(T, U, ...)` — tuple
     Tuple(Vec<TypeExpr>),
-    /// `(A, B) -> R` — 함수 타입
+    /// `(A, B) -> R` — function type
     Fn(Vec<TypeExpr>, Box<TypeExpr>),
 }
 
@@ -96,7 +96,7 @@ pub enum UnOp {
     Not,
 }
 
-/// 호출 인자. `Token(kind: "word", text: w)` 처럼 이름 붙은 인자를 지원합니다.
+/// Call argument. Supports named arguments like `Token(kind: "word", text: w)`.
 #[derive(Debug, Clone)]
 pub struct Arg {
     pub name: Option<String>,
@@ -113,14 +113,14 @@ pub enum Expr {
     Ident(String, usize, usize),
     FString(Vec<FStrPart>),
     List(Vec<Expr>),
-    /// `(a, b, ...)` — 튜플 리터럴 (원소 2개 이상)
+    /// `(a, b, ...)` — tuple literal (2 or more elements)
     Tuple(Vec<Expr>),
     Dict(Vec<(Expr, Expr)>),
     Unary(UnOp, Box<Expr>, usize, usize),
     Binary(BinOp, Box<Expr>, Box<Expr>, usize, usize),
     Call {
         callee: Box<Expr>,
-        /// `alloc[Int](16)` 처럼 명시한 타입 인자. 보통은 비어 있습니다.
+        /// Explicit type arguments as in `alloc[Int](16)`. Usually empty.
         targs: Vec<TypeExpr>,
         args: Vec<Arg>,
         line: usize,
@@ -134,27 +134,27 @@ pub enum Expr {
         then: Box<Expr>,
         els: Box<Expr>,
     },
-    /// `try expr` — 실패하면 현재 함수에서 즉시 그 에러를 반환합니다.
+    /// `try expr` — on failure, immediately returns that error from the current function.
     Try(Box<Expr>, usize, usize),
-    /// `expr else 기본값` — 왼쪽 `?T`가 없으면(none이면) 오른쪽을 씁니다.
+    /// `expr else default` — if the left `?T` is absent (none), uses the right side.
     OrElse(Box<Expr>, Box<Expr>, usize, usize),
-    /// `fn(x: Int): x * k` — 익명 함수(클로저). 본문은 `return 식` 한 문장입니다.
-    /// 바깥 지역 변수를 쓰면 만들 때의 값을 복사해 붙잡습니다.
+    /// `fn(x: Int): x * k` — anonymous function (closure). The body is a single `return expr` statement.
+    /// Outer local variables it uses are captured by copying their values at creation time.
     Lambda(Shared<FnDecl>, usize, usize),
-    /// `spawn f(x)` — 호출을 새 작업(스레드)에서 돌립니다. 인자 없는 익명 함수
-    /// `fn(): f(x)` 로 감싸 두어, 쓰는 바깥 값은 클로저처럼 복사해 붙잡습니다.
+    /// `spawn f(x)` — runs the call in a new task (thread). It is wrapped in a parameterless anonymous
+    /// function `fn(): f(x)`, so outer values it uses are captured by copy, like a closure.
     Spawn(Shared<FnDecl>, usize, usize),
 }
 
 #[derive(Debug, Clone)]
 pub enum FStrPart {
     Lit(String),
-    /// 표현식과 서식 스펙(`{x:.2f}`의 `.2f`). 스펙이 없으면 빈 문자열.
+    /// The expression and its format spec (the `.2f` in `{x:.2f}`). Empty string if there is no spec.
     Expr(Box<Expr>, String),
 }
 
-/// 블록이 반드시 빠져나가는지(return/break/continue, 또는 모든 갈래가 빠져나가는
-/// if/match) 봅니다. 가드 절 뒤에서 `?T`를 좁혀 주기 위해 씁니다.
+/// Checks whether a block always exits (return/break/continue, or an if/match whose every
+/// branch exits). Used to narrow `?T` after a guard clause.
 pub fn block_diverges(body: &[Stmt]) -> bool {
     match body.last() {
         Some(Stmt::Return(..)) | Some(Stmt::Break(..)) | Some(Stmt::Continue(..)) => true,
@@ -187,15 +187,15 @@ impl Expr {
     }
 }
 
-/// 함수 인자 전달 규약 (설계 문서 §5).
-/// 라이프타임 표기 없이 이 세 가지만으로 소유권을 표현합니다.
+/// Argument passing conventions (design doc §5).
+/// Ownership is expressed with just these three, without lifetime annotations.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Convention {
-    /// 읽기 전용 빌림 (기본) — C++의 `const T&`
+    /// Read-only borrow (default) — C++'s `const T&`
     Borrow,
-    /// 가변 빌림 — C++의 `T&`
+    /// Mutable borrow — C++'s `T&`
     Inout,
-    /// 소유권 이전 — C++의 `T&&`
+    /// Ownership transfer — C++'s `T&&`
     Owned,
 }
 
@@ -214,29 +214,29 @@ pub struct FnDecl {
     pub params: Vec<Param>,
     pub ret: Option<TypeExpr>,
     pub doc: Option<String>,
-    /// 사전 조건 (설계 문서 §9.5). 디버그 빌드에서 검사합니다.
+    /// Preconditions (design doc §9.5). Checked in debug builds.
     pub requires: Vec<Expr>,
-    /// 사후 조건. `result`로 반환값을 참조할 수 있습니다.
+    /// Postconditions. The return value can be referred to as `result`.
     pub ensures: Vec<Expr>,
     pub body: Vec<Stmt>,
     pub line: usize,
-    /// `extern "C" fn ...` — 본문이 없고, C 쪽 함수를 그대로 부릅니다.
+    /// `extern "C" fn ...` — no body; calls the C function directly.
     pub is_extern: bool,
-    /// 헤더에서 자동으로 가져온 함수면 원래 C 시그니처가 들어 있습니다.
-    /// 이게 있으면 cgen이 헤더를 include하고 타입을 맞춘 껍데기 함수를 냅니다.
+    /// For a function imported automatically from a header, holds the original C signature.
+    /// When present, cgen includes the header and emits a type-adapting wrapper function.
     pub c_sig: Option<CSig>,
 }
 
-/// 익명 함수(`fn(x): ...`)의 이름은 이 글자로 시작합니다.
+/// Names of anonymous functions (`fn(x): ...`) start with this character.
 pub const LAMBDA_PREFIX: &str = "λ";
 
 impl FnDecl {
-    /// `fn(x): 식` 으로 만든 익명 함수인가. 반환 타입을 적지 않으면 식에서 추론합니다.
+    /// Whether this is an anonymous function made with `fn(x): expr`. If no return type is written, it is inferred from the expression.
     pub fn is_lambda(&self) -> bool {
         self.name.starts_with(LAMBDA_PREFIX)
     }
 
-    /// 사람에게 보여 줄 이름. 익명 함수는 "익명 함수".
+    /// Name shown to people. Anonymous functions show as "anonymous function".
     pub fn shown_name(&self) -> String {
         if self.is_lambda() {
             tr!("익명 함수", "anonymous function").to_string()
@@ -246,16 +246,16 @@ impl FnDecl {
     }
 }
 
-/// 함수 본문이 바깥에서 가져다 쓰는 이름들(등장 순서). 인자와 본문 안에서
-/// 선언한 이름은 뺍니다. 클로저가 무엇을 붙잡아야 하는지 정하는 데 씁니다.
-/// 여기 나온 이름 가운데 "만드는 순간 보이는 지역 변수"만 실제로 붙잡힙니다.
+/// Names the function body uses from outside (in order of appearance). Excludes parameters and names
+/// declared inside the body. Used to decide what a closure must capture.
+/// Of the names listed here, only "local variables visible at creation time" are actually captured.
 pub fn free_vars(f: &FnDecl) -> Vec<String> {
     let mut fv = FreeVars { scopes: vec![Vec::new()], out: Vec::new() };
     for p in &f.params {
         fv.bind(&p.name);
     }
     if !f.is_lambda() {
-        // 이름 붙은 중첩 함수는 자기 이름으로 자기를 부를 수 있습니다.
+        // A named nested function can call itself by its own name.
         fv.bind(&f.name);
     }
     for r in &f.requires {
@@ -428,22 +428,22 @@ impl FreeVars {
     }
 }
 
-/// 헤더에서 읽어 온 C(또는 C++) 함수의 원래 모습.
+/// The original form of a C (or C++) function read from a header.
 #[derive(Debug, Clone)]
 pub struct CSig {
-    /// 원래 C 반환 타입 (`uLong`, `const char *` 같은 것). 캐스트에 씁니다.
+    /// Original C return type (things like `uLong`, `const char *`). Used for casts.
     pub ret: String,
-    /// 원래 C 인자 타입들.
+    /// Original C parameter types.
     pub params: Vec<String>,
-    /// 이 함수를 선언한 헤더. `#include` 에 씁니다.
+    /// The header that declares this function. Used for `#include`.
     pub header: String,
-    /// C++ 이면 별도 파일로 빼서 C++ 컴파일러로 컴파일합니다.
+    /// If C++, it is split into a separate file and compiled with a C++ compiler.
     pub cpp: bool,
-    /// C에서 실제로 부를 이름. C는 함수 이름 그대로, C++은 껍데기 이름.
+    /// The name actually called from C. For C, the function name itself; for C++, the wrapper name.
     pub call: String,
-    /// C++ 이면 통째로 만들어 둔 `extern "C"` 껍데기 함수의 본문.
+    /// If C++, the body of the fully generated `extern "C"` wrapper function.
     pub shim: Option<String>,
-    /// 각 자리가 "함수를 넘겨 달라"는 자리면 `(C 인자 타입들, C 반환 타입)`.
+    /// For each position that expects a function to be passed, `(C parameter types, C return type)`.
     pub cbs: Vec<Option<(Vec<String>, String)>>,
 }
 
@@ -487,16 +487,16 @@ pub struct InterfaceDecl {
     pub line: usize,
 }
 
-/// `case` 패턴.
+/// `case` pattern.
 #[derive(Debug, Clone)]
 pub enum Pattern {
     /// `case _:`
     Wildcard,
-    /// `case Circle(r):` — 열거형 변형과 바인딩 이름들
+    /// `case Circle(r):` — enum variant and binding names
     Variant(String, Vec<String>),
-    /// `case 0:` 같은 리터럴
+    /// A literal such as `case 0:`
     Literal(Expr),
-    /// `case n:` — 이름 하나에 통째로 바인딩
+    /// `case n:` — binds the whole value to a single name
     Bind(String),
 }
 
@@ -507,14 +507,14 @@ pub struct MatchCase {
     pub line: usize,
 }
 
-/// `expr catch e:` 블록
+/// `expr catch e:` block
 #[derive(Debug, Clone)]
 pub struct CatchClause {
     pub name: String,
     pub body: Vec<Stmt>,
 }
 
-/// 블록이 끝까지 흘러가지 않고 반드시 빠져나가는가 (return / break / continue / exit).
+/// Whether a block never falls through to its end and always exits (return / break / continue / exit).
 pub fn block_leaves(body: &[Stmt]) -> bool {
     match body.last() {
         Some(Stmt::Return(..)) | Some(Stmt::Break(..)) | Some(Stmt::Continue(..)) => true,
@@ -526,8 +526,8 @@ pub fn block_leaves(body: &[Stmt]) -> bool {
     }
 }
 
-/// `let x = f() catch e:` 블록의 마지막 줄이 식이면, 실패했을 때 x 에 대신 넣을 값 후보입니다.
-/// (값이 없는 식, 예를 들어 `print(...)` 인지는 타입 검사가 가립니다.)
+/// If the last line of a `let x = f() catch e:` block is an expression, it is the candidate value to put into x on failure.
+/// (Whether it is a valueless expression, e.g. `print(...)`, is decided by the type checker.)
 pub fn catch_fallback(c: &CatchClause) -> Option<&Expr> {
     match c.body.last() {
         Some(Stmt::Expr(e, None)) if !block_leaves(&c.body) => Some(e),
@@ -554,7 +554,7 @@ pub enum Stmt {
         line: usize,
         col: usize,
     },
-    /// `let (a, b) = 튜플식` — 튜플을 이름들로 풀어 받습니다. 모두 불변(let).
+    /// `let (a, b) = tuple_expr` — destructures a tuple into names. All immutable (let).
     LetTuple {
         names: Vec<String>,
         value: Expr,
@@ -572,7 +572,7 @@ pub enum Stmt {
     },
     For {
         var: String,
-        /// `for k, v in d:` 의 둘째 이름(값). 보통은 None입니다.
+        /// The second name (the value) in `for k, v in d:`. Usually None.
         var2: Option<String>,
         iter: Expr,
         body: Vec<Stmt>,
@@ -590,16 +590,16 @@ pub enum Stmt {
     Struct(Shared<StructDecl>),
     Enum(Shared<EnumDecl>),
     Interface(Shared<InterfaceDecl>),
-    /// `with arena a:` — 메모리 Level 1. 블록을 벗어나면 통째로 해제됩니다.
+    /// `with arena a:` — memory Level 1. Freed all at once on leaving the block.
     Arena {
         name: String,
         body: Vec<Stmt>,
         line: usize,
     },
-    /// `extern "C" link "m"` — 링크할 C 라이브러리 이름.
+    /// `extern "C" link "m"` — name of a C library to link.
     Link(String, usize),
-    /// `import c "zlib.h" link "z"` — 헤더를 읽어 함수를 통째로 가져옵니다.
-    /// `resolve_imports` 단계에서 `Fn`/`Link` 들로 펼쳐집니다.
+    /// `import c "zlib.h" link "z"` — reads a header and imports all its functions.
+    /// Expanded into `Fn`/`Link` items during the `resolve_imports` stage.
     CHeader {
         header: String,
         cpp: bool,
@@ -609,7 +609,7 @@ pub enum Stmt {
         line: usize,
         col: usize,
     },
-    /// `unsafe:` — 메모리 Level 2. 원시 포인터를 쓸 수 있는 구간.
+    /// `unsafe:` — memory Level 2. A region where raw pointers may be used.
     Unsafe {
         body: Vec<Stmt>,
         line: usize,
@@ -618,9 +618,9 @@ pub enum Stmt {
     Import {
         path: Vec<String>,
         names: Vec<String>,
-        /// `from a import x as y` 의 y 들 (`as` 가 없으면 이름 그대로). `names` 와 길이가 같습니다.
+        /// The y's in `from a import x as y` (the name itself if there is no `as`). Same length as `names`.
         renames: Vec<String>,
-        /// `import pkg.a as b` 의 b
+        /// The b in `import pkg.a as b`
         alias: Option<String>,
         line: usize,
         col: usize,
@@ -632,7 +632,7 @@ pub struct Program {
     pub stmts: Vec<Stmt>,
 }
 
-// 문법 나무는 스레드 사이에 같이 읽어도 안전해야 합니다(`siskin run` 의 spawn 이 진짜 병렬).
+// The syntax tree must be safe to read concurrently across threads (spawn in `siskin run` is truly parallel).
 const _: fn() = || {
     fn shareable<T: Send + Sync>() {}
     shareable::<FnDecl>();

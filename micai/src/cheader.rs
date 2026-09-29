@@ -1,8 +1,8 @@
-//! C / C++ 헤더 파일을 읽어 그 안의 함수를 Siskin 선언으로 바꿉니다.
+//! Reads C / C++ header files and turns their functions into Siskin declarations.
 //!
-//! `import c "zlib.h" link "z"` 한 줄이면 zlib 함수를 전부 쓸 수 있습니다.
-//! 헤더를 직접 뜯어보는 대신 `clang` 에게 물어봅니다. 매크로·typedef·
-//! `#ifdef` 를 사람이 흉내 내면 반드시 틀리기 때문입니다.
+//! A single line `import c "zlib.h" link "z"` makes every zlib function available.
+//! Instead of parsing headers ourselves we ask `clang`, because imitating
+//! macros, typedefs and `#ifdef` by hand is bound to go wrong.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -10,7 +10,7 @@ use std::process::Command;
 
 use crate::json::{self, JsonVal, JRef};
 
-/// Siskin 쪽에서 쓸 타입. C의 온갖 정수 타입은 전부 Int 하나로 모읍니다.
+/// Types on the Siskin side. All of C's many integer types collapse into Int.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MTy {
     Unit,
@@ -30,7 +30,7 @@ impl MTy {
             MTy::Str => "Str",
         }
     }
-    /// Siskin ABI에서 쓰는 C 타입.
+    /// The C type used in the Siskin ABI.
     pub fn cty(&self) -> &'static str {
         match self {
             MTy::Unit => "void",
@@ -42,44 +42,44 @@ impl MTy {
     }
 }
 
-/// 라이브러리에 넘겨줄 함수(콜백) 한 자리의 생김새.
+/// Shape of a parameter that takes a function (callback) to pass to the library.
 #[derive(Clone, Debug, Default)]
 pub struct CbSig {
     pub ret: Option<MTy>,
     pub params: Vec<MTy>,
-    /// C 쪽 원래 타입들. 다리 함수를 만들 때 씁니다.
+    /// Original C types. Used when generating bridge functions.
     pub c_ret: String,
     pub c_params: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
 pub struct ImportedFn {
-    /// Siskin에서 부를 이름.
+    /// Name to call from Siskin.
     pub name: String,
     pub ret: MTy,
     pub params: Vec<MTy>,
-    /// 원래 C 타입들. 껍데기 함수에서 캐스트할 때 씁니다.
+    /// Original C types. Used for casts in the wrapper function.
     pub c_ret: String,
     pub c_params: Vec<String>,
-    /// C++ 이면 통째로 만들어 둔 `extern "C"` 껍데기 함수.
+    /// For C++, the complete pre-built `extern "C"` wrapper function.
     pub cpp_shim: Option<String>,
-    /// 각 자리가 "여기에 결과를 넣어 달라"는 자리인지. `sqlite3_open` 의
-    /// 두 번째 자리처럼 `T**` 로 받는 것들입니다. Siskin 에서는 `inout` 이 됩니다.
+    /// Whether each parameter is an out-parameter ("put the result here"), taken as `T**`
+    /// like the second parameter of `sqlite3_open`. In Siskin these become `inout`.
     pub outs: Vec<bool>,
-    /// 각 자리가 "함수를 넘겨 달라"는 자리면 그 함수의 생김새.
+    /// For each parameter that takes a function, that function's shape.
     pub cbs: Vec<Option<CbSig>>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Imported {
     pub fns: Vec<ImportedFn>,
-    /// (이름, 못 가져온 이유)
+    /// (name, reason it could not be imported)
     pub skipped: Vec<(String, String)>,
-    /// clang이 찾아낸 헤더의 실제 경로.
+    /// The actual path of the header found by clang.
     pub header_path: String,
 }
 
-// --------------------------------------------------------------- JSON 도우미
+// --------------------------------------------------------------- JSON helpers
 
 fn dget(v: &JRef, k: &str) -> Option<JRef> {
     match &*v.borrow() {
@@ -108,8 +108,8 @@ fn dlist(v: &JRef, k: &str) -> Vec<JRef> {
     }
 }
 
-/// 노드가 어느 파일에서 왔는지. clang은 앞 노드와 같은 파일이면 `file` 을
-/// 아예 빼므로, 못 찾으면 직전 값을 그대로 씁니다.
+/// Which file a node came from. clang omits `file` when it is the same as the
+/// previous node, so if it is missing, reuse the previous value.
 fn loc_file(n: &JRef, prev: &str) -> String {
     for key in ["range", "loc"] {
         let mut o = match dget(n, key) {
@@ -136,7 +136,7 @@ fn loc_file(n: &JRef, prev: &str) -> String {
     prev.to_string()
 }
 
-// ------------------------------------------------------------- C 타입 → Siskin
+// ------------------------------------------------------------- C types → Siskin
 
 const INT_TYPES: &[&str] = &[
     "char", "signed char", "unsigned char", "short", "unsigned short", "short int",
@@ -144,17 +144,17 @@ const INT_TYPES: &[&str] = &[
     "long int", "unsigned long int", "long long", "unsigned long long", "long long int",
     "unsigned long long int", "wchar_t", "__int128", "unsigned __int128", "signed",
     "signed int", "signed long", "signed short", "signed char int",
-    // 새 clang(21 이후)은 size_t 를 이 이름으로 보여 줍니다.
+    // Newer clang (21+) shows size_t under this name.
     "__size_t", "__signed_size_t", "__ptrdiff_t",
 ];
 
-/// 공백을 하나로 줄이고 의미 없는 수식어를 뗍니다.
+/// Collapse whitespace and drop meaningless qualifiers.
 fn tidy(q: &str) -> String {
     let mut s = q.to_string();
     for junk in ["const ", "volatile ", "restrict", "_Nullable", "_Nonnull", "_Null_unspecified"] {
         s = s.replace(junk, " ");
     }
-    // `const` 가 맨 뒤에 붙는 경우 (`char * const`)
+    // `const` at the very end (`char * const`)
     let mut out = String::new();
     for w in s.split_whitespace() {
         if w == "const" || w == "volatile" {
@@ -167,11 +167,11 @@ fn tidy(q: &str) -> String {
         }
         out.push_str(w);
     }
-    // `foo**` 처럼 붙어 있는 별은 그대로 둡니다.
+    // Leave attached stars as in `foo**` alone.
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// typedef 를 끝까지 따라갑니다. `uLong` → `unsigned long`.
+/// Follow typedefs all the way. `uLong` → `unsigned long`.
 fn resolve(q: &str, td: &HashMap<String, String>, depth: usize) -> String {
     if depth > 16 {
         return q.to_string();
@@ -205,13 +205,13 @@ fn resolve(q: &str, td: &HashMap<String, String>, depth: usize) -> String {
     tidy(&out)
 }
 
-/// 헤더에 적힌 C 타입 하나를 Siskin 타입으로 옮깁니다.
-/// `is_ret` 은 반환 자리인지. `char*` 은 자리에 따라 뜻이 달라서 구분합니다.
+/// Map one C type written in a header to a Siskin type.
+/// `is_ret` says whether it is the return position; `char*` means different things depending on position.
 fn map_ty(q: &str, td: &HashMap<String, String>, is_ret: bool) -> Result<MTy, String> {
     let orig = tidy(q);
-    // `const` 가 붙었는지는 typedef 를 따라간 뒤에도 알아야 합니다.
-    // `const char*` 은 "읽어라"(글자열), 그냥 `char*` 은 "여기 써 넣어라"(손잡이)라
-    // 뜻이 정반대이기 때문입니다.
+    // Whether `const` is present must be known even after following typedefs,
+    // because `const char*` means "read this" (a string) while a plain `char*` means "write here" (a handle):
+    // exact opposites.
     let had_const = q.contains("const") || {
         let base = tidy(q).trim_end_matches('*').trim().to_string();
         td.get(&base).map(|u| u.contains("const")).unwrap_or(false)
@@ -236,23 +236,23 @@ fn map_ty(q: &str, td: &HashMap<String, String>, is_ret: bool) -> Result<MTy, St
         return Err(why_callback().into());
     }
     if rs.ends_with(']') {
-        // 인자 자리의 배열은 C에서 포인터로 넘어갑니다.
+        // Arrays in parameter position are passed as pointers in C.
         return if is_ret { Err(tr!("배열을 돌려주는 함수", "function returning an array").into()) } else { Ok(MTy::Int) };
     }
     if rs.ends_with('*') {
         let pointee = rs.trim_end_matches('*').trim();
         let depth = rs.chars().filter(|c| *c == '*').count();
-        // 1바이트짜리를 가리키는 포인터 하나만 글자열로 봅니다.
-        // zlib 의 `const Bytef*`(= `const unsigned char*`) 도 여기 들어옵니다.
+        // Only a single pointer to a 1-byte type is treated as a string.
+        // zlib's `const Bytef*` (= `const unsigned char*`) also lands here.
         let bytelike = matches!(pointee, "char" | "signed char" | "unsigned char");
         if depth == 1 && bytelike {
-            // 돌려줄 때는 글자열, 넘길 때는 `const` 일 때만 글자열입니다.
+            // Returned: a string. Passed: a string only when `const`.
             if is_ret || had_const {
                 return Ok(MTy::Str);
             }
             return Ok(MTy::Int);
         }
-        return Ok(MTy::Int); // 그 밖의 포인터는 전부 손잡이(Int)
+        return Ok(MTy::Int); // every other pointer is a handle (Int)
     }
     if rs.starts_with("enum ") {
         return Ok(MTy::Int);
@@ -263,12 +263,12 @@ fn map_ty(q: &str, td: &HashMap<String, String>, is_ret: bool) -> Result<MTy, St
     Err(format!("{} `{}`", why_unknown_type(), orig))
 }
 
-/// `map_ty` 가 콜백 자리라고 알리는 이유 글. 호출하는 쪽이 이 글로 알아봅니다.
+/// Reason text `map_ty` uses to signal a callback parameter. Callers recognize it by this text.
 fn why_callback() -> &'static str {
     tr!("콜백(함수를 넘기는 인자)", "callback (a parameter that takes a function)")
 }
 
-/// `map_ty` 가 모르는 타입이라고 알리는 이유 글의 앞부분.
+/// Prefix of the reason text `map_ty` uses to signal an unknown type.
 fn why_unknown_type() -> &'static str {
     tr!("모르는 타입", "unknown type")
 }
@@ -277,13 +277,13 @@ fn why_variadic() -> String {
     tr!("인자 개수가 정해지지 않은 함수", "variadic function").into()
 }
 
-/// `int (*)(void *, int)` 같은 함수 포인터를 뜯어봅니다.
-/// 라이브러리에 내 함수를 넘겨줄 수 있게 하기 위해서입니다.
+/// Parse a function pointer like `int (*)(void *, int)`,
+/// so that our own functions can be passed to the library.
 fn parse_fnptr(q: &str, td: &HashMap<String, String>) -> Option<CbSig> {
     let r = resolve(q, td, 0);
     let open = r.find("(*")?;
     let ret_c = r[..open].trim().to_string();
-    // `(*)` 를 지나 인자 목록의 여는 괄호를 찾습니다.
+    // Skip past `(*)` and find the opening parenthesis of the parameter list.
     let after = &r[open..];
     let close = after.find(')')?;
     let rest = after[close + 1..].trim_start();
@@ -309,9 +309,9 @@ fn parse_fnptr(q: &str, td: &HashMap<String, String>) -> Option<CbSig> {
     Some(CbSig { ret: rt, params: ps, c_ret: ret_c, c_params: params })
 }
 
-/// `T**` 처럼 포인터를 또 가리키는 자리는 거의 언제나 "여기에 결과를 넣어라"
-/// 라는 뜻입니다 (`sqlite3_open(파일, &db)`). 이런 자리는 Siskin 의 `inout` 으로
-/// 옮겨서 `sqlite3_open("t.db", inout db)` 처럼 쓰게 합니다.
+/// A parameter pointing to another pointer, like `T**`, almost always means "put the result here"
+/// (`sqlite3_open(file, &db)`). Such parameters become Siskin `inout`,
+/// so it can be written as `sqlite3_open("t.db", inout db)`.
 fn is_out_param(q: &str, td: &HashMap<String, String>) -> bool {
     let r = resolve(q, td, 0).replace(" *", "*");
     let r = r.trim();
@@ -321,11 +321,11 @@ fn is_out_param(q: &str, td: &HashMap<String, String>) -> bool {
     if r.contains("(*") {
         return false;
     }
-    // 바깥쪽 포인터가 `const` 면 바꿀 수 없으니 읽기 전용입니다.
+    // If the outer pointer is `const`, it cannot be modified, so it is read-only.
     !q.trim_end().ends_with("const *")
 }
 
-// --------------------------------------------------------------- clang 호출
+// --------------------------------------------------------------- invoking clang
 
 fn temp_dir() -> PathBuf {
     let d = std::env::temp_dir().join("siskin-ffi");
@@ -352,7 +352,7 @@ fn run_clang(header: &str, cpp: bool, incdirs: &[String]) -> Result<String, Stri
     };
     std::fs::write(&src, &include).map_err(|e| tr!(format!("임시 파일을 쓸 수 없습니다: {}", e), format!("cannot write temporary file: {}", e)))?;
 
-    // 컴파일에 쓰는 것과 같은 clang 으로 읽어야 타입 크기·헤더 위치가 맞습니다.
+    // Read with the same clang used for compiling so type sizes and header locations match.
     let mut cmd = Command::new(crate::header_clang());
     cmd.arg("-x").arg(if cpp { "c++" } else { "c" });
     if cpp {
@@ -398,7 +398,7 @@ fn run_clang(header: &str, cpp: bool, incdirs: &[String]) -> Result<String, Stri
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
-// ---------------------------------------------------------------- typedef 표
+// ---------------------------------------------------------------- typedef table
 
 fn collect_typedefs(root: &JRef, td: &mut HashMap<String, String>) {
     let mut stack = vec![root.clone()];
@@ -416,17 +416,17 @@ fn collect_typedefs(root: &JRef, td: &mut HashMap<String, String>) {
     }
 }
 
-// ------------------------------------------------------------------ 본 작업
+// ------------------------------------------------------------------ main work
 
-/// 헤더 경로가 요청한 이름으로 끝나는지. `"sys/stat.h"` 는
-/// `/usr/include/x86_64-linux-gnu/sys/stat.h` 와 맞습니다.
+/// Whether a header path ends with the requested name. `"sys/stat.h"`
+/// matches `/usr/include/x86_64-linux-gnu/sys/stat.h`.
 fn is_wanted(path: &str, header: &str) -> bool {
     let want = header.trim_start_matches("./").replace('\\', "/");
     let p = path.replace('\\', "/");
     if p == want || p.ends_with(&format!("/{}", want)) {
         return true;
     }
-    // 새 macOS SDK 는 `string.h` 의 함수들을 같은 폴더의 `_string.h` 에 적어 둡니다.
+    // Newer macOS SDKs declare the functions of `string.h` in `_string.h` in the same folder.
     let (dir, file) = match want.rsplit_once('/') {
         Some((d, f)) => (format!("/{}/", d), f.to_string()),
         None => ("/".to_string(), want.clone()),
@@ -440,7 +440,7 @@ pub fn import_header(
     incdirs: &[String],
     only: &[String],
 ) -> Result<Imported, String> {
-    // 건너뛴 이유 글은 언어마다 다르므로 캐시도 언어별로 둡니다 (한국어는 예전 키 그대로).
+    // Skip-reason texts differ by language, so the cache is per language too (Korean keeps the old key).
     let key = format!("{}|{}|{}|v9{}", header, cpp, incdirs.join(":"), tr!("", "|en"));
     let cache = temp_dir().join(format!("{:016x}.txt", hash64(&key)));
     if let Some(hit) = load_cache(&cache) {
@@ -493,7 +493,7 @@ pub fn import_header(
             res.skipped.push((name, why_variadic()));
             continue;
         }
-        // 반환 타입은 시그니처에서 첫 `(` 앞까지입니다.
+        // The return type is everything in the signature before the first `(`.
         let ret_c = match qual.find('(') {
             Some(i) => qual[..i].trim().to_string(),
             None => qual.trim().to_string(),
@@ -524,7 +524,7 @@ pub fn import_header(
                     cbs.push(None);
                 }
                 Err(why) => {
-                    // 함수를 넘겨 달라는 자리면 그 생김새를 적어 두고 계속합니다.
+                    // For a parameter that takes a function, record its shape and continue.
                     if why == why_callback() {
                         if let Some(cb) = parse_fnptr(p, &td) {
                             params.push(MTy::Int);
@@ -550,11 +550,11 @@ pub fn import_header(
     Ok(filter_only(res, only))
 }
 
-/// clang 이 알려 준 자리를 절대 경로로 바꿉니다. 나중에 다른 폴더에서
-/// 컴파일해도 같은 헤더를 보게 하기 위해서입니다.
+/// Turn the location reported by clang into an absolute path, so the same header
+/// is seen even when compiling later from a different folder.
 fn abs_path(im: &mut Imported) {
     if let Ok(p) = crate::canonicalize(&im.header_path) {
-        // C 의 `#include "..."` 안에서 `\` 는 탈출 글자라서 윈도우 경로도 `/` 로 적습니다.
+        // Inside C's `#include "..."`, `\` is an escape character, so Windows paths are written with `/` too.
         im.header_path = p.to_string_lossy().replace('\\', "/");
     }
 }
@@ -567,8 +567,8 @@ fn filter_only(mut im: Imported, only: &[String]) -> Imported {
     im
 }
 
-// -------------------------------------------------------------------- 캐시
-// clang은 1초 넘게 걸리므로 결과를 저장해 둡니다. 헤더가 바뀌면 버립니다.
+// -------------------------------------------------------------------- cache
+// clang takes over a second, so results are cached. Discarded when the header changes.
 
 fn save_cache(path: &PathBuf, im: &Imported) {
     let mut s = String::from("siskin-ffi 9\n");
@@ -660,7 +660,7 @@ fn load_cache(path: &PathBuf) -> Option<Imported> {
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
                 if now != want {
-                    return None; // 헤더가 바뀌었습니다
+                    return None; // the header changed
                 }
             }
             Some(&"F") if f.len() >= 6 => {
@@ -720,17 +720,17 @@ fn load_cache(path: &PathBuf) -> Option<Imported> {
 
 // ===================================================================== C++
 //
-// C++ 은 이름이 안에서 뒤틀려 저장되고(`geo::add(int,int)` -> `_ZN3geo3addEii`),
-// 클래스·가상 함수·템플릿처럼 C에 없는 것들이 있어서 C 쪽에서 그대로 부를 수
-// 없습니다. 그래서 가운데에 다리를 놓습니다. C++ 함수 하나마다
-// `extern "C"` 로 감싼 껍데기를 만들어서 C++ 컴파일러에게 같이 넘기면,
-// 뒤틀린 이름도 가상 함수도 템플릿도 C++ 컴파일러가 알아서 처리해 줍니다.
+// C++ stores names mangled (`geo::add(int,int)` -> `_ZN3geo3addEii`), and has things C lacks
+// such as classes, virtual functions and templates, so C cannot call it directly.
+// So we put a bridge in between: for each C++ function we generate
+// a wrapper in `extern "C"` and hand it to the C++ compiler as well; the C++ compiler then
+// takes care of mangled names, virtual functions and templates.
 
-/// C++ 인자/반환 하나를 어떻게 옮길지.
+/// How to translate one C++ parameter/return value.
 #[derive(Clone, Debug)]
 struct CppSlot {
     mty: MTy,
-    /// C++ 쪽 원래 타입.
+    /// Original type on the C++ side.
     cpp: String,
 }
 
@@ -750,7 +750,7 @@ fn is_string_type(t: &str) -> bool {
         || b == "basic_string<char>"
 }
 
-/// 인자 하나를 옮기는 법. `(siskin 타입, 껍데기 안에서 쓸 식)`.
+/// How to pass one parameter: `(siskin type, expression used inside the wrapper)`.
 fn cpp_param(q: &str, td: &HashMap<String, String>, idx: usize) -> Result<(CppSlot, String), String> {
     let a = format!("a{}", idx);
     let t = q.trim();
@@ -758,7 +758,7 @@ fn cpp_param(q: &str, td: &HashMap<String, String>, idx: usize) -> Result<(CppSl
         return Ok((CppSlot { mty: MTy::Str, cpp: t.into() }, format!("std::string({})", a)));
     }
     let bare = strip_quals_cpp(t);
-    // 참조(`T&`)는 손잡이를 받아서 그 자리를 가리킵니다.
+    // References (`T&`) take a handle and point at that location.
     if let Some(inner) = bare.strip_suffix('&') {
         let inner = inner.trim().trim_end_matches('&').trim();
         if is_string_type(inner) {
@@ -766,7 +766,7 @@ fn cpp_param(q: &str, td: &HashMap<String, String>, idx: usize) -> Result<(CppSl
         }
         if let Ok(m) = map_ty(inner, td, false) {
             if m != MTy::Int {
-                // `double&` 같은 건 값으로 못 받습니다.
+                // Things like `double&` cannot be taken by value.
                 return Err(tr!("참조로 값을 돌려주는 인자", "parameter that returns a value by reference").into());
             }
         }
@@ -776,7 +776,7 @@ fn cpp_param(q: &str, td: &HashMap<String, String>, idx: usize) -> Result<(CppSl
             format!("(*({}*)(void*){})", base, a),
         ));
     }
-    // 그 밖에는 C와 같은 규칙을 씁니다.
+    // Otherwise use the same rules as C.
     match map_ty(t, td, false) {
         Ok(MTy::Str) => Ok((CppSlot { mty: MTy::Str, cpp: t.into() }, format!("({}){}", t, a))),
         Ok(m @ (MTy::Int | MTy::Float | MTy::Bool)) => {
@@ -788,7 +788,7 @@ fn cpp_param(q: &str, td: &HashMap<String, String>, idx: usize) -> Result<(CppSl
         }
         Ok(MTy::Unit) => Err(tr!("void 인자", "void parameter").into()),
         Err(why) => {
-            // 클래스를 값으로 받는 건 복사가 필요해서 아직 안 합니다.
+            // Taking a class by value needs a copy, so it is not supported yet.
             if why.starts_with(why_unknown_type()) {
                 Err(tr!("C++ 값(클래스)을 그대로 받는 인자", "parameter taking a C++ class by value").into())
             } else {
@@ -798,16 +798,16 @@ fn cpp_param(q: &str, td: &HashMap<String, String>, idx: usize) -> Result<(CppSl
     }
 }
 
-/// 반환을 옮기는 법. `(siskin 타입, call 식을 감쌀 틀)`.
-/// 틀 안의 `{}` 자리에 실제 호출식이 들어갑니다.
+/// How to return: `(siskin type, template wrapping the call expression)`.
+/// The actual call expression goes into the `{}` slot of the template.
 fn cpp_ret(q: &str, td: &HashMap<String, String>) -> Result<(MTy, String), String> {
     let t = q.trim();
     if t == "void" {
         return Ok((MTy::Unit, "{};".into()));
     }
     if is_string_type(t) {
-        // std::string 은 글자열로 옮깁니다. Siskin 이 바로 복사해 가므로
-        // 돌려 쓰는 칸 몇 개면 충분합니다.
+        // std::string is returned as a string. Siskin copies it immediately, so
+        // a few rotating slots are enough.
         return Ok((MTy::Str, "return mi_cpp_hold({});".into()));
     }
     let bare = strip_quals_cpp(t);
@@ -831,7 +831,7 @@ fn cpp_ret(q: &str, td: &HashMap<String, String>) -> Result<(MTy, String), Strin
             }
         }
         Err(_) => {
-            // 클래스를 값으로 돌려주면 힙에 복사해 두고 손잡이를 줍니다.
+            // A class returned by value is copied to the heap and a handle is returned.
             Ok((MTy::Int, format!("return (int64_t)(void*)new {}({{}});", bare)))
         }
     }
@@ -853,8 +853,8 @@ impl<'a> CppCtx<'a> {
         &mut self,
         siskin_name: String,
         ret_q: &str,
-        params: Vec<(String, String)>, // (C++ 타입, 이름은 안 씀)
-        recv: Option<String>,          // 클래스 이름 (메서드면)
+        params: Vec<(String, String)>, // (C++ type, name unused)
+        recv: Option<String>,          // class name (for methods)
         make_call: impl Fn(&[String]) -> String,
         pretty: &str,
     ) {
@@ -923,7 +923,7 @@ impl<'a> CppCtx<'a> {
 }
 
 fn split_sig(qual: &str) -> (String, Vec<String>) {
-    // `int (int, double)` -> ("int", ["int","double"])  — 괄호 짝을 셉니다.
+    // `int (int, double)` -> ("int", ["int","double"])  — counts matching parentheses.
     let open = match qual.find('(') {
         Some(i) => i,
         None => return (qual.trim().into(), Vec::new()),
@@ -1020,8 +1020,8 @@ fn walk_cpp(node: &JRef, ns: &str, ctx: &mut CppCtx, cur: &mut String) {
                 let cls_ns = format!("{}{}::", ns, name);
                 let mut sub = cur.clone();
                 walk_cpp(&c, &cls_ns, ctx, &mut sub);
-                // 지우는 함수는 C++이 알아서 만들어 주므로 헤더에 안 적혀 있습니다.
-                // 손잡이를 받은 쪽에서 반드시 지울 수 있어야 하니 우리가 만들어 둡니다.
+                // The destructor is generated by C++ implicitly, so it is not in the header.
+                // Whoever receives a handle must be able to delete it, so we generate one.
                 if in_header {
                     let cls = format!("{}{}", ns, name);
                     let siskin = sanitize_name(&format!("{}_delete", cls));
@@ -1042,7 +1042,7 @@ fn walk_cpp(node: &JRef, ns: &str, ctx: &mut CppCtx, cur: &mut String) {
                 }
                 cpp_entity(&c, &kind, ns, &name, ctx);
             }
-            // 템플릿은 쓰는 순간마다 새로 찍어내는 것이라 미리 가져올 수 없습니다.
+            // Templates are instantiated at each use, so they cannot be imported ahead of time.
             "FunctionTemplateDecl" | "ClassTemplateDecl" => {
                 if in_header && !name.is_empty() {
                     ctx.out.skipped.push((
@@ -1057,7 +1057,7 @@ fn walk_cpp(node: &JRef, ns: &str, ctx: &mut CppCtx, cur: &mut String) {
 }
 
 fn cpp_entity(c: &JRef, kind: &str, ns: &str, name: &str, ctx: &mut CppCtx) {
-    // 컴파일러가 스스로 만든 것, 지운 것, 공개되지 않은 것은 건너뜁니다.
+    // Skip compiler-generated, deleted and non-public items.
     if matches!(dget(c, "isImplicit").map(|v| matches!(&*v.borrow(), JsonVal::Bool(true))), Some(true)) {
         return;
     }
@@ -1095,7 +1095,7 @@ fn cpp_entity(c: &JRef, kind: &str, ns: &str, name: &str, ctx: &mut CppCtx) {
                 move |args| format!("new {}({})", cls2, args.join(", ")),
                 &pretty,
             );
-            // 만들기는 손잡이를 돌려줘야 하므로 반환 틀을 직접 고칩니다.
+            // Constructors must return a handle, so patch the return template directly.
             if let Some(last) = ctx.out.fns.last_mut() {
                 if last.ret == MTy::Unit {
                     last.ret = MTy::Int;

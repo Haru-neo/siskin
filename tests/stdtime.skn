@@ -1,4 +1,4 @@
-# std.time: 날짜 다루기 (고정된 시각으로 시험해서 언제 돌려도 같은 답)
+# std.time: working with dates (tested at a fixed instant, so the answer is the same whenever it runs)
 import std.time
 from std.time import now, sleep
 
@@ -11,12 +11,12 @@ fn main():
     print(d.date_str() + " → " + d.add_days(1).date_str() + " → " + d.add_days(30).date_str() + "\n")
     let leap = date(2024, 2, 28).add_days(1)
     print(leap.date_str() + "\n")
-    print(f"{date(2026, 1, 1).days_until(date(2026, 12, 25))}일\n")
+    print(f"{date(2026, 1, 1).days_until(date(2026, 12, 25))} days\n")
     let p = parse_time("2026-09-22 23:09:07", "%Y-%m-%d %H:%M:%S") catch e:
-        print("실패: " + e + "\n")
+        print("failed: " + e + "\n")
         return
     print(p.to_str() + " " + p.weekday_name() + "\n")
     let bad = parse_time("2026/09/22", "%Y-%m-%d") catch e:
-        print("실패: " + e + "\n")
+        print("failed: " + e + "\n")
         return
     print(bad.to_str())

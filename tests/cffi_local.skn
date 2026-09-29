@@ -1,4 +1,4 @@
-# C 헤더를 가져와 같이 컴파일하는 시험 (운영체제마다 따로 깔 라이브러리가 없게 작은 C 파일을 씁니다)
+# Test importing a C header and compiling it along (uses a small C file so no per-OS library needs to be installed)
 import c "counter.h" from "clib" also "clib/counter.c"
 import c "string.h"
 

@@ -1,12 +1,12 @@
-/* ---- std.net: 인터넷 연결 (TCP, TLS, HTTP) ----
-   이 조각은 프로그램이 std.net 을 쓸 때만 붙습니다.
-   TLS(https)는 컴퓨터에 깔린 OpenSSL(libssl)을 실행 중에 찾아서 씁니다.
-   그래서 빌드할 때 OpenSSL 헤더가 없어도 되고, https 를 안 쓰면 없어도 됩니다. */
+/* ---- std.net: network connections (TCP, TLS, HTTP) ----
+   This part is included only when the program uses std.net.
+   TLS (https) uses the OpenSSL (libssl) installed on the machine, located at run time.
+   So OpenSSL headers are not needed at build time, and OpenSSL is not needed at all without https. */
 #include <stdarg.h>
 #ifdef _WIN32
-/* 윈도우: 소켓은 Winsock(ws2_32), OpenSSL 은 DLL 을 LoadLibrary 로 불러옵니다.
-   아래 mi_s* 함수는 실패하면 errno 에 유닉스와 같은 오류 번호를 넣어서, 나머지 코드가
-   운영체제를 가리지 않고 같은 오류 글을 내게 합니다. */
+/* Windows: sockets use Winsock (ws2_32); OpenSSL DLLs are loaded with LoadLibrary.
+   On failure, the mi_s* functions below store Unix-compatible error numbers in errno, so the rest of the code
+   produces the same error text regardless of OS. */
 #include <wincrypt.h>
 #define MSG_NOSIGNAL 0
 #define strncasecmp _strnicmp
@@ -51,13 +51,13 @@ static int mi_poll(struct pollfd* p, int n, int ms) { int r = WSAPoll(p, (ULONG)
 static void mi_net_timeouts(int fd);
 static bool mi_readable(const char* f) { FILE* x = mi_fopen(f, "rb"); if (!x) return false; fclose(x); return true; }
 static void mi_no_sigpipe(void) {}
-/* dlopen 대신 */
+/* instead of dlopen */
 static HMODULE mi_ssl_libs[2];
 static void* mi_ssl_sym(const char* n) {
     for (int i = 0; i < 2; i++) if (mi_ssl_libs[i]) { FARPROC f = GetProcAddress(mi_ssl_libs[i], n); if (f) return (void*)f; }
     return NULL;
 }
-/* 폴더 dir 에서 libssl/libcrypto 짝을 불러 봅니다(dir 가 비면 PATH 에서). */
+/* Try to load a libssl/libcrypto pair from folder dir (from PATH if dir is empty). */
 static bool mi_ssl_try_dir(const wchar_t* dir) {
     static const wchar_t* ssl[] = { L"libssl-3-x64.dll", L"libssl-3.dll", L"libssl-1_1-x64.dll", NULL };
     static const wchar_t* cry[] = { L"libcrypto-3-x64.dll", L"libcrypto-3.dll", L"libcrypto-1_1-x64.dll", NULL };
@@ -75,12 +75,12 @@ static bool mi_ssl_try_dir(const wchar_t* dir) {
     }
     return false;
 }
-/* OpenSSL 은 윈도우에 기본으로 없어서, PATH → Git for Windows → OpenSSL 설치 폴더 순서로 찾습니다. */
+/* OpenSSL is not installed by default on Windows, so search PATH → Git for Windows → OpenSSL install folders, in order. */
 static bool mi_ssl_open(void) {
     if (mi_ssl_try_dir(L"")) return true;
     wchar_t git[MAX_PATH];
     if (SearchPathW(NULL, L"git.exe", NULL, MAX_PATH, git, NULL)) {
-        /* ...\Git\cmd\git.exe 나 ...\Git\bin\git.exe → ...\Git\mingw64\bin */
+        /* ...\Git\cmd\git.exe or ...\Git\bin\git.exe → ...\Git\mingw64\bin */
         wchar_t* s1 = wcsrchr(git, L'\\');
         if (s1) { *s1 = 0; wchar_t* s2 = wcsrchr(git, L'\\'); if (s2) { *s2 = 0;
             wchar_t d[MAX_PATH * 2];
@@ -143,7 +143,7 @@ static void mi_net_ok(void) { mi_net_err_s = mi_str(""); }
 static MiStr mi_net_error(void) { return mi_net_err_s.p ? mi_net_err_s : mi_str(""); }
 static void mi_net_set_timeout(double s) { mi_net_timeout_s = s > 0 ? s : 0; }
 
-/* ---- OpenSSL 을 실행 중에 불러오기 ---- */
+/* ---- Loading OpenSSL at run time ---- */
 typedef struct {
     bool tried, ok;
     const void* (*TLS_client_method)(void);
@@ -164,7 +164,7 @@ typedef struct {
     unsigned long (*ERR_get_error)(void);
     void (*ERR_error_string_n)(unsigned long, char*, size_t);
     const char* (*X509_verify_cert_error_string)(long);
-    /* 서버 쪽(https 서버) */
+    /* Server side (https server) */
     const void* (*TLS_server_method)(void);
     int (*SSL_CTX_use_certificate_chain_file)(void*, const char*);
     int (*SSL_CTX_use_PrivateKey_file)(void*, const char*, int);
@@ -177,7 +177,7 @@ static MiSSL mi_ssl;
 
 static pthread_mutex_t mi_ssl_mu = PTHREAD_MUTEX_INITIALIZER;
 static bool mi_ssl_load_once(void);
-/* 여러 작업이 동시에 https 를 처음 쓸 수 있어 한 번만 불러오게 자물쇠를 겁니다. */
+/* Several tasks may use https for the first time concurrently, so lock to load it only once. */
 static bool mi_ssl_load(void) {
     pthread_mutex_lock(&mi_ssl_mu);
     bool ok = mi_ssl_load_once();
@@ -192,7 +192,7 @@ static bool mi_ssl_load_once(void) {
 #define MI_SSL_GET(n) mi_ssl_sym(n)
 #else
 #ifdef __APPLE__
-    /* 맥의 /usr/lib/libssl.dylib 는 불러오면 프로그램을 멈춰 버리는 껍데기라서, Homebrew 의 OpenSSL 을 씁니다. */
+    /* macOS's /usr/lib/libssl.dylib is a stub that aborts the program when loaded, so use Homebrew's OpenSSL. */
     const char* names[] = { "/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib", "/usr/local/opt/openssl@3/lib/libssl.3.dylib",
                             "/opt/homebrew/lib/libssl.3.dylib", "/usr/local/lib/libssl.3.dylib", "libssl.3.dylib", NULL };
 #else
@@ -219,10 +219,10 @@ static bool mi_ssl_load_once(void) {
 #undef MI_SSL_GET
     mi_ssl.ctx = mi_ssl.SSL_CTX_new(mi_ssl.TLS_client_method());
     if (!mi_ssl.ctx) { mi_net_fail(MI_T("TLS 를 준비할 수 없습니다", "cannot initialize TLS")); return false; }
-    /* 운영체제의 인증서 목록을 씁니다. SSL_CERT_FILE / SSL_CERT_DIR 환경 변수도 따릅니다. */
+    /* Use the OS certificate store. Also honors the SSL_CERT_FILE / SSL_CERT_DIR environment variables. */
     mi_ssl.SSL_CTX_set_default_verify_paths(mi_ssl.ctx);
 #ifdef _WIN32
-    /* 윈도우의 OpenSSL 은 운영체제 인증서 목록을 모르므로, 윈도우 "신뢰할 수 있는 루트" 를 넣어 줍니다. */
+    /* OpenSSL on Windows does not know the OS certificate store, so add the Windows "Trusted Root" certificates. */
     {
         void* (*get_store)(const void*) = (void* (*)(const void*))mi_ssl_sym("SSL_CTX_get_cert_store");
         void* (*d2i)(void**, const unsigned char**, long) = (void* (*)(void**, const unsigned char**, long))mi_ssl_sym("d2i_X509");
@@ -246,17 +246,17 @@ static bool mi_ssl_load_once(void) {
     return true;
 }
 
-/* ---- 연결 하나 ---- */
+/* ---- A single connection ---- */
 typedef struct {
     int fd;
     void* ssl;
-    void* sctx;   /* https 서버로 연 포트면 그 인증서가 든 TLS 준비물 */
+    void* sctx;   /* for ports opened as an https server: the TLS context holding its certificate */
     bool used, listening;
     char* buf; int64_t blen, bcap, bpos;
-    /* 여러 작업(spawn)이 같은 연결을 쓰더라도 한 번에 하나씩만 만지게 합니다. */
+    /* Even if several tasks (spawn) share a connection, only one touches it at a time. */
     pthread_mutex_t mu;
 } MiConn;
-/* 연결 표. 칸마다 따로 할당해서, 표가 커져도 이미 받은 연결 주소는 그대로입니다. */
+/* Connection table. Each slot is allocated separately, so connection addresses stay valid as the table grows. */
 static MiConn** mi_conns;
 static int64_t mi_nconns;
 static pthread_mutex_t mi_conn_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -281,7 +281,7 @@ static int64_t mi_conn_new(int fd) {
     pthread_mutex_unlock(&mi_conn_mu);
     return i;
 }
-/* 손잡이로 연결을 찾습니다. 닫혔거나 없으면 NULL. */
+/* Find a connection by handle. NULL if closed or missing. */
 static MiConn* mi_conn_at(int64_t h) {
     pthread_mutex_lock(&mi_conn_mu);
     MiConn* c = (h >= 0 && h < mi_nconns && mi_conns[h]->used) ? mi_conns[h] : NULL;
@@ -308,7 +308,7 @@ static void mi_net_timeouts(int fd) {
 #endif
 }
 
-/* 주소를 찾아서 TCP 로 붙습니다. 실패하면 -1 과 오류 글. */
+/* Resolve the address and connect via TCP. On failure, -1 and an error message. */
 static int mi_tcp_dial(const char* host, int64_t port) {
     mi_no_sigpipe();
     if (port <= 0 || port > 65535) { mi_net_fail(MI_T("포트 번호 %lld 은(는) 쓸 수 없습니다 (1~65535)", "invalid port number %lld (must be 1-65535)"), (long long)port); return -1; }
@@ -359,7 +359,7 @@ static bool mi_is_ip(const char* h) {
     return inet_pton(AF_INET, h, b) == 1 || inet_pton(AF_INET6, h, b) == 1;
 }
 
-/* 이미 붙은 소켓 위에 TLS 를 올립니다. */
+/* Layer TLS on top of an already connected socket. */
 static bool mi_tls_start(MiConn* c, const char* host) {
     if (!mi_ssl_load()) return false;
     void* s = mi_ssl.SSL_new(mi_ssl.ctx);
@@ -404,7 +404,7 @@ static int64_t mi_conn_write(MiConn* c, const char* p, int64_t n) {
     return done;
 }
 
-/* 버퍼에 더 받아 둡니다. 받은 만큼(>0), 끝(0), 오류(-1). */
+/* Read more into the buffer. Bytes read (>0), end (0), error (-1). */
 static int64_t mi_conn_fill(MiConn* c) {
     if (c->bpos > 0 && c->bpos == c->blen) { c->bpos = c->blen = 0; }
     if (c->blen + 65536 + 1 > c->bcap) {
@@ -456,7 +456,7 @@ static MiStr mi_conn_take(MiConn* c, int64_t n) {
     return mi_mk(p, n);
 }
 
-/* 한 줄 (끝의 \n 포함). 끝이면 "" */
+/* One line (including the trailing \n). "" at end. */
 static MiStr mi_conn_line(MiConn* c, bool* failed) {
     int64_t scan = c->bpos;
     for (;;) {
@@ -470,7 +470,7 @@ static MiStr mi_conn_line(MiConn* c, bool* failed) {
     }
 }
 
-/* ---- 프록시 (회사·학교 망에서 HTTPS_PROXY 를 쓰는 경우) ---- */
+/* ---- Proxy (when HTTPS_PROXY is used on corporate/school networks) ---- */
 static bool mi_no_proxy(const char* host) {
     const char* np = getenv("NO_PROXY");
     if (!np) np = getenv("no_proxy");
@@ -490,7 +490,7 @@ static bool mi_no_proxy(const char* host) {
             if (q[0] == '.') { q++; qn--; }
             if (hl == qn && strncasecmp(host, q, qn) == 0) return true;
             if (hl > qn && host[hl - qn - 1] == '.' && strncasecmp(host + hl - qn, q, qn) == 0) return true;
-            /* 127.0.0.0/8 같은 IPv4 범위 */
+            /* IPv4 ranges like 127.0.0.0/8 */
             const char* sl = memchr(q, '/', qn);
             if (sl) {
                 char net[64]; size_t nn = (size_t)(sl - q);
@@ -555,7 +555,7 @@ static MiProxy mi_proxy_for(const char* host, bool tls) {
     return px;
 }
 
-/* 프록시에 CONNECT 를 보내 길을 뚫습니다. */
+/* Send CONNECT to the proxy to open a tunnel. */
 static bool mi_proxy_connect(MiConn* c, MiProxy* px, const char* host, int64_t port) {
     char req[1024];
     int n = snprintf(req, sizeof req, "CONNECT %s:%lld HTTP/1.1\r\nHost: %s:%lld\r\n%s%s%s\r\n",
@@ -576,7 +576,7 @@ static bool mi_proxy_connect(MiConn* c, MiProxy* px, const char* host, int64_t p
     return true;
 }
 
-/* 연결을 엽니다. tls 면 보안 연결. use_proxy 면 HTTPS_PROXY 를 따릅니다. */
+/* Open a connection. tls: secure connection. use_proxy: honor HTTPS_PROXY. */
 static int64_t mi_net_dial(const char* host, int64_t port, bool tls, bool use_proxy) {
     MiProxy px; memset(&px, 0, sizeof px);
     if (use_proxy && tls) px = mi_proxy_for(host, true);
@@ -653,7 +653,7 @@ static void mi_net_close(int64_t h) {
     pthread_mutex_unlock(&c->mu);
 }
 
-/* ---- 서버: 들어오는 연결 받기 ---- */
+/* ---- Server: accepting incoming connections ---- */
 static int64_t mi_net_listen(MiStr host, int64_t port) {
     mi_no_sigpipe();
 #ifdef _WIN32
@@ -671,7 +671,7 @@ static int64_t mi_net_listen(MiStr host, int64_t port) {
     int fd = mi_ssocket(res->ai_family, res->ai_socktype, res->ai_protocol);
     int one = 1;
 #ifdef _WIN32
-    /* 윈도우의 SO_REUSEADDR 는 남이 쓰는 포트도 빼앗으므로, 대신 독차지를 켭니다. */
+    /* On Windows, SO_REUSEADDR can steal a port in use by others, so enable exclusive use instead. */
     if (fd >= 0) setsockopt((SOCKET)fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (void*)&one, sizeof one);
 #else
     if (fd >= 0) setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
@@ -692,7 +692,7 @@ static int64_t mi_net_listen(MiStr host, int64_t port) {
     return h;
 }
 
-/* https 서버: 인증서와 비밀 열쇠(PEM 파일)를 읽어 포트를 엽니다. */
+/* https server: read the certificate and private key (PEM files) and open the port. */
 static int64_t mi_net_listen_tls(MiStr host, int64_t port, MiStr cert, MiStr key) {
     if (!mi_ssl_load()) return -1;
     void* ctx = mi_ssl.SSL_CTX_new(mi_ssl.TLS_server_method());
@@ -712,7 +712,7 @@ static int64_t mi_net_listen_tls(MiStr host, int64_t port, MiStr cert, MiStr key
         unsigned long e = mi_ssl.ERR_get_error();
         if (e) mi_ssl.ERR_error_string_n(e, eb, sizeof eb);
         while (mi_ssl.ERR_get_error()) {}
-        /* OpenSSL 3 은 열쇠를 읽을 때 인증서와 짝인지도 봅니다. */
+        /* OpenSSL 3 also checks that the key matches the certificate when loading it. */
         if (strstr(eb, "mismatch")) mi_net_fail(MI_T("비밀 열쇠 `%s` 이(가) 인증서 `%s` 와 짝이 아닙니다", "private key `%s` does not match certificate `%s`"), kf, cf);
         else mi_net_fail(MI_T("`%s` 은(는) 비밀 열쇠(PEM) 파일이 아닙니다", "`%s` is not a private key (PEM) file"), kf);
         mi_ssl.SSL_CTX_free(ctx); return -1;
@@ -737,8 +737,8 @@ static int64_t mi_net_accept(int64_t h) {
         if (fd < 0) { mi_net_fail(MI_T("연결을 받을 수 없습니다", "cannot accept connection")); return -1; }
         mi_net_timeouts(fd);
         if (!c->sctx) { mi_net_ok(); return mi_conn_new(fd); }
-        /* https 서버: 보안 연결을 맺습니다. 손님 한 명이 실패해도(가짜 손님, 인증서를 안 믿는 브라우저)
-           서버는 멈추지 않고 다음 손님을 기다립니다. */
+        /* https server: perform the TLS handshake. Even if one client fails (a bogus client, a browser that doesn't trust the certificate)
+           the server keeps running and waits for the next client. */
         void* s = mi_ssl.SSL_new(c->sctx);
         mi_ssl.SSL_set_fd(s, fd);
         if (mi_ssl.SSL_accept(s) != 1) {
@@ -754,7 +754,7 @@ static int64_t mi_net_accept(int64_t h) {
     }
 }
 
-/* 정확히 n 바이트를 받습니다(상대가 먼저 끊으면 받은 만큼). HTTP 본문 읽기에 씁니다. */
+/* Receive exactly n bytes (or as many as arrived if the peer closes first). Used to read HTTP bodies. */
 static MiStr mi_net_recv_n(int64_t h, int64_t n) {
     MiConn* c = mi_conn_get(h);
     if (!c) return mi_str("");
@@ -774,7 +774,7 @@ static MiStr mi_net_recv_n(int64_t h, int64_t n) {
 
 static int64_t mi_net_byte_len(MiStr s) { return s.len; }
 
-/* 주소의 %XX 와 + 를 원래 글자로 되돌립니다. `url_encode` 의 반대. */
+/* Decode %XX and + in a URL back to the original characters. The inverse of `url_encode`. */
 static MiStr mi_net_url_decode(MiStr s) {
     char* o = mi_alloc(s.len);
     int64_t j = 0;
@@ -828,7 +828,7 @@ static bool mi_url_parse(const char* u, MiUrl* o) {
     else { mi_net_fail(MI_T("`%s`: 주소는 http:// 나 https:// 로 시작해야 합니다", "`%s`: URL must start with http:// or https://"), u); return false; }
     const char* at = strchr(p, '@');
     const char* slash = strpbrk(p, "/?#");
-    if (at && (!slash || at < slash)) p = at + 1; /* 주소 속 아이디:비밀번호 는 무시 */
+    if (at && (!slash || at < slash)) p = at + 1; /* ignore user:password in the URL */
     size_t i = 0;
     if (*p == '[') { p++; while (*p && *p != ']' && i < 255) o->host[i++] = *p++; if (*p == ']') p++; }
     else while (*p && *p != ':' && *p != '/' && *p != '?' && *p != '#' && i < 255) o->host[i++] = *p++;
@@ -850,7 +850,7 @@ static bool mi_url_parse(const char* u, MiUrl* o) {
     return true;
 }
 
-/* 마지막 http 응답은 작업(스레드)마다 따로 기억합니다. */
+/* The last http response is remembered per task (thread). */
 static _Thread_local MiList mi_http_headers_l;
 static _Thread_local MiStr mi_http_body_s;
 static _Thread_local bool mi_http_init_done;
@@ -868,7 +868,7 @@ static MiStr mi_str_trim_c(const char* p, int64_t n) {
     return mi_mk(o, n);
 }
 
-/* 요청 하나를 보내고 응답을 받습니다. 넘겨주기(3xx)는 여기서 처리하지 않습니다. */
+/* Send one request and receive the response. Redirects (3xx) are not handled here. */
 static int64_t mi_http_once(const char* method, MiUrl* u, MiList* hdrs, MiStr body, char** location) {
     *location = NULL;
     mi_http_reset();
@@ -931,7 +931,7 @@ static int64_t mi_http_once(const char* method, MiUrl* u, MiList* hdrs, MiStr bo
     if (st.len < 12 || strncmp(st.p, "HTTP/", 5) != 0) { mi_net_close(h); mi_net_fail(MI_T("%s: HTTP 응답이 아닙니다", "%s: not an HTTP response"), u->host); return -1; }
     const char* sp = memchr(st.p, ' ', (size_t)st.len);
     int64_t code = sp ? atoll(sp + 1) : 0;
-    /* 100 Continue 같은 중간 응답은 건너뜁니다. */
+    /* Skip interim responses such as 100 Continue. */
     int64_t clen = -1;
     bool chunked = false;
     for (;;) {
@@ -1009,7 +1009,7 @@ static int64_t mi_http_once(const char* method, MiUrl* u, MiList* hdrs, MiStr bo
     return code;
 }
 
-/* 넘겨받은 주소(Location)를 지금 주소 기준으로 풉니다. */
+/* Resolve a redirect target (Location) against the current URL. */
 static char* mi_url_join(MiUrl* base, const char* loc) {
     if (strncasecmp(loc, "http://", 7) == 0 || strncasecmp(loc, "https://", 8) == 0) {
         char* o = mi_alloc((int64_t)strlen(loc)); strcpy(o, loc); return o;
@@ -1042,7 +1042,7 @@ static int64_t mi_http(MiStr method, MiStr url, MiList headers, MiStr body) {
         bool redirect = (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) && loc && *loc;
         if (!redirect) return code;
         if (code == 303 || ((code == 301 || code == 302) && strcmp(m, "POST") == 0)) { m = "GET"; body = mi_str(""); }
-        /* 다른 서버로 넘어가면 비밀 헤더(Authorization, Cookie)는 따라가지 않습니다. */
+        /* When redirected to another server, sensitive headers (Authorization, Cookie) are not forwarded. */
         char* next = mi_url_join(&u, loc);
         MiUrl nu;
         if (mi_url_parse(next, &nu) && (strcasecmp(nu.host, u.host) != 0)) {
@@ -1068,7 +1068,7 @@ static MiList mi_http_headers(void) {
 }
 static MiStr mi_http_body(void) { return mi_http_body_s.p ? mi_http_body_s : mi_str(""); }
 
-/* 주소에 넣을 수 있게 글자를 바꿉니다 (`a b&c` → `a%20b%26c`). */
+/* Encode characters so they can go in a URL (`a b&c` → `a%20b%26c`). */
 static MiStr mi_url_encode(MiStr s) {
     char* o = mi_alloc(s.len * 3);
     int64_t j = 0;

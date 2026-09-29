@@ -9,14 +9,14 @@ pub fn parse(src: &str) -> Result<Program, SiskinError> {
     p.program()
 }
 
-/// 다른 파일을 읽을 때: 줄 번호가 `base` 만큼 밀립니다 (`error::register_file`).
+/// When reading another file: line numbers are shifted by `base` (`error::register_file`).
 pub fn parse_at(src: &str, base: usize) -> Result<Program, SiskinError> {
     let toks = crate::lexer::tokenize_at(src, base)?;
     let mut p = Parser { toks, pos: 0 };
     p.program()
 }
 
-/// f-string 안의 `{...}` 조각을 독립적으로 파싱합니다.
+/// Parses a `{...}` piece inside an f-string on its own.
 pub fn parse_expr_str(src: &str) -> Result<Expr, SiskinError> {
     let toks = tokenize(src)?;
     let mut p = Parser { toks, pos: 0 };
@@ -29,9 +29,9 @@ struct Parser {
     pos: usize,
 }
 
-/// f-string 안의 `{...}`는 별도 소스로 파싱되므로 줄/칸 정보가
-/// 조각 기준(1:1)으로 잡힙니다. 원래 f-string이 있던 위치로 다시 붙여야
-/// 오류 메시지가 엉뚱한 줄을 가리키지 않습니다.
+/// A `{...}` inside an f-string is parsed as separate source, so its line/column
+/// info is relative to the piece (1:1). It must be shifted back to where the
+/// original f-string was, or error messages would point at the wrong line.
 fn retag(e: &mut Expr, line: usize, col: usize) {
     match e {
         Expr::Ident(_, l, c) => {
@@ -179,7 +179,7 @@ impl Parser {
         }
     }
 
-    /// 다른 언어에서 온 문법이 이 자리에 왔으면 Siskin 식 대안을 알려 줍니다.
+    /// If syntax from another language shows up here, suggest the Siskin alternative.
     fn foreign_hint(&self) -> Option<String> {
         let prev = if self.pos > 0 { self.toks.get(self.pos - 1).map(|t| &t.tok) } else { None };
         match self.tok() {
@@ -220,7 +220,7 @@ impl Parser {
         }
     }
 
-    // ---------------------------------------------------------------- 프로그램
+    // ---------------------------------------------------------------- program
 
     fn program(&mut self) -> Result<Program, SiskinError> {
         let mut stmts = Vec::new();
@@ -255,16 +255,16 @@ impl Parser {
         Ok(out)
     }
 
-    // ------------------------------------------------------------------- 문장
+    // ------------------------------------------------------------------ statements
 
     fn stmt(&mut self) -> Result<Stmt, SiskinError> {
-        // `pub`은 파싱만 하고 P1에서는 무시합니다(모듈 시스템은 P5).
+        // `pub` is only parsed and ignored in P1 (the module system comes in P5).
         self.eat_kw("pub");
 
         if self.at_kw("extern") {
             return self.extern_decl();
         }
-        // `pass` — 아무것도 하지 않는 자리 채우기 (파이썬과 같음).
+        // `pass` — a do-nothing placeholder (same as Python).
         if matches!(self.tok(), Tok::Ident(s) if s == "pass")
             && matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Newline) | Some(Tok::Dedent) | None)
         {
@@ -341,7 +341,7 @@ impl Parser {
             return Ok(Stmt::Continue(l, c));
         }
 
-        // 표현식 문장 또는 대입
+        // Expression statement or assignment
         let (l, c) = (self.line(), self.col());
         let e = self.expr()?;
         let op = match self.tok() {
@@ -372,7 +372,7 @@ impl Parser {
         Ok(Stmt::Assign { target: e, op, value, catch, line: l, col: c })
     }
 
-    /// `catch NAME: BLOCK` (선택)
+    /// `catch NAME: BLOCK` (optional)
     fn opt_catch(&mut self) -> Result<Option<CatchClause>, SiskinError> {
         if !self.at_kw("catch") {
             return Ok(None);
@@ -387,7 +387,7 @@ impl Parser {
         let (l, c) = (self.line(), self.col());
         let mutable = self.at_kw("var");
         self.bump();
-        // 튜플 구조분해: `let (a, b) = 튜플식`
+        // Tuple destructuring: `let (a, b) = tuple_expr`
         if self.at(&Tok::LParen) {
             self.bump();
             let mut names = Vec::new();
@@ -457,8 +457,8 @@ impl Parser {
     fn for_stmt(&mut self) -> Result<Stmt, SiskinError> {
         let line = self.line();
         self.expect_kw("for", "E0110")?;
-        // `for (a, b) in 튜플들:` — 한 번 돌 때마다 튜플을 풀어 줍니다.
-        // 숨은 변수로 받고 블록 맨 앞에 `let (a, b) = 숨은변수` 를 넣는 것과 같습니다.
+        // `for (a, b) in tuples:` — unpacks the tuple on each iteration.
+        // Same as binding a hidden variable and putting `let (a, b) = hidden` at the top of the block.
         if self.at(&Tok::LParen) {
             let (l, c) = (self.line(), self.col());
             self.bump();
@@ -476,7 +476,7 @@ impl Parser {
             return Ok(Stmt::For { var, var2: None, iter, body, line });
         }
         let var = self.expect_ident("E0111", tr!("반복 변수 이름", "loop variable name"))?;
-        // `for k, v in d:` — 사전을 키·값으로 함께 돕니다.
+        // `for k, v in d:` — iterates a dict by key and value together.
         let var2 = if self.eat(&Tok::Comma) {
             Some(self.expect_ident("E0111", tr!("둘째 반복 변수 이름", "second loop variable name"))?)
         } else {
@@ -523,8 +523,8 @@ impl Parser {
                 if name == "_" {
                     return Ok(Pattern::Wildcard);
                 }
-                // `case shapes.Circle(r):` — 가져온 모듈의 변형은 모듈 이름을 붙여도 됩니다.
-                // 모듈 이름은 소문자로 시작하고 enum 이름은 대문자로 시작합니다.
+                // `case shapes.Circle(r):` — variants from an imported module may be prefixed with the module name.
+                // Module names start lowercase; enum names start uppercase.
                 let module_q = name.chars().next().map_or(false, |c| c.is_lowercase())
                     && matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Ident(_)));
                 let name = if self.at(&Tok::Dot) && module_q {
@@ -534,7 +534,7 @@ impl Parser {
                 } else {
                     name
                 };
-                // `case Color.Red:` — 변형은 enum 이름 없이 씁니다.
+                // `case Color.Red:` — variants are written without the enum name.
                 if self.at(&Tok::Dot) {
                     self.bump();
                     let v = match self.tok() {
@@ -558,7 +558,7 @@ impl Parser {
                     self.expect(Tok::RParen, "E0116", "`)`")?;
                     return Ok(Pattern::Variant(name, binds));
                 }
-                // 대문자로 시작하면 변형 이름, 아니면 바인딩.
+                // Uppercase first letter means a variant name; otherwise a binding.
                 if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
                     Ok(Pattern::Variant(name, Vec::new()))
                 } else {
@@ -582,7 +582,7 @@ impl Parser {
     }
 
     /// `import c "zlib.h" link "z"` / `import cpp "lib.hpp" link "mylib" from "/inc"`
-    /// 헤더 파일을 읽어 그 안의 함수를 전부 가져옵니다.
+    /// Reads a header file and imports all functions in it.
     fn cheader_stmt(&mut self, line: usize, col: usize) -> Result<Stmt, SiskinError> {
         let cpp = !self.at_ident("c");
         self.bump(); // c / cpp / cxx
@@ -636,15 +636,15 @@ impl Parser {
                 }
                 continue;
             }
-            // `also "shapes.cpp"` — 이 소스 파일도 같이 컴파일합니다.
+            // `also "shapes.cpp"` — also compile this source file.
             if self.at_ident("also") {
                 self.bump();
                 loop {
                     match self.tok().clone() {
                         Tok::Str(f) => {
                             self.bump();
-                            // 라이브러리 목록에 실어 보냅니다. `:src:` 로 시작하면
-                            // 링크할 이름이 아니라 같이 컴파일할 파일이라는 뜻입니다.
+                            // Sent along in the library list. A leading `:src:` means it is
+                            // a file to compile together, not a name to link.
                             links.push(format!(":src:{}", f));
                         }
                         _ => {
@@ -659,7 +659,7 @@ impl Parser {
                 }
                 continue;
             }
-            // `only 이름, 이름` — 이것만 가져옵니다.
+            // `only name, name` — import just these.
             if self.at_ident("only") {
                 self.bump();
                 loop {
@@ -679,7 +679,7 @@ impl Parser {
     fn import_stmt(&mut self) -> Result<Stmt, SiskinError> {
         let (l, c) = (self.line(), self.col());
         if self.eat_kw("import") {
-            // `import c "zlib.h" link "z"` — C/C++ 헤더를 통째로 가져옵니다.
+            // `import c "zlib.h" link "z"` — imports an entire C/C++ header.
             if (self.at_ident("c") || self.at_ident("cpp") || self.at_ident("cxx"))
                 && matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Str(_)))
             {
@@ -689,7 +689,7 @@ impl Parser {
             while self.eat(&Tok::Dot) {
                 path.push(self.expect_ident("E0118", tr!("모듈 이름", "module name"))?);
             }
-            // `import colors.extra as ex` — 다른 이름으로 가져옵니다.
+            // `import colors.extra as ex` — import under a different name.
             let alias = if self.eat_kw("as") {
                 Some(self.expect_ident("E0122", tr!("새 이름", "new name"))?)
             } else {
@@ -728,7 +728,7 @@ impl Parser {
         Ok(Stmt::Import { path, names, renames, alias: None, line: l, col: c })
     }
 
-    // ------------------------------------------------------------------- 선언
+    // ------------------------------------------------------------------ declarations
 
     fn fn_decl(&mut self) -> Result<FnDecl, SiskinError> {
         let line = self.line();
@@ -752,7 +752,7 @@ impl Parser {
             }
         }
 
-        // `requires` / `ensures` 는 문맥 키워드입니다 (설계 문서 §9.5).
+        // `requires` / `ensures` are contextual keywords (design doc §9.5).
         let mut requires = Vec::new();
         let mut ensures = Vec::new();
         loop {
@@ -785,7 +785,7 @@ impl Parser {
         Ok(FnDecl { name, generics, params, ret, doc, requires, ensures, body, line, is_extern: false, c_sig: None })
     }
 
-    /// 인터페이스 안의 본문 없는 시그니처.
+    /// A body-less signature inside an interface.
     fn fn_sig(&mut self) -> Result<FnDecl, SiskinError> {
         let line = self.line();
         self.expect_kw("fn", "E0110")?;
@@ -809,8 +809,8 @@ impl Parser {
         })
     }
 
-    /// `extern "C" fn strlen(s: Str) -> Int` — C 쪽 함수를 그대로 부릅니다.
-    /// `extern "C" link "m"` — 링크할 라이브러리를 적습니다.
+    /// `extern "C" fn strlen(s: Str) -> Int` — calls a C function directly.
+    /// `extern "C" link "m"` — names a library to link.
     fn extern_decl(&mut self) -> Result<Stmt, SiskinError> {
         let line = self.line();
         self.expect_kw("extern", "E0110")?;
@@ -833,7 +833,7 @@ impl Parser {
             }
         }
 
-        // extern "C" link "이름"
+        // extern "C" link "name"
         if self.at_ident("link") {
             self.bump();
             let lib = match self.tok().clone() {
@@ -876,7 +876,7 @@ impl Parser {
         if self.eat(&Tok::LBracket) {
             loop {
                 let n = self.expect_ident("E0124", tr!("타입 매개변수 이름", "type parameter name"))?;
-                // `T: Ord` 같은 제약은 파싱만 하고 P1에서는 무시합니다.
+                // Constraints like `T: Ord` are only parsed and ignored in P1.
                 if self.eat(&Tok::Colon) {
                     let _ = self.type_expr()?;
                 }
@@ -902,7 +902,7 @@ impl Parser {
                 } else {
                     Convention::Borrow
                 };
-                // 다른 언어의 `mut self`, `var self`, `mut x: T` — Siskin 은 `inout` 입니다.
+                // Other languages' `mut self`, `var self`, `mut x: T` — Siskin uses `inout`.
                 let foreign_mut = self.at_kw("var")
                     || self.at_kw("let")
                     || matches!(self.tok(), Tok::Ident(s) if s == "mut" || s == "ref");
@@ -1068,11 +1068,11 @@ impl Parser {
         Ok(InterfaceDecl { name, methods, line })
     }
 
-    // ------------------------------------------------------------------- 타입
+    // ------------------------------------------------------------------ types
 
     fn type_expr(&mut self) -> Result<TypeExpr, SiskinError> {
         let t = self.type_expr_one()?;
-        // `BankError!Unit` — 실패하면 BankError 값을 내는 타입 (Zig 의 `E!T` 와 같은 모양).
+        // `BankError!Unit` — a type that yields a BankError value on failure (same shape as Zig's `E!T`).
         if self.at(&Tok::Bang) {
             self.bump();
             let ok = self.type_expr_one()?;
@@ -1104,7 +1104,7 @@ impl Parser {
             return Ok(TypeExpr::Dict(Box::new(k), Box::new(v)));
         }
         if self.eat(&Tok::LParen) {
-            // `(T, U, ...)` — 튜플 타입, 또는 `(T, U) -> R` — 함수 타입.
+            // `(T, U, ...)` — a tuple type, or `(T, U) -> R` — a function type.
             let mut items = Vec::new();
             if !self.at(&Tok::RParen) {
                 loop {
@@ -1118,7 +1118,7 @@ impl Parser {
                 }
             }
             self.expect(Tok::RParen, "E0116", "`)`")?;
-            // 뒤에 `-> R`이 오면 함수 타입입니다.
+            // A following `-> R` makes it a function type.
             if self.eat(&Tok::Arrow) {
                 let ret = self.type_expr()?;
                 return Ok(TypeExpr::Fn(items, Box::new(ret)));
@@ -1126,7 +1126,7 @@ impl Parser {
             return Ok(TypeExpr::Tuple(items));
         }
         let mut name = self.expect_ident("E0138", tr!("타입 이름", "type name"))?;
-        // `colors.Rgb` — 가져온 모듈의 타입.
+        // `colors.Rgb` — a type from an imported module.
         if self.at(&Tok::Dot) && matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Ident(_))) {
             self.bump();
             let inner = self.expect_ident("E0138", tr!("타입 이름", "type name"))?;
@@ -1145,7 +1145,7 @@ impl Parser {
         Ok(TypeExpr::Named(name, args))
     }
 
-    // ----------------------------------------------------------------- 표현식
+    // ---------------------------------------------------------------- expressions
 
     fn expr(&mut self) -> Result<Expr, SiskinError> {
         let e = self.or_expr()?;
@@ -1157,7 +1157,7 @@ impl Parser {
             let els = self.expr()?;
             return Ok(Expr::IfExpr { cond: Box::new(cond), then: Box::new(e), els: Box::new(els) });
         }
-        // `expr else 기본값` — 왼쪽 `?T`가 none이면 오른쪽 값을 씁니다.
+        // `expr else default` — if the left `?T` is none, use the right value.
         if self.at_kw("else") {
             let (l, c) = (self.line(), self.col());
             self.bump();
@@ -1209,8 +1209,8 @@ impl Parser {
                 Tok::Le => BinOp::Le,
                 Tok::Gt => BinOp::Gt,
                 Tok::Ge => BinOp::Ge,
-                // `x in xs` / `x not in xs` — 파이썬처럼 씁니다. `xs.contains(x)` 로 바꿔 읽습니다
-                // (사전이면 키가 있는지, 글자면 부분 글자가 있는지).
+                // `x in xs` / `x not in xs` — written as in Python. Read as `xs.contains(x)`
+                // (for a dict: whether the key exists; for a string: whether the substring exists).
                 Tok::Kw(k) if k == "in" || (k == "not" && self.peek_kw_at(1, "in")) => {
                     let negate = k == "not";
                     let (l, c) = (self.line(), self.col());
@@ -1285,8 +1285,8 @@ impl Parser {
             let e = self.unary()?;
             return Ok(Expr::Try(Box::new(e), l, c));
         }
-        // `spawn 호출` — 문맥 키워드입니다. 바로 뒤에 이름이 올 때만 spawn 으로 봅니다
-        // (그래서 `spawn` 이라는 변수나 함수 이름도 그대로 쓸 수 있습니다).
+        // `spawn call` — a contextual keyword. Treated as spawn only when a name follows directly
+        // (so `spawn` can still be used as a variable or function name).
         if matches!(self.tok(), Tok::Ident(n) if n == "spawn") && matches!(self.peek_tok(1), Some(Tok::Ident(_))) {
             let (l, c) = (self.line(), self.col());
             self.bump();
@@ -1327,8 +1327,8 @@ impl Parser {
                 continue;
             }
             if self.at(&Tok::LBracket) {
-                // `alloc[Int](16)` 은 제네릭 호출, `xs[0]` 은 인덱싱입니다.
-                // 타입 목록 다음에 `(` 가 오는지 보고 가릅니다.
+                // `alloc[Int](16)` is a generic call, `xs[0]` is indexing.
+                // Tell them apart by whether `(` follows the type list.
                 let save = self.pos;
                 self.bump();
                 let mut targs = Vec::new();
@@ -1356,7 +1356,7 @@ impl Parser {
                 continue;
             }
             if self.eat(&Tok::Dot) {
-                // 튜플의 n번째 값: `p.0`, `p.1`
+                // The n-th value of a tuple: `p.0`, `p.1`
                 if let Tok::Int(n) = self.tok().clone() {
                     self.bump();
                     e = Expr::Field(Box::new(e), n.to_string(), l, c);
@@ -1376,9 +1376,9 @@ impl Parser {
         Ok(e)
     }
 
-    /// `fn(x: Int, y) -> Int: 식` — 익명 함수. 본문은 식 하나입니다.
-    /// 인자 타입은 들어갈 자리에서 알 수 있으면 생략해도 됩니다(타입 검사기가 채웁니다).
-    /// 여러 줄이 필요하면 함수 안에 이름 붙은 `fn` 을 선언합니다(그것도 클로저입니다).
+    /// `fn(x: Int, y) -> Int: expr` — an anonymous function. The body is a single expression.
+    /// Parameter types may be omitted if they can be inferred from context (the type checker fills them in).
+    /// If you need multiple lines, declare a named `fn` inside the function (that is a closure too).
     fn lambda(&mut self) -> Result<Expr, SiskinError> {
         let (l, c) = (self.line(), self.col());
         self.bump(); // fn
@@ -1429,18 +1429,18 @@ impl Parser {
         ))
     }
 
-    /// 여는 `(` 를 이미 먹은 상태에서 인자 목록과 닫는 `)` 를 읽습니다.
+    /// Reads the argument list and closing `)`, with the opening `(` already consumed.
     fn call_args(&mut self) -> Result<Vec<Arg>, SiskinError> {
         let mut args = Vec::new();
         if !self.at(&Tok::RParen) {
             loop {
-                // 이름 붙은 인자: `name: value`
+                // Named argument: `name: value`
                 let named = match (
                     self.tok().clone(),
                     self.toks.get(self.pos + 1).map(|t| t.tok.clone()),
                 ) {
                     (Tok::Ident(n), Some(Tok::Colon)) => Some(n),
-                    // 파이썬식 `name=value` 는 Siskin 에서 `name: value` 입니다.
+                    // Python-style `name=value` is `name: value` in Siskin.
                     (Tok::Ident(n), Some(Tok::Assign)) => {
                         self.bump();
                         return Err(self
@@ -1481,7 +1481,7 @@ impl Parser {
             Tok::Str(s) => {
                 let (l, c) = (self.line(), self.col());
                 self.bump();
-                // `"값은 {x}"` 처럼 f 없이 쓰면 글자 그대로 찍힙니다. 틀린 게 아닐 수도 있어 경고만 합니다.
+                // Writing `"value is {x}"` without f prints it literally. It may be intentional, so only warn.
                 if let Some(name) = looks_interpolated(&s) {
                     crate::error::push_warning(
                         SiskinError::new("W0001", tr!(format!("`{{{}}}` 이 글자 그대로 찍힙니다", name), format!("`{{{}}}` is printed literally", name)), l, c)
@@ -1542,11 +1542,11 @@ impl Parser {
                 self.bump();
                 let first = self.expr()?;
                 if self.at(&Tok::Comma) {
-                    // 튜플: `(a, b, ...)`
+                    // Tuple: `(a, b, ...)`
                     let mut items = vec![first];
                     while self.eat(&Tok::Comma) {
                         if self.at(&Tok::RParen) {
-                            break; // 뒤따르는 쉼표 허용
+                            break; // allow a trailing comma
                         }
                         items.push(self.expr()?);
                     }
@@ -1608,7 +1608,7 @@ impl Parser {
     }
 }
 
-/// 글 안에 `{이름}` 이나 `{이름.필드}` 모양이 있으면 그 이름을 돌려줍니다.
+/// If the text contains `{name}` or `{name.field}`, returns that name.
 fn looks_interpolated(s: &str) -> Option<String> {
     let mut rest = s;
     while let Some(i) = rest.find('{') {

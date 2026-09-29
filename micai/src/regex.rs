@@ -1,12 +1,12 @@
-//! 아주 작은 정규식 엔진.
+//! A tiny regular expression engine.
 //!
-//! 바깥 라이브러리를 쓰지 않습니다. 그리고 같은 알고리즘을 C 쪽에도 똑같이
-//! 두어서, `siskin run`과 `siskin build`가 한 글자도 다르지 않은 결과를 냅니다.
+//! Uses no external libraries. The same algorithm is mirrored exactly on the C side,
+//! so `siskin run` and `siskin build` produce results identical down to the character.
 //!
-//! 지원: 글자 · `.` · `*` `+` `?` (뒤에 `?`를 붙이면 최소 일치) · `[a-z]` `[^...]`
-//! · `\d \w \s \D \W \S` 와 이스케이프 · `^` `$` · `|` · `(...)` · `(?:...)`
+//! Supported: literal chars · `.` · `*` `+` `?` (append `?` for lazy matching) · `[a-z]` `[^...]`
+//! · `\d \w \s \D \W \S` and escapes · `^` `$` · `|` · `(...)` · `(?:...)`
 
-/// 글자 묶음 하나. `[a-z0-9]` 같은 것.
+/// A character class, such as `[a-z0-9]`.
 #[derive(Debug, Clone)]
 pub struct Class {
     pub neg: bool,
@@ -27,9 +27,9 @@ pub enum Inst {
     Class(usize),
     Match,
     Jmp(usize),
-    /// 두 갈래. 앞쪽을 먼저 봅니다.
+    /// Two branches. The first one is tried first.
     Split(usize, usize),
-    /// 괄호의 시작/끝 위치를 적어 둡니다.
+    /// Records the start/end position of a group.
     Save(usize),
     Bol,
     Eol,
@@ -41,7 +41,7 @@ pub struct Prog {
     pub ngroups: usize,
 }
 
-/// 패턴 한 개를 읽는 중의 상태.
+/// State while parsing a single pattern.
 struct P<'a> {
     src: &'a [char],
     pos: usize,
@@ -76,9 +76,9 @@ impl<'a> P<'a> {
         self.concat()?;
         while self.at() == Some('|') {
             self.pos += 1;
-            // 앞 가지를 Split 뒤로 밀고, 실패하면 뒤 가지로 갑니다.
+            // Push the left branch behind a Split; on failure, try the right branch.
             let body: Vec<Inst> = self.insts.drain(start..).collect();
-            self.insts.push(Inst::Split(0, 0)); // 자리만 잡아 둡니다
+            self.insts.push(Inst::Split(0, 0)); // Just reserve the slot for now
             let split_at = self.insts.len() - 1;
             let shift = self.insts.len() - start;
             for i in body {
@@ -114,7 +114,7 @@ impl<'a> P<'a> {
                 _ => break,
             };
             self.pos += 1;
-            // 바로 뒤에 `?`가 오면 "되도록 조금만" 먹습니다.
+            // If immediately followed by `?`, match as little as possible (lazy).
             let lazy = self.at() == Some('?');
             if lazy {
                 self.pos += 1;
@@ -275,7 +275,7 @@ impl<'a> P<'a> {
                 self.pos += 1;
                 match esc_class(e) {
                     Some(cl) => {
-                        // `[\d]` 처럼 묶음 안의 묶음은 범위를 그대로 합칩니다.
+                        // A class inside a class, like `[\d]`, merges its ranges as-is.
                         for r in cl.ranges {
                             ranges.push(r);
                         }
@@ -288,7 +288,7 @@ impl<'a> P<'a> {
                     }
                 }
             }
-            // a-z 형태인가
+            // Is it of the form a-z?
             if self.at() == Some('-') && self.src.get(self.pos + 1).map_or(false, |x| *x != ']') {
                 self.pos += 1;
                 let hi = self.src[self.pos];
@@ -345,11 +345,11 @@ fn esc_class(e: char) -> Option<Class> {
     }
 }
 
-/// 되돌아가며 맞춰 보는 방식. 한 번 실행에 밟는 걸음 수를 제한해
-/// 아주 나쁜 패턴에서도 멈춥니다.
+/// Backtracking matcher. The number of steps per run is capped so that
+/// even pathological patterns terminate.
 const MAX_STEPS: usize = 2_000_000;
 
-/// `start` 자리에서 시작하는 일치를 찾습니다. 찾으면 괄호 위치들을 냅니다.
+/// Finds a match starting at position `start`. On success, returns the group positions.
 pub fn match_at(prog: &Prog, input: &[char], start: usize) -> Option<Vec<isize>> {
     let nslots = MAX_GROUPS * 2;
     let mut saves: Vec<isize> = vec![-1; nslots];
@@ -404,8 +404,8 @@ pub fn match_at(prog: &Prog, input: &[char], start: usize) -> Option<Vec<isize>>
                 }
             }
             Inst::Save(slot) => {
-                // 되돌아갈 때는 Split 이 남겨 둔 사본이 살아나므로
-                // 여기서는 그냥 적어 두면 됩니다.
+                // On backtrack, the copy saved by Split is restored,
+                // so it is fine to just record it here.
                 saves[slot] = sp as isize;
                 pc += 1;
             }
@@ -429,7 +429,7 @@ pub fn match_at(prog: &Prog, input: &[char], start: usize) -> Option<Vec<isize>>
     }
 }
 
-/// 문자열 어딘가에서 처음 맞는 곳을 찾습니다.
+/// Finds the first match anywhere in the string.
 pub fn search(prog: &Prog, input: &[char], from: usize) -> Option<Vec<isize>> {
     let mut at = from;
     loop {

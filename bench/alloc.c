@@ -1,4 +1,4 @@
-/* alloc.skn 와 같은 일을 C로. 범프 할당. */
+/* Same work as alloc.skn, in C. Bump allocation. */
 #include <stdio.h>
 #include <stdlib.h>
 typedef struct Chunk { struct Chunk* next; size_t used, cap; char data[1]; } Chunk;

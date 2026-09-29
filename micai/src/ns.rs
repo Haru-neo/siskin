@@ -1,33 +1,33 @@
-//! 모듈 이름공간.
+//! Module namespaces.
 //!
-//! `import a` 로 가져온 파일의 이름은 `a.greet(...)` 처럼 모듈 이름을 붙여 씁니다.
-//! 그래서 두 파일(패키지)이 같은 이름의 함수를 만들어도 부딪히지 않습니다.
+//! Names from a file brought in with `import a` are used with the module name, as in `a.greet(...)`.
+//! So two files (packages) can define functions with the same name without clashing.
 //!
-//! 방법: import 한 파일마다 앞 글자(모듈 이름)를 정하고, 그 파일의 최상위 선언
-//! (함수·구조체·열거형과 그 변형·인터페이스)을 `a·greet` 로 바꿔 부릅니다. 그 파일
-//! 안과 가져다 쓰는 쪽의 이름도 모두 이 이름으로 바꿔 둡니다. `·` 는 사용자가 쓸 수
-//! 없는 글자라 사용자 이름과 절대 안 겹치고, 사람에게 보일 때는 `.` 로 보입니다.
-//! 이 뒤 단계(타입 검사, 인터프리터, C 생성)는 이름공간을 전혀 몰라도 됩니다.
+//! How: each imported file gets a prefix (its module name), and the file's top-level declarations
+//! (functions, structs, enums and their variants, interfaces) are renamed to `a·greet`. All uses
+//! inside that file and in importing files are rewritten to this name too. `·` is a character users
+//! cannot write, so it never collides with user names, and it is shown to people as `.`.
+//! Later stages (type checking, interpreter, C generation) need not know about namespaces at all.
 //!
-//! main 파일은 앞 글자가 없어서 이름이 그대로입니다(한 파일 프로그램은 아무것도 안 바뀜).
+//! The main file has no prefix, so its names stay as they are (single-file programs are unchanged).
 //!
-//! 규칙:
-//! - 내 파일에 선언한 이름이 먼저입니다. 그다음 `from a import x` 로 가져온 이름.
-//! - `import a` 만 하고 `greet(...)` 처럼 모듈 이름 없이 써도 가져온 모듈 가운데 한 곳에만
-//!   있으면 됩니다(예전 코드를 위해). 이때는 `a.greet` 로 쓰라고 경고합니다.
-//!   두 곳 이상에 있으면 오류입니다.
-//! - `_` 로 시작하는 이름은 그 파일 안에서만 씁니다(밖에서 부르면 오류).
-//! - `extern` 함수와 `import c` 로 가져온 C 함수는 C 쪽 이름 그대로 두어 어디서나 보입니다.
+//! Rules:
+//! - Names declared in your own file come first, then names brought in with `from a import x`.
+//! - After just `import a`, `greet(...)` without the module name still works if exactly one imported
+//!   module has it (for older code). In that case a warning suggests writing `a.greet`.
+//!   If two or more have it, it is an error.
+//! - Names starting with `_` are private to their file (calling them from outside is an error).
+//! - `extern` functions and C functions from `import c` keep their C names and are visible everywhere.
 
 use crate::ast::*;
 use crate::error::SiskinError;
 use std::collections::{HashMap, HashSet};
 use crate::ast::Shared as Rc;
 
-/// 모듈 이름과 선언 이름 사이에 넣는 글자. 식별자에 못 쓰는 글자입니다.
+/// Character placed between the module name and the declaration name. Not allowed in identifiers.
 pub const SEP: char = '·';
 
-/// 사람에게 보여 줄 모양: `a·greet` → `a.greet`.
+/// Human-readable form: `a·greet` → `a.greet`.
 pub fn shown(s: &str) -> String {
     if s.contains(SEP) {
         s.replace(SEP, ".")
@@ -36,7 +36,7 @@ pub fn shown(s: &str) -> String {
     }
 }
 
-/// 값을 찍을 때 쓰는 이름: 모듈 이름을 뗀 `greet`.
+/// Name used when printing values: `greet` with the module name stripped.
 pub fn plain(s: &str) -> &str {
     match s.rfind(SEP) {
         Some(i) => &s[i + SEP.len_utf8()..],
@@ -45,7 +45,7 @@ pub fn plain(s: &str) -> &str {
 }
 
 pub struct Module {
-    /// 앞 글자. main 은 빈 글자.
+    /// Prefix. Empty for main.
     pub prefix: String,
     pub stmts: Vec<Stmt>,
     pub imports: Vec<ImportRef>,
@@ -53,9 +53,9 @@ pub struct Module {
 
 pub struct ImportRef {
     pub target: usize,
-    /// `import a` / `import pkg.a as b` 로 붙은 이름. `from` 이면 None.
+    /// Name bound by `import a` / `import pkg.a as b`. None for `from`.
     pub alias: Option<String>,
-    /// `from a import x as y` 의 (x, y)
+    /// (x, y) of `from a import x as y`
     pub names: Vec<(String, String)>,
     pub line: usize,
     pub col: usize,
@@ -71,7 +71,7 @@ impl Module {
     }
 }
 
-/// 한 모듈이 밖에 내놓는 이름들: 원래 이름 → 바뀐 이름.
+/// Names a module exports: original name → renamed name.
 fn exports(m: &Module) -> HashMap<String, String> {
     let mut out = HashMap::new();
     for s in &m.stmts {
@@ -82,7 +82,7 @@ fn exports(m: &Module) -> HashMap<String, String> {
     out
 }
 
-/// 최상위 선언이 만드는 이름들 (바꿔 부를 것만).
+/// Names created by top-level declarations (only those to be renamed).
 fn top_names(s: &Stmt) -> Vec<String> {
     match s {
         Stmt::Fn(f) if !f.is_extern && f.c_sig.is_none() => vec![f.name.clone()],
@@ -98,9 +98,9 @@ fn top_names(s: &Stmt) -> Vec<String> {
     }
 }
 
-/// 모든 모듈의 이름을 풀어 하나의 문장 목록으로 합칩니다.
-/// 모듈마다 풀린 문장 목록을 돌려줍니다. 실패하면 (모듈 번호, 오류) 입니다. 경고는 `error::push_warning` 으로 냅니다.
-/// `globals` 는 이름공간 없이 어디서나 보이는 이름(표준 라이브러리 조각, C 함수).
+/// Resolve names of all modules and merge them into one statement list.
+/// Returns the resolved statement list per module. On failure, (module index, error). Warnings go through `error::push_warning`.
+/// `globals` are names visible everywhere without a namespace (standard library pieces, C functions).
 pub fn resolve(mods: &mut [Module], globals: &HashSet<String>) -> Result<Vec<Vec<Stmt>>, (usize, SiskinError)> {
     let tables: Vec<HashMap<String, String>> = mods.iter().map(exports).collect();
     let prefixes: Vec<String> = mods.iter().map(|m| m.prefix.clone()).collect();
@@ -122,11 +122,11 @@ pub fn resolve(mods: &mut [Module], globals: &HashSet<String>) -> Result<Vec<Vec
 }
 
 struct Env {
-    /// 모듈 이름 없이 쓸 수 있는 이름 → 바뀐 이름
+    /// Name usable without a module name → renamed name
     direct: HashMap<String, String>,
-    /// `import a` 의 a → (그 모듈의 내놓는 이름, 모듈 이름)
+    /// a of `import a` → (that module's exported names, module name)
     aliases: HashMap<String, (HashMap<String, String>, String, bool)>,
-    /// 모듈 이름 없이 썼지만 가져온 모듈에서 찾은 이름 → (바뀐 이름, 모듈 이름들)
+    /// Name used without a module name but found in an imported module → (renamed name, module names)
     loose: HashMap<String, Vec<(String, String)>>,
 }
 
@@ -253,21 +253,21 @@ fn build_env(
             direct.insert(alias.clone(), target);
         }
     }
-    // 어디서나 보이는 이름(표준 조각, C 함수, 내장)은 느슨한 찾기에서 뺍니다.
+    // Names visible everywhere (standard pieces, C functions, builtins) are excluded from the loose lookup.
     loose.retain(|k, _| !direct.contains_key(k) && !globals.contains(k));
     Ok(Env { direct, aliases, loose })
 }
 
 struct Resolver {
     env: Env,
-    /// 지역 이름(인자, let, for, case …). 모듈 이름보다 먼저입니다.
+    /// Local names (parameters, let, for, case …). Take precedence over module names.
     scopes: Vec<HashSet<String>>,
-    /// 제네릭 타입 이름
+    /// Generic type names
     types: Vec<HashSet<String>>,
     err: Option<SiskinError>,
-    /// `case Circle(r):` 처럼 match 대상의 타입으로 이미 어디 것인지 보이는 자리. 경고하지 않습니다.
+    /// Positions like `case Circle(r):` where the match subject's type already shows where it comes from. No warning.
     quiet: bool,
-    /// 지금 보고 있는 줄 (타입 표기에는 위치가 없어서 오류를 이 줄에 답니다)
+    /// Current line (type annotations have no location, so errors are attached to this line)
     line: usize,
 }
 
@@ -287,7 +287,7 @@ impl Resolver {
         self.types.iter().any(|s| s.contains(n))
     }
 
-    /// 모듈 이름 없이 쓴 이름. 바꿀 게 없으면 None.
+    /// A name used without a module name. None if nothing needs renaming.
     fn lookup(&mut self, n: &str, line: usize, col: usize) -> Option<String> {
         if let Some(t) = self.env.direct.get(n) {
             return if t == n { None } else { Some(t.clone()) };
@@ -331,7 +331,7 @@ impl Resolver {
         None
     }
 
-    /// `a.x` — a 가 가져온 모듈이면 바뀐 이름.
+    /// `a.x` — the renamed name if a is an imported module.
     fn qualified(&mut self, a: &str, x: &str, line: usize, col: usize) -> Option<String> {
         if self.local(a) {
             return None;
@@ -397,7 +397,7 @@ impl Resolver {
                 if let Stmt::Let { name, .. } = s {
                     *name = n;
                 }
-                // 최상위 let 은 지역 이름이 아닙니다.
+                // A top-level let is not a local name.
                 self.scopes[0].clear();
             }
             _ => self.stmt(s),
@@ -618,7 +618,7 @@ impl Resolver {
         if l > 0 {
             self.line = l;
         }
-        // `a.greet` — 모듈 a 의 이름 하나로 바꿉니다.
+        // `a.greet` — turn it into a single name from module a.
         if let Expr::Field(o, x, l, c) = e {
             if let Expr::Ident(a, _, _) = &**o {
                 if let Some(t) = self.qualified(&a.clone(), &x.clone(), *l, *c) {

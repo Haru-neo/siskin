@@ -1,2 +1,2 @@
 fn main():
-   print("세 칸 들여씀\n")
+   print("indented three spaces\n")

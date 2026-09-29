@@ -1,4 +1,4 @@
-# 할 일 목록 — JSON 파일을 읽어 정리하고 다시 저장한다
+# To-do list — reads a JSON file, organizes it, and saves it again
 from std.fs import read_text, write_text
 from std.json import parse, stringify, jdict, jlist, jstr, jint, jbool
 
@@ -9,8 +9,8 @@ struct Task:
     pri: Int
     tags: [Str]
 
-# JSON 값에 이름을 붙일 수 없어서(Json 타입을 못 씀)
-# 읽는 일을 함수로 나누지 못하고 전부 한 함수에 밀어 넣었다.
+# JSON values cannot be given a name (the Json type cannot be used),
+# so the reading could not be split into functions and was all crammed into one function.
 fn load(path: Str) -> ![Task]:
     let text = try read_text(path)
     let doc = try parse(text)
@@ -72,9 +72,9 @@ fn save(path: Str, tasks: [Task]) -> !Unit:
 
 fn main() -> !Unit:
     var tasks = try load("tasks.json")
-    print("불러온 할 일 " + str(tasks.len()) + "개\n\n")
+    print("loaded " + str(tasks.len()) + " tasks\n\n")
 
-    print("== 남은 일 (급한 순) ==\n")
+    print("== Open tasks (most urgent first) ==\n")
     var pri = 1
     while pri <= 3:
         for t in tasks:
@@ -94,14 +94,14 @@ fn main() -> !Unit:
             else:
                 by_tag[g] = 1
 
-    print("\n태그별: ")
+    print("\nby tag: ")
     for k in by_tag.keys():
         let n = by_tag[k]
         if n != none:
             print(k + "=" + str(n) + " ")
-    print("\n남은 일 " + str(open_count) + "개 / 전체 " + str(tasks.len()) + "개\n")
+    print("\n" + str(open_count) + " open / " + str(tasks.len()) + " total\n")
 
-    tasks.push(Task(id: 5, title: "부족한 점 보고", done: false, pri: 1, tags: ["siskin"]))
+    tasks.push(Task(id: 5, title: "Report shortcomings", done: false, pri: 1, tags: ["siskin"]))
     try save("tasks.out.json", tasks)
-    print("tasks.out.json 에 저장했습니다\n")
+    print("saved to tasks.out.json\n")
     return

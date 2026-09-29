@@ -1,7 +1,7 @@
-# std.net — 인터넷 연결 (HTTP 요청, TCP 연결, 서버).
-# 이 파일은 컴파일러 안에 들어 있고, `import std.net` 을 쓰면 프로그램에 합쳐집니다.
-# 네트워크는 운영체제와 직접 이야기해야 해서, 이 모듈을 쓰면 `siskin run` 도
-# 조용히 네이티브로 컴파일해서 돌립니다(C 라이브러리를 쓸 때와 같습니다).
+# std.net — internet connections (HTTP requests, TCP connections, servers).
+# This file is built into the compiler and is merged into your program when you write `import std.net`.
+# Networking has to talk to the operating system directly, so when this module is used `siskin run`
+# also quietly compiles natively and runs the result (the same as when using a C library).
 
 # ---- HTTP ----
 
@@ -10,11 +10,11 @@ struct Response:
     headers: {Str: Str}
     body: Str
 
-    # 200~299 면 성공입니다.
+    # Success means 200-299.
     fn ok(self) -> Bool:
         return self.status >= 200 and self.status < 300
 
-    # 헤더는 대소문자를 가리지 않습니다. 없으면 none.
+    # Header names are case-insensitive. none if missing.
     fn header(self, name: Str) -> ?Str:
         return self.headers[name.lower()]
 
@@ -32,9 +32,9 @@ fn __response(status: Int) -> Response:
         i += 2
     return Response(status: status, headers: h, body: __http_body())
 
-# 요청 방법, 주소, 헤더, 본문을 모두 정해서 보냅니다.
-# 다른 주소로 넘기면(301, 302 ...) 따라갑니다. 404 나 500 도 오류가 아니라 응답입니다.
-# 오류는 연결 자체가 안 될 때만 납니다.
+# Sends a request with the method, URL, headers and body all specified.
+# Redirects (301, 302 ...) are followed. 404 and 500 are responses too, not errors.
+# An error happens only when the connection itself fails.
 fn http_request(method: Str, url: Str, headers: {Str: Str}, body: Str) -> !Response:
     var flat: [Str] = []
     for k in headers.keys():
@@ -48,30 +48,30 @@ fn http_request(method: Str, url: Str, headers: {Str: Str}, body: Str) -> !Respo
 fn http_get(url: Str) -> !Response:
     return http_request("GET", url, {}, "")
 
-# 본문이 `{` 나 `[` 로 시작하면 JSON 으로, 아니면 글자로 보냅니다.
-# 다른 종류로 보내려면 http_request 로 "content-type" 헤더를 직접 주세요.
+# If the body starts with `{` or `[` it is sent as JSON, otherwise as plain text.
+# To send another content type, use http_request and set the "content-type" header yourself.
 fn http_post(url: Str, body: Str) -> !Response:
     return http_request("POST", url, {}, body)
 
-# 주소에 넣을 수 있게 바꿉니다. `url_encode("김 밥&")` → "%EA%B9%80%20%EB%B0%A5%26"
+# Encodes text so it can go into a URL. `url_encode("김 밥&")` → "%EA%B9%80%20%EB%B0%A5%26"
 fn url_encode(text: Str) -> Str:
     return __url_encode(text)
 
-# 기다리는 최대 시간(초). 처음엔 30초입니다.
+# Maximum time to wait (seconds). Defaults to 30 seconds.
 fn set_timeout(seconds: Float):
     __net_timeout(seconds)
 
-# ---- TCP 연결 ----
+# ---- TCP connections ----
 
 struct Conn:
     id: Int
 
-    # 글을 보냅니다.
+    # Sends text.
     fn send(self, text: Str) -> !Unit:
         if __net_send(self.id, text) < 0:
             return error(__net_error())
 
-    # 온 것을 받습니다(최대 64KB). 상대가 연결을 끊었으면 "".
+    # Receives whatever has arrived (up to 64KB). "" if the peer closed the connection.
     fn recv(self) -> !Str:
         let s = __net_recv(self.id, 65536)
         let e = __net_error()
@@ -79,7 +79,7 @@ struct Conn:
             return error(e)
         return s
 
-    # 한 줄을 받습니다. 끝의 줄바꿈도 들어 있습니다. 상대가 연결을 끊었으면 "".
+    # Receives one line, including the trailing newline. "" if the peer closed the connection.
     fn recv_line(self) -> !Str:
         let s = __net_recv_line(self.id)
         let e = __net_error()
@@ -87,7 +87,7 @@ struct Conn:
             return error(e)
         return s
 
-    # 정확히 n 바이트를 받습니다. 상대가 먼저 끊으면 받은 만큼만 줍니다.
+    # Receives exactly n bytes. If the peer closes first, returns only what was received.
     fn recv_n(self, n: Int) -> !Str:
         let s = __net_recv_n(self.id, n)
         let e = __net_error()
@@ -95,7 +95,7 @@ struct Conn:
             return error(e)
         return s
 
-    # 상대의 주소 ("127.0.0.1:51234" 처럼).
+    # The peer's address (like "127.0.0.1:51234").
     fn peer(self) -> Str:
         return __net_peer(self.id)
 
@@ -108,27 +108,27 @@ fn connect(host: Str, port: Int) -> !Conn:
         return error(__net_error())
     return Conn(id: id)
 
-# 보안 연결(TLS). 인증서를 확인합니다.
+# Secure connection (TLS). The certificate is verified.
 fn connect_tls(host: Str, port: Int) -> !Conn:
     let id = __net_open(host, port, true)
     if id < 0:
         return error(__net_error())
     return Conn(id: id)
 
-# ---- 서버 ----
+# ---- Servers ----
 
 struct Server:
     id: Int
 
-    # 누가 연결해 올 때까지 기다렸다가 그 연결을 줍니다.
+    # Waits until someone connects, then returns that connection.
     fn accept(self) -> !Conn:
         let c = __net_accept(self.id)
         if c < 0:
             return error(__net_error())
         return Conn(id: c)
 
-    # 다음 HTTP 요청을 기다렸다가 줍니다. 요청을 잘못 보낸 손님은 건너뜁니다.
-    # 요청마다 `req.respond(...)` 로 대답하세요. 오류는 서버가 닫혔을 때만 납니다.
+    # Waits for the next HTTP request and returns it. Clients that send malformed requests are skipped.
+    # Answer each request with `req.respond(...)`. An error happens only when the server has been closed.
     fn next_request(self) -> !Request:
         while true:
             let c = try self.accept()
@@ -138,14 +138,14 @@ struct Server:
             return req
         return error("")
 
-    # 실제로 열린 포트. listen(0) 으로 아무 포트나 열었을 때 씁니다.
+    # The port actually opened. Useful after listen(0) opened any free port.
     fn port(self) -> Int:
         return __net_port(self.id)
 
     fn close(self):
         __net_close(self.id)
 
-# 포트를 열고 연결을 기다립니다. 이 컴퓨터 안에서만 받으려면 listen_on("127.0.0.1", 포트).
+# Opens a port and waits for connections. To accept only from this machine, use listen_on("127.0.0.1", port).
 fn listen(port: Int) -> !Server:
     return listen_on("", port)
 
@@ -155,11 +155,11 @@ fn listen_on(host: Str, port: Int) -> !Server:
         return error(__net_error())
     return Server(id: id)
 
-# ---- https 서버 ----
+# ---- https server ----
 
-# 보안 포트(https)를 엽니다. 인증서(cert)와 비밀 열쇠(key)는 PEM 파일 경로입니다.
-# 받은 연결(`accept`)은 이미 보안 연결이라 `send`/`recv` 를 그대로 쓰면 됩니다.
-# 시험용 인증서 만들기:
+# Opens a secure (https) port. The certificate (cert) and private key (key) are paths to PEM files.
+# Accepted connections (`accept`) are already secure, so just use `send`/`recv` as usual.
+# To create a test certificate:
 #   openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj /CN=localhost
 fn listen_tls(port: Int, cert: Str, key: Str) -> !Server:
     return listen_tls_on("", port, cert, key)
@@ -170,30 +170,30 @@ fn listen_tls_on(host: Str, port: Int, cert: Str, key: Str) -> !Server:
         return error(__net_error())
     return Server(id: id)
 
-# 주소의 %XX 를 원래 글자로 되돌립니다. `url_decode("%EA%B9%80+%EB%B0%A5")` → "김 밥"
+# Turns %XX in a URL back into the original characters. `url_decode("%EA%B9%80+%EB%B0%A5")` → "김 밥"
 fn url_decode(text: Str) -> Str:
     return __net_url_decode(text)
 
-# ---- HTTP 서버 ----
+# ---- HTTP server ----
 
-# 손님이 보낸 요청 하나.
+# One request sent by a client.
 struct Request:
     method: Str               # "GET", "POST" ...
-    path: Str                 # "/hello" (? 뒤는 빠짐)
-    query: {Str: Str}         # "/hello?name=kim" 이면 {"name": "kim"}
-    headers: {Str: Str}       # 이름은 소문자
+    path: Str                 # "/hello" (without the part after ?)
+    query: {Str: Str}         # {"name": "kim"} for "/hello?name=kim"
+    headers: {Str: Str}       # names are lowercase
     body: Str
     conn: Conn
 
-    # 헤더는 대소문자를 가리지 않습니다. 없으면 none.
+    # Header names are case-insensitive. none if missing.
     fn header(self, name: Str) -> ?Str:
         return self.headers[name.lower()]
 
-    # 대답하고 연결을 닫습니다. 본문이 `{` 나 `[` 로 시작하면 JSON, `<` 면 HTML, 아니면 글자로 보냅니다.
+    # Responds and closes the connection. A body starting with `{` or `[` is sent as JSON, `<` as HTML, anything else as plain text.
     fn respond(self, status: Int, body: Str) -> !Unit:
         return self.respond_with(status, {}, body)
 
-    # 헤더를 직접 정해서 대답합니다. 예: {"content-type": "image/png"}
+    # Responds with headers you set yourself. Example: {"content-type": "image/png"}
     fn respond_with(self, status: Int, headers: {Str: Str}, body: Str) -> !Unit:
         var out = f"HTTP/1.1 {status} {__status_text(status)}\r\n"
         var has_type = false
@@ -225,7 +225,7 @@ fn __guess_type(body: Str) -> Str:
         return "text/html; charset=utf-8"
     return "text/plain; charset=utf-8"
 
-# 글자 수가 아니라 바이트 수 (한글은 한 글자가 3바이트).
+# Number of bytes, not characters (a Korean character is 3 bytes).
 fn __byte_len(s: Str) -> Int:
     return __net_byte_len(s)
 
@@ -243,7 +243,7 @@ fn __parse_query(q: Str) -> {Str: Str}:
             out[url_decode(part.slice(0, eq))] = url_decode(part.slice(eq + 1, part.len()))
     return out
 
-# 연결 하나에서 요청 하나를 읽습니다.
+# Reads one request from a connection.
 fn read_request(conn: Conn) -> !Request:
     let first = try conn.recv_line()
     let words = first.strip().split(" ")

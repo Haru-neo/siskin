@@ -1,6 +1,6 @@
-# 할당 자체를 재는 벤치마크.
-# "요청" 2000번, 각 요청마다 작은 블록 1000개를 씁니다.
-# 아레나: 포인터를 앞으로 미는 것이 전부. 해제는 요청이 끝날 때 한 번에.
+# Benchmark that measures allocation itself.
+# 2000 "requests", each using 1000 small blocks.
+# Arena: allocating just bumps a pointer forward. Everything is freed at once when the request ends.
 fn main():
     let reqs = 2000
     let per = 1000

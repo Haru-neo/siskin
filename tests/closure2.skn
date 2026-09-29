@@ -1,4 +1,4 @@
-# 클로저 경계 사례
+# Closure edge cases
 struct Button:
     label: Str
     on_click: (Str) -> Str
@@ -35,8 +35,8 @@ fn sort_by(xs: [Str], key: (Str) -> Int) -> [Str]:
     return out
 
 fn main():
-    let greeting = "안녕, "
-    let b = Button(label: "하루", on_click: fn(s: Str): greeting + s)
+    let greeting = "Hello, "
+    let b = Button(label: "Haru", on_click: fn(s: Str): greeting + s)
     print(b.click() + "\n")
     let c = Counter(step: 5)
     let st = c.stepper()
@@ -50,23 +50,23 @@ fn main():
     let min_len = 3
     let r = find_first([1, 2, 3, 4], fn(x): x >= min_len)
     if r != none:
-        print(f"찾음 {r}\n")
+        print(f"found {r}\n")
     let words = ["banana", "kiwi", "apple", "fig"]
     print(f"{sort_by(words, fn(w): w.len())}\n")
     var table: {Str: (Int) -> Int} = {}
     let k = 10
-    table["더하기"] = fn(x: Int): x + k
-    table["곱하기"] = fn(x: Int): x * k
+    table["add"] = fn(x: Int): x + k
+    table["mul"] = fn(x: Int): x * k
     for name, f in table:
         print(f"{name} {f(3)}\n")
-    # 재귀 중첩 함수 + 바깥 값
+    # Recursive nested function + outer value
     let memo_base = 2
     fn power(n: Int) -> Int:
         if n == 0:
             return 1
         return memo_base * power(n - 1)
     print(f"{power(10)}\n")
-    # 중첩 함수가 다른 중첩 함수를 부름
+    # A nested function calling another nested function
     fn sq(x: Int) -> Int:
         return x * x
     fn sum_sq(xs: [Int]) -> Int:
@@ -75,10 +75,10 @@ fn main():
             t += sq(x)
         return t
     print(f"{sum_sq([1, 2, 3])}\n")
-    # 함수가 Unit 반환하는 클로저
+    # A closure whose function returns Unit
     var log: [Str] = []
-    let tag = "[로그]"
+    let tag = "[log]"
     let fmt = fn(m: Str): tag + " " + m
-    log.push(fmt("시작"))
-    log.push(fmt("끝"))
+    log.push(fmt("start"))
+    log.push(fmt("end"))
     print(log.join("\n") + "\n")

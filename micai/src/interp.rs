@@ -5,12 +5,12 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-/// 실행 중 제어 흐름의 이탈.
+/// Abnormal control flow during execution.
 pub enum Flow {
     Return(Value),
     Break,
     Continue,
-    /// 복구 불가능한 실행 오류. `!T`의 에러(Value::Error)와는 다릅니다.
+    /// An unrecoverable runtime error. Distinct from a `!T` error (Value::Error).
     Fail(SiskinError),
 }
 
@@ -30,7 +30,7 @@ fn fail_fix<T>(
     Err(Flow::Fail(SiskinError::new(code, msg, line, col).with_fix(fix)))
 }
 
-/// `alloc[T](n)` 이 채워 넣을 초기값. C의 calloc 처럼 0으로 시작합니다.
+/// The initial value `alloc[T](n)` fills in. Starts at 0, like C's calloc.
 fn zero_of(t: Option<&TypeExpr>) -> Value {
     match t {
         Some(TypeExpr::Named(n, _)) => match n.as_str() {
@@ -43,7 +43,7 @@ fn zero_of(t: Option<&TypeExpr>) -> Value {
     }
 }
 
-/// 포인터 접근이 안전한지 봅니다. 해제 후 접근과 범위 밖 접근을 여기서 잡습니다.
+/// Checks whether a pointer access is safe. Catches use-after-free and out-of-bounds access here.
 fn check_raw(b: &RawBuf, off: usize, n: i64, line: usize, col: usize) -> R<()> {
     if !b.alive {
         return fail_fix(
@@ -69,7 +69,7 @@ fn check_raw(b: &RawBuf, off: usize, n: i64, line: usize, col: usize) -> R<()> {
 
 struct Frame {
     scopes: Vec<HashMap<String, Value>>,
-    /// 이 프레임의 함수 이름과, 지금 실행 중인 줄. 디버거가 씁니다.
+    /// This frame's function name and the line currently executing. Used by the debugger.
     func: String,
     cur_line: usize,
 }
@@ -78,41 +78,41 @@ pub struct Interp {
     fns: HashMap<String, crate::ast::Shared<FnDecl>>,
     structs: HashMap<String, crate::ast::Shared<StructDecl>>,
     enums: HashMap<String, crate::ast::Shared<EnumDecl>>,
-    /// 변형 이름 -> 열거형 이름
+    /// variant name -> enum name
     variant_of: HashMap<String, String>,
-    /// 임포트된 이름. 프레임을 넘어 모든 함수에서 보입니다.
+    /// Imported names. Visible from every function, across frames.
     globals: HashMap<String, Value>,
     frames: Vec<Frame>,
-    /// 계약(requires/ensures) 검사 여부. 디버그 빌드에서는 켭니다.
+    /// Whether contracts (requires/ensures) are checked. On in debug builds.
     pub contracts: bool,
     depth: usize,
-    /// `std.random` 의 상태.
+    /// State of `std.random`.
     rng: u64,
-    /// 프로그램에 넘어온 명령행 인자. `args()`가 냅니다.
+    /// Command-line arguments passed to the program. Returned by `args()`.
     pub prog_args: Vec<String>,
-    /// 방금 끝난 호출의 `inout` 인자 최종값 (self 제외 위치 인덱스, 이름, 값).
-    /// 호출한 쪽에 되돌려 씁니다.
+    /// Final values of `inout` arguments from the call that just ended (positional index excluding self, name, value).
+    /// Written back to the caller.
     inout_out: Vec<(usize, String, Value)>,
-    /// 다음 `call_fn_with_self` 가 새 프레임에 먼저 깔아 둘 클로저의 붙잡은 값들.
+    /// Captured values of a closure that the next `call_fn_with_self` lays into the new frame first.
     pending_env: Option<Rc<Closure>>,
-    /// 방금 `__run` 한 프로그램의 표준 출력과 표준 오류.
+    /// Stdout and stderr of the program just run with `__run`.
     run_out: String,
     run_err: String,
-    /// `siskin debug` 로 돌릴 때만 있습니다.
+    /// Present only when running under `siskin debug`.
     pub dbg: Option<Box<crate::debug::Debugger>>,
 }
 
 const PRELUDE: &[&str] = &[
     "print", "eprint", "len", "range", "str", "int", "float", "error", "assert", "abs", "min", "max", "sum",
     "input", "args", "exit", "channel",
-    // 표준 라이브러리의 Siskin 조각(std/*.skn)이 쓰는 작은 내장 함수들
+    // Small built-ins used by the Siskin parts of the standard library (std/*.skn)
     "__time_parts", "__time_make", "__run", "__run_out", "__run_err", "__ko",
     "__net_open", "__net_send", "__net_recv", "__net_recv_line", "__net_close", "__net_listen",
     "__net_accept", "__net_peer", "__net_port", "__net_error", "__net_timeout", "__http",
     "__http_headers", "__http_body", "__url_encode", "__net_listen_tls", "__net_recv_n", "__net_url_decode", "__net_byte_len",
 ];
 
-/// `slice(a, b)` 의 범위를 안전하게 자릅니다. 벗어나면 잘라 맞춥니다.
+/// Safely clamps the range of `slice(a, b)`. Out-of-range bounds are clipped.
 fn slice_bounds(args: &[Value], n: i64) -> (i64, i64) {
     let get = |i: usize, d: i64| match args.get(i) {
         Some(Value::Int(v)) => *v,
@@ -123,7 +123,7 @@ fn slice_bounds(args: &[Value], n: i64) -> (i64, i64) {
     (a, b)
 }
 
-/// 화면 폭. 한글·CJK·전각·이모지는 두 칸으로 셉니다. 네이티브의 mi_char_width와 같은 규칙.
+/// Display width. Hangul, CJK, full-width and emoji count as two columns. Same rule as native mi_char_width.
 fn char_width(c: char) -> i64 {
     let u = c as u32;
     if (0x1100..=0x115F).contains(&u)
@@ -145,7 +145,7 @@ fn disp_width(s: &str) -> i64 {
     s.chars().map(char_width).sum()
 }
 
-/// 반올림. 0.5는 0에서 먼 쪽으로 갑니다 (C의 round와 같습니다).
+/// Rounding. 0.5 rounds away from zero (same as C's round).
 fn mi_round(f: f64) -> i64 {
     if f >= 0.0 {
         (f + 0.5).floor() as i64
@@ -154,7 +154,7 @@ fn mi_round(f: f64) -> i64 {
     }
 }
 
-/// 프로그램이 시작한 뒤 흐른 시간(초). 속도 재기에 씁니다.
+/// Seconds elapsed since the program started. Used for timing.
 fn mi_clock() -> f64 {
     use std::sync::OnceLock;
     static START: OnceLock<std::time::Instant> = OnceLock::new();
@@ -162,8 +162,8 @@ fn mi_clock() -> f64 {
     s.elapsed().as_secs_f64()
 }
 
-/// 인터프리터와 네이티브가 같은 난수를 내야 합니다.
-/// 그래서 양쪽에 같은 계산식을 둡니다 (xorshift64*).
+/// The interpreter and native code must produce the same random numbers,
+/// so both sides use the same formula (xorshift64*).
 fn mi_next_rand(state: &mut u64) -> u64 {
     let mut x = *state;
     x ^= x >> 12;
@@ -212,7 +212,7 @@ impl Interp {
         }
     }
 
-    // ------------------------------------------------------------- 스코프 관리
+    // ------------------------------------------------------------- scope management
 
     fn frame(&mut self) -> &mut Frame {
         self.frames.last_mut().unwrap()
@@ -236,11 +236,11 @@ impl Interp {
                 return Some(v.clone());
             }
         }
-        // 임포트한 이름은 함수 경계를 넘어 보입니다.
+        // Imported names are visible across function boundaries.
         self.globals.get(name).cloned()
     }
 
-    /// 지금 함수 안의 지역 이름만 찾습니다(임포트·최상위 함수는 빼고).
+    /// Looks up only local names in the current function (excluding imports and top-level functions).
     fn lookup_local(&self, name: &str) -> Option<Value> {
         for s in self.frames.last().unwrap().scopes.iter().rev() {
             if let Some(v) = s.get(name) {
@@ -250,7 +250,7 @@ impl Interp {
         None
     }
 
-    /// 클로저를 만듭니다. 본문이 쓰는 바깥 지역 변수를 지금 값으로 복사해 둡니다.
+    /// Creates a closure. Copies the outer local variables used by the body at their current values.
     fn make_closure(&self, f: &crate::ast::Shared<FnDecl>) -> Value {
         let mut env = Vec::new();
         for n in free_vars(f) {
@@ -285,7 +285,7 @@ impl Interp {
         false
     }
 
-    /// lvalue(`x`, `x.f`, `x[i]`)에 값을 씁니다. `rhs`는 이미 deep_clone된 값이어야 합니다.
+    /// Writes a value to an lvalue (`x`, `x.f`, `x[i]`). `rhs` must already be deep_clone'd.
     fn store(&mut self, target: &Expr, rhs: Value, line: usize, col: usize) -> R<()> {
         match target {
             Expr::Ident(name, l, c) => {
@@ -376,8 +376,8 @@ impl Interp {
         }
     }
 
-    /// 방금 끝난 호출의 `inout` 스칼라 최종값을 호출한 쪽의 lvalue에 되돌려 씁니다.
-    /// 함수 호출과 메서드 호출 양쪽에서 씁니다(메서드는 self를 뺀 인자만 넘어옵니다).
+    /// Writes the final `inout` scalar values of the call that just ended back to the caller's lvalues.
+    /// Used by both function and method calls (for methods, only the arguments excluding self are passed).
     fn writeback_inout(&mut self, args: &[Arg]) -> R<()> {
         if self.inout_out.is_empty() {
             return Ok(());
@@ -412,10 +412,10 @@ impl Interp {
         Ok(())
     }
 
-    // ------------------------------------------------------------------- 실행
+    // ------------------------------------------------------------------ execution
 
-    /// 선언을 먼저 등록한 뒤 최상위 문장을 실행하고, `main`이 있으면 호출합니다.
-    /// 디버거: 이 줄에서 멈춰야 하면 멈추고 명령을 받습니다.
+    /// Registers declarations first, then runs top-level statements, and calls `main` if present.
+    /// Debugger: if execution should stop at this line, stop and take commands.
     fn debug_hook(&mut self, line: usize) {
         let mut d = match self.dbg.take() {
             Some(d) => d,
@@ -432,7 +432,7 @@ impl Interp {
         self.dbg = Some(d);
     }
 
-    /// 디버거가 보여 줄 지금 함수의 지역 변수들 (이름순).
+    /// Local variables of the current function for the debugger to show (sorted by name).
     pub fn debug_locals(&self) -> Vec<(String, String)> {
         let mut m: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
         if let Some(f) = self.frames.last() {
@@ -445,12 +445,12 @@ impl Interp {
         m.into_iter().collect()
     }
 
-    /// 디버거의 호출 경로: (함수 이름, 줄), 바깥부터.
+    /// The debugger's call path: (function name, line), outermost first.
     pub fn debug_stack(&self) -> Vec<(String, usize)> {
         self.frames.iter().filter(|f| !f.func.is_empty()).map(|f| (f.func.clone(), f.cur_line)).collect()
     }
 
-    /// 네이티브 디버거용: 프로그램의 선언(함수·구조체 …)과 import 만 올려 둡니다.
+    /// For the native debugger: loads only the program's declarations (functions, structs …) and imports.
     pub fn debug_prepare(&mut self, prog: &Program) {
         self.collect(&prog.stmts);
         for s in &prog.stmts {
@@ -460,8 +460,8 @@ impl Interp {
         }
     }
 
-    /// 네이티브 디버거의 `p 식`: 멈춘 프로그램이 보낸 변수 값(글자)을 다시 값으로 읽어
-    /// 새 자리에 두고 식을 계산합니다. 값으로 못 읽는 변수(`<task>` 등)는 건너뜁니다.
+    /// The native debugger's `p expr`: parses the variable values (as text) sent by the stopped program
+    /// back into values, puts them in a fresh scope and evaluates the expression. Variables that can't be parsed as values (`<task>` etc.) are skipped.
     pub fn debug_eval_with(&mut self, vars: &[(String, String)], src: &str) -> Result<String, String> {
         self.frames.push(Frame { scopes: vec![HashMap::new()], func: String::new(), cur_line: 0 });
         for (n, text) in vars {
@@ -480,7 +480,7 @@ impl Interp {
         r
     }
 
-    /// 디버거의 `p 식`. 지금 자리에서 식을 계산합니다.
+    /// The debugger's `p expr`. Evaluates an expression at the current location.
     pub fn debug_eval(&mut self, src: &str) -> Result<String, String> {
         let e = crate::parser::parse_expr_str(src).map_err(|e| e.msg)?;
         match self.eval(&e) {
@@ -493,7 +493,7 @@ impl Interp {
     pub fn run_program(&mut self, prog: &Program) -> Result<(), SiskinError> {
         crate::conc::enter();
         let r = self.run_program_inner(prog);
-        // main 이 끝나면 아직 도는 작업을 모두 기다립니다(네이티브와 같게).
+        // When main ends, wait for all still-running tasks (same as native).
         if r.is_ok() && crate::conc::wait_all().is_err() {
             crate::conc::report_plain("E0260", crate::conc::deadlock_msg());
         }
@@ -511,7 +511,7 @@ impl Interp {
                 continue;
             }
             let r = self.exec(s);
-            // 최상위 `let` 은 모든 함수에서 보이는 상수입니다.
+            // A top-level `let` is a constant visible from every function.
             if let (Ok(()), Stmt::Let { name, .. }) = (&r, s) {
                 let v = self.frames.first_mut().and_then(|f| f.scopes.last_mut()).and_then(|sc| sc.remove(name));
                 if let Some(v) = v {
@@ -531,7 +531,7 @@ impl Interp {
         }
         if let Some(main) = self.fns.get("main").cloned() {
             match self.call_fn(&main, Vec::new(), Vec::new(), main.line, 1) {
-                // `fn main() -> !Unit` 이 오류로 끝나면 알리고 실패 코드로 끝냅니다 (네이티브와 같게).
+                // If `fn main() -> !Unit` ends with an error, report it and exit with a failure code (same as native).
                 Ok(Value::Error(m)) => {
                     use std::io::Write;
                     crate::conc::shutdown();
@@ -587,8 +587,8 @@ impl Interp {
         result
     }
 
-    /// `expr catch e:` 를 처리합니다. 에러면 catch 블록을 실행하고 None을 돌려줍니다.
-    /// `want_value` 면(`let x = f() catch e:`) catch 블록의 마지막 식이 x 대신 들어갈 값입니다.
+    /// Handles `expr catch e:`. On error, runs the catch block and returns None.
+    /// With `want_value` (`let x = f() catch e:`), the catch block's last expression is the value used in place of x.
     fn eval_with_catch(&mut self, e: &Expr, catch: &Option<CatchClause>, want_value: bool) -> R<Option<Value>> {
         let v = self.eval(e)?;
         if matches!(v, Value::Error(_) | Value::ErrorOf(_)) {
@@ -611,7 +611,7 @@ impl Interp {
                 }
                 if out.is_ok() {
                     if let Some(fe) = fallback {
-                        // 타입 검사가 이 값이 x 의 타입인지 이미 확인했습니다.
+                        // The type checker has already verified this value has x's type.
                         out = self.eval(fe).map(Some);
                     }
                 }
@@ -641,7 +641,7 @@ impl Interp {
                 self.declare(name, Value::Arena(Rc::clone(&chunks)));
                 let r = self.exec_block(body);
                 self.pop_scope();
-                // 블록을 어떻게 빠져나가든 아레나는 통째로 해제됩니다.
+                // However the block is exited, the arena is freed in one go.
                 for ch in chunks.borrow().iter() {
                     let mut c = ch.borrow_mut();
                     c.alive = false;
@@ -659,7 +659,7 @@ impl Interp {
 
             Stmt::Fn(f) => {
                 if self.frames.len() > 1 {
-                    // 함수 안의 `fn` 은 바깥 값을 붙잡는 지역 클로저입니다.
+                    // A `fn` inside a function is a local closure that captures outer values.
                     let c = self.make_closure(f);
                     self.declare(&f.name, c);
                 } else {
@@ -709,7 +709,7 @@ impl Interp {
                 }
                 let avail = MODULES.iter().find(|(m, _)| *m == module).map(|(_, f)| *f).unwrap_or(&[]);
                 for n in names {
-                    // 표준 라이브러리 중 Siskin 으로 쓴 부분(DateTime, run …)은 이미 합쳐져 있습니다.
+                    // The parts of the standard library written in Siskin (DateTime, run …) are already merged in.
                     if self.fns.contains_key(n) || self.structs.contains_key(n) {
                         continue;
                     }
@@ -867,7 +867,7 @@ impl Interp {
             },
 
             Stmt::For { var, var2, iter, body, line } => {
-                // `for i in range(...)` 는 리스트를 만들지 않고 수만 셉니다(같은 결과, 메모리 절약).
+                // `for i in range(...)` just counts without building a list (same result, saves memory).
                 if let (None, Expr::Call { callee, targs, args, line: cl, col: cc }) = (var2, iter) {
                     if matches!(&**callee, Expr::Ident(n, ..) if n == "range")
                         && targs.is_empty()
@@ -887,7 +887,7 @@ impl Interp {
                         };
                         let (from, to) = match bounds {
                             Some(b) => b,
-                            // 잘못 쓴 경우는 원래 range 가 같은 오류를 냅니다.
+                            // For invalid usage, the regular range produces the same error.
                             None => {
                                 self.call_builtin("range", vals, Vec::new(), *cl, *cc)?;
                                 return Ok(());
@@ -915,7 +915,7 @@ impl Interp {
                     }
                 }
                 let it = self.eval(iter)?;
-                // `for x in ch:` — 통로가 닫히고 빌 때까지 하나씩 받습니다.
+                // `for x in ch:` — receives one at a time until the channel is closed and empty.
                 if let (Value::Chan(ch), None) = (&it, var2) {
                     let ch = ch.clone();
                     loop {
@@ -942,7 +942,7 @@ impl Interp {
                     }
                     return Ok(());
                 }
-                // `for k, v in d:` — 각 회전마다 (키, 값) 두 개를 묶습니다.
+                // `for k, v in d:` — binds the two values (key, value) on each iteration.
                 let items: Vec<(Value, Option<Value>)> = if var2.is_some() {
                     match &it {
                         Value::Dict(pairs) => pairs
@@ -1024,7 +1024,7 @@ impl Interp {
                         return out;
                     }
                 }
-                // P2에서 컴파일타임 전수 검사로 올라갈 오류입니다.
+                // An error that will be promoted to a compile-time exhaustiveness check in P2.
                 let hint = match &v {
                     Value::Enum(e) => {
                         let name = e.borrow().enum_name.clone();
@@ -1125,7 +1125,7 @@ impl Interp {
         }
     }
 
-    // ----------------------------------------------------------------- 표현식
+    // ---------------------------------------------------------------- expressions
 
     fn eval(&mut self, e: &Expr) -> R<Value> {
         match e {
@@ -1145,11 +1145,11 @@ impl Interp {
                     let s: &'static str = PRELUDE.iter().find(|p| **p == name.as_str()).unwrap();
                     return Ok(Value::Builtin(s));
                 }
-                // 최상위 함수 이름을 값으로 쓰면 함수 값이 됩니다.
+                // Using a top-level function name as a value yields a function value.
                 if let Some(f) = self.fns.get(name).cloned() {
                     return Ok(Value::Func(f));
                 }
-                // 값을 담지 않는 열거형 변형은 괄호 없이 그냥 써서 만들 수 있습니다.
+                // Enum variants that carry no value can be constructed by writing them without parentheses.
                 if let Some(ename) = self.variant_of.get(name).cloned() {
                     let ed = self.enums.get(&ename).cloned().unwrap();
                     let vd = ed.variants.iter().find(|v| &v.name == name).unwrap().clone();
@@ -1242,7 +1242,7 @@ impl Interp {
             }
 
             Expr::Binary(op, a, b, l, c) => {
-                // and/or 는 단축 평가합니다.
+                // and/or short-circuit.
                 if matches!(op, BinOp::And | BinOp::Or) {
                     let left = self.eval(a)?;
                     let lb = match left {
@@ -1295,13 +1295,13 @@ impl Interp {
             Expr::Try(inner, _l, _c) => {
                 let v = self.eval(inner)?;
                 if let Value::Error(_) | Value::ErrorOf(_) = v {
-                    // 에러를 현재 함수 밖으로 전파합니다.
+                    // Propagate the error out of the current function.
                     return Err(Flow::Return(v));
                 }
                 Ok(v)
             }
 
-            // `a else 기본값` — a가 none이면 기본값을 냅니다.
+            // `a else default` — yields default if a is none.
             Expr::OrElse(a, b, _, _) => {
                 let v = self.eval(a)?;
                 if let Value::None = v {
@@ -1429,15 +1429,15 @@ impl Interp {
         Some(tr!(format!("`{}` 말씀이신가요?", hit), format!("did you mean `{}`?", hit)))
     }
 
-    // --------------------------------------------------------------- 함수 호출
+    // -------------------------------------------------------------- function calls
 
     fn eval_call(&mut self, callee: &Expr, targs: &[TypeExpr], args: &[Arg], line: usize, col: usize) -> R<Value> {
-        // 메서드 호출: obj.method(...)
+        // Method call: obj.method(...)
         if let Expr::Field(obj, mname, fl, fc) = callee {
-            // 모듈 함수: math.sqrt(...)
+            // Module function: math.sqrt(...)
             if let Expr::Ident(modname, _, _) = obj.as_ref() {
                 if let Some(Value::Module(m)) = self.lookup(modname) {
-                    // `time.today()` 처럼 Siskin 으로 쓴 표준 함수를 모듈 이름으로 부르는 경우
+                    // Calling a standard function written in Siskin via its module name, like `time.today()`
                     if let Some(f) = self.fns.get(mname.as_str()).cloned() {
                         let (pos, named) = self.eval_args(args)?;
                         return self.call_fn(&f, pos, named, *fl, *fc);
@@ -1463,7 +1463,7 @@ impl Interp {
             }
             let recv = self.eval(obj)?;
             let (pos, named) = self.eval_args(args)?;
-            // 같은 이름 메서드가 없으면 함수 타입 필드를 부릅니다: `self.on_click(x)`
+            // If there is no method of that name, call a function-typed field: `self.on_click(x)`
             if let Value::Struct(sv) = &recv {
                 let sname = sv.borrow().name.clone();
                 let has_method = self
@@ -1482,7 +1482,7 @@ impl Interp {
             if let Value::Arena(chunks) = &recv {
                 let elem = targs.first();
                 return match mname.as_str() {
-                    // 아레나가 만드는 리스트. 의미는 보통 리스트와 같고, 해제 시점만 다릅니다.
+                    // A list created by an arena. Same semantics as a regular list; only the time of freeing differs.
                     "list" => Ok(Value::List(Rc::new(RefCell::new(Vec::new())))),
                     "alloc" => {
                         let n = match pos.first() {
@@ -1519,9 +1519,9 @@ impl Interp {
             return Ok(r);
         }
 
-        // 이름으로 호출
+        // Call by name
         if let Expr::Ident(name, l, c) = callee {
-            // 메모리 Level 2 내장 함수
+            // Memory Level 2 built-ins
             match name.as_str() {
                 "cstr" | "ptr_get" => {
                     return fail_fix(
@@ -1584,7 +1584,7 @@ impl Interp {
                 }
                 _ => {}
             }
-            // 함수 값(지역 변수·인자로 받은 함수)을 부르는 경우
+            // Calling a function value (a function received as a local variable or argument)
             if let Some(Value::Func(f)) = self.lookup(name) {
                 let (pos, named) = self.eval_args(args)?;
                 let r = self.call_fn(&f, pos, named, *l, *c)?;
@@ -1595,31 +1595,31 @@ impl Interp {
                 let (pos, named) = self.eval_args(args)?;
                 return self.call_closure(&cl, pos, named, *l, *c);
             }
-            // 사용자 함수
+            // User function
             if let Some(f) = self.fns.get(name).cloned() {
                 let (pos, named) = self.eval_args(args)?;
                 let r = self.call_fn(&f, pos, named, *l, *c)?;
                 self.writeback_inout(args)?;
                 return Ok(r);
             }
-            // 구조체 생성
+            // Struct construction
             if let Some(sd) = self.structs.get(name).cloned() {
                 let (pos, named) = self.eval_args(args)?;
                 return self.construct_struct(&sd, pos, named, *l, *c);
             }
-            // 열거형 변형 생성
+            // Enum variant construction
             if let Some(ename) = self.variant_of.get(name).cloned() {
                 let ed = self.enums.get(&ename).cloned().unwrap();
                 let vd = ed.variants.iter().find(|v| &v.name == name).unwrap().clone();
                 let (pos, named) = self.eval_args(args)?;
                 return self.construct_variant(&ename, &vd, pos, named, *l, *c);
             }
-            // 지역에 바인딩된 내장 함수 (임포트된 것)
+            // Built-in bound in local scope (imported)
             if let Some(Value::Builtin(b)) = self.lookup(name) {
                 let (pos, named) = self.eval_args(args)?;
                 return self.call_builtin(b, pos, named, *l, *c);
             }
-            // 프렐류드
+            // Prelude
             if let Some(b) = PRELUDE.iter().find(|p| **p == name.as_str()) {
                 let (pos, named) = self.eval_args(args)?;
                 return self.call_builtin(b, pos, named, *l, *c);
@@ -1634,7 +1634,7 @@ impl Interp {
             );
         }
 
-        // 함수 값을 돌려주는 식을 바로 부르기: `구하기()(x)`, `표[0](x)` 등.
+        // Calling an expression that returns a function directly: `get()(x)`, `table[0](x)`, etc.
         let cv = self.eval(callee)?;
         match cv {
             Value::Func(f) => {
@@ -1776,7 +1776,7 @@ impl Interp {
             }
         }
 
-        // 클로저면 붙잡은 값과 자기 이름(재귀용)을 인자보다 바깥 스코프에 깝니다.
+        // For a closure, lay the captured values and its own name (for recursion) in a scope outside the arguments.
         let mut scopes = Vec::new();
         if let Some(cl) = self.pending_env.take() {
             let mut env: HashMap<String, Value> = HashMap::new();
@@ -1791,7 +1791,7 @@ impl Interp {
         scopes.push(scope);
         self.frames.push(Frame { scopes, func: f.name.clone(), cur_line: f.line });
 
-        // 사전 조건 (설계 문서 §9.5)
+        // Preconditions (design doc §9.5)
         if self.contracts {
             for r in &f.requires {
                 match self.eval(r) {
@@ -1847,12 +1847,12 @@ impl Interp {
             self.depth -= 1;
             return Err(e);
         }
-        // enum 오류가 `try` 로 글자 오류 함수(`!T`)까지 올라오면 글자로 바꿉니다 (네이티브와 같게).
+        // When an enum error reaches a string-error function (`!T`) via `try`, convert it to a string (same as native).
         if let (Value::ErrorOf(v), Some(TypeExpr::Fallible(_, None))) = (&result, &f.ret) {
             result = Value::Error(Rc::new(v.repr()));
         }
 
-        // 사후 조건. `result`로 반환값을 참조합니다.
+        // Postconditions. `result` refers to the return value.
         if self.contracts && !f.ensures.is_empty() {
             self.push_scope();
             self.declare("result", result.clone());
@@ -1893,8 +1893,8 @@ impl Interp {
             self.pop_scope();
         }
 
-        // `inout` 인자의 최종값을 모읍니다. 리스트·구조체 등은 이미 공유되지만
-        // 스칼라(Int/Float/Bool/Str)는 값으로 넘어가므로 호출한 쪽에 되돌려 써야 합니다.
+        // Collect the final values of `inout` arguments. Lists, structs, etc. are already shared, but
+        // scalars (Int/Float/Bool/Str) are passed by value and must be written back to the caller.
         self.inout_out.clear();
         if let Some(frame) = self.frames.last() {
             let mut ni = 0usize;
@@ -2012,10 +2012,10 @@ impl Interp {
         line: usize,
         col: usize,
     ) -> R<Value> {
-        // 내장 메서드는 inout 되돌리기가 필요 없습니다. 이전 호출의 값이
-        // 남아 잘못 되돌아가지 않도록 먼저 비웁니다. (사용자 메서드면 다시 채워집니다.)
+        // Built-in methods need no inout write-back. Clear it first so a value from a previous call
+        // isn't wrongly written back. (It is refilled for user methods.)
         self.inout_out.clear();
-        // 사용자 정의 메서드가 우선입니다.
+        // User-defined methods take precedence.
         let decl = match &recv {
             Value::Struct(s) => {
                 let sname = s.borrow().name.clone();
@@ -2067,7 +2067,7 @@ impl Interp {
                         Ok(Value::Bool(!want))
                     }
                     _ => {
-                        // 기준값을 먼저 다 구한 뒤 안정 정렬합니다(같은 기준이면 원래 순서).
+                        // Compute all keys first, then sort stably (equal keys keep their original order).
                         let mut keyed = Vec::new();
                         for x in xs {
                             let k = self.call_value(&f, vec![x.clone()], line, col)?;
@@ -2090,13 +2090,13 @@ impl Interp {
         self.builtin_method(recv, name, pos, line, col)
     }
 
-    /// 함수 값(이름 붙은 함수, 클로저, 내장 함수)을 부릅니다.
-    /// `spawn f(x)`: 붙잡은 값을 복사한 클로저를 새 작업에서 돌립니다.
-    /// 새 작업은 자기 인터프리터(함수 표는 같이 씀)를 가지고, 난수는 부모에게서 한 번 뽑은
-    /// 값으로 씨를 정합니다(네이티브와 같은 규칙).
+    /// Calls a function value (a named function, closure or built-in).
+    /// `spawn f(x)`: runs a closure with copied captured values in a new task.
+    /// The new task gets its own interpreter (sharing the function table), and its random seed comes from
+    /// a value drawn once from the parent (same rule as native).
     fn spawn_task(&mut self, f: &crate::ast::Shared<FnDecl>, line: usize, col: usize) -> Value {
-        // 작업은 진짜로 동시에 돕니다. 새 스레드에 넘기는 값은 모두 통째로 새로 만들어(detach)
-        // 이 스레드와 `Rc` 를 하나도 나누지 않게 합니다. 선언(fns …)은 `Arc` 라 같이 읽습니다.
+        // Tasks truly run concurrently. Every value handed to the new thread is rebuilt from scratch (detach)
+        // so it shares no `Rc` with this thread. Declarations (fns …) are `Arc`, so they are read shared.
         let clo = crate::value::Moved::new(&self.make_closure(f));
         let seed = mi_next_rand(&mut self.rng);
         let mut child = Interp::new();
@@ -2124,7 +2124,7 @@ impl Interp {
                 Err(Flow::Fail(e)) => crate::conc::report_error(&e),
                 Err(_) => None,
             };
-            // 이 작업의 값을 모두 내려놓은 뒤에 끝났다고 알립니다.
+            // Signal completion only after releasing all of this task's values.
             drop(clo);
             drop(child);
             *out.result.lock().unwrap_or_else(|e| e.into_inner()) = res;
@@ -2133,7 +2133,7 @@ impl Interp {
         Value::Task(cell)
     }
 
-    /// 통로에서 하나 받습니다. 닫히고 비었으면 None.
+    /// Receives one item from a channel. None if it is closed and empty.
     fn chan_take(&mut self, ch: &crate::value::ChanCell, line: usize, col: usize) -> R<Option<Value>> {
         let r = crate::conc::wait_then(
             |_| {
@@ -2176,7 +2176,7 @@ impl Interp {
                 if crate::conc::wait_until(|_| t.done.load(Ordering::SeqCst)).is_err() {
                     return self.deadlock(line, col);
                 }
-                // 결과는 새로 만들어 줍니다(여러 번 기다려도, 여러 작업이 기다려도 서로 다른 값).
+                // Build a fresh result each time (different values even when waited on multiple times or by multiple tasks).
                 let r = t.result.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|m| m.copy());
                 Ok(r.unwrap_or(Value::None))
             }
@@ -2326,7 +2326,7 @@ impl Interp {
             }
             (Value::Str(st), "find") => {
                 let needle = args.first().map(|v| v.display()).unwrap_or_default();
-                // 글자 단위로 셉니다. 바이트가 아닙니다.
+                // Counts characters, not bytes.
                 Ok(Value::Int(match st.find(&needle) {
                     Some(byte_at) => st[..byte_at].chars().count() as i64,
                     None => -1,
@@ -2342,9 +2342,9 @@ impl Interp {
                 let (a, b) = slice_bounds(&args, n);
                 Ok(str_value(chars[a as usize..b as usize].iter().collect::<String>()))
             }
-            // 화면 폭. 한글·CJK·전각·이모지는 두 칸입니다.
+            // Display width. Hangul, CJK, full-width and emoji take two columns.
             (Value::Str(st), "width") => Ok(Value::Int(disp_width(st))),
-            // pad_right: 왼쪽 정렬(오른쪽 공백). pad_left: 오른쪽 정렬(왼쪽 공백). 화면 폭 기준.
+            // pad_right: left-align (spaces on the right). pad_left: right-align (spaces on the left). Based on display width.
             (Value::Str(st), "pad_right") => match args.first() {
                 Some(Value::Int(w)) => {
                     let pad = (*w - disp_width(st)).max(0) as usize;
@@ -2489,8 +2489,8 @@ impl Interp {
                 let ks: Vec<Value> = pairs.borrow().iter().map(|(k, _)| k.clone()).collect();
                 Ok(list_value(ks))
             }
-            // `d.get(k, 기본값)` — 키가 있으면 그 값을, 없으면 기본값을 냅니다.
-            // `?V`가 아니라 V를 바로 주므로 none 검사를 안 해도 됩니다.
+            // `d.get(k, default)` — yields the value if the key exists, otherwise the default.
+            // Returns V directly rather than `?V`, so no none check is needed.
             (Value::Dict(pairs), "get") => {
                 let k = args.first().cloned().unwrap_or(Value::None);
                 let def = args.get(1).cloned().unwrap_or(Value::None);
@@ -2525,7 +2525,7 @@ impl Interp {
             );
         }
         match name {
-            // `channel[T]()` / `channel[T](크기)` — 타입 인자는 타입 검사기만 봅니다.
+            // `channel[T]()` / `channel[T](size)` — the type argument is only seen by the type checker.
             "channel" => {
                 let cap = match pos.first() {
                     None => 0,
@@ -2546,8 +2546,8 @@ impl Interp {
                     cap,
                 })))
             }
-            // print는 받은 것만 그대로 씁니다. 줄바꿈은 `\n`으로 직접 넣습니다.
-            // 오류 출력(stderr). 표준 출력과 섞이지 않게 먼저 표준 출력을 비웁니다.
+            // print writes exactly what it is given. Newlines must be added explicitly with `\n`.
+            // Error output (stderr). Flushes stdout first so the two don't interleave.
             "eprint" => {
                 use std::io::Write;
                 let _ = std::io::stdout().flush();
@@ -2621,14 +2621,14 @@ impl Interp {
             }
             "input" => {
                 use std::io::Write;
-                // 프롬프트를 넘기면 먼저 출력합니다(줄바꿈 없이).
+                // If a prompt is given, print it first (without a newline).
                 if let Some(v) = pos.first() {
                     print!("{}", v.display());
                     let _ = std::io::stdout().flush();
                 }
                 let mut line_in = String::new();
                 match crate::conc::without_gil(|| std::io::stdin().read_line(&mut line_in)) {
-                    Ok(0) => Ok(Value::None), // 입력 끝(EOF)
+                    Ok(0) => Ok(Value::None), // end of input (EOF)
                     Ok(_) => {
                         while line_in.ends_with('\n') || line_in.ends_with('\r') {
                             line_in.pop();
@@ -2766,7 +2766,7 @@ impl Interp {
                 },
                 _ => fail("E0241", tr!("write_text()는 경로와 내용을 받습니다", "write_text() takes a path and contents"), line, col),
             },
-            // ---- std.math 추가분 ----
+            // ---- std.math additions ----
             "sin" | "cos" | "tan" | "log" | "log10" | "exp" => match pos.first() {
                 Some(Value::Float(f)) => Ok(Value::Float(match name {
                     "sin" => f.sin(),
@@ -2791,7 +2791,7 @@ impl Interp {
             "pi" => Ok(Value::Float(std::f64::consts::PI)),
             "e" => Ok(Value::Float(std::f64::consts::E)),
 
-            // ---- std.fs 추가분 ----
+            // ---- std.fs additions ----
             "append_text" => match (pos.first(), pos.get(1)) {
                 (Some(Value::Str(p)), Some(v)) => {
                     use std::io::Write;
@@ -2876,11 +2876,11 @@ impl Interp {
                 Ok(Value::Int(code))
             }
             "__run_out" => Ok(str_value(self.run_out.clone())),
-            // 표준 라이브러리(Siskin 으로 쓴 부분)가 오류 글의 언어를 고를 때 씁니다.
+            // Used by the standard library (the parts written in Siskin) to pick the language of error text.
             "__ko" => Ok(Value::Bool(crate::lang::ko())),
             "__run_err" => Ok(str_value(self.run_err.clone())),
-            // std.net 은 네이티브로만 돕니다. `siskin run` 은 알아서 네이티브로 돌리지만,
-            // `siskin test` 의 예제처럼 인터프리터가 직접 부르면 여기로 옵니다.
+            // std.net only runs natively. `siskin run` switches to native automatically,
+            // but calls made directly by the interpreter (e.g. `siskin test` examples) end up here.
             n if n.starts_with("__net_") || n.starts_with("__http") || n == "__url_encode" => fail_fix(
                 "E0250",
                 tr!("std.net 은 이 자리(인터프리터)에서는 쓸 수 없습니다", "std.net cannot be used here (in the interpreter)"),
@@ -2889,7 +2889,7 @@ impl Interp {
                 tr!("`siskin run` 이나 `siskin build` 로 돌리세요. 둘 다 네이티브로 컴파일해서 실행합니다", "run it with `siskin run` or `siskin build`; both compile it natively"),
             ),
 
-            // ---- std.time 추가분 ----
+            // ---- std.time additions ----
             "sleep" => match pos.first() {
                 Some(Value::Float(s)) => {
                     use std::io::Write;
@@ -2929,7 +2929,7 @@ impl Interp {
             // ---- std.random ----
             "seed" => match pos.first() {
                 Some(Value::Int(n)) => {
-                    // 0이면 멈춰 버리므로 피합니다.
+                    // Avoid 0, which would make it get stuck.
                     self.rng = (*n as u64) ^ 0x9E3779B97F4A7C15;
                     if self.rng == 0 {
                         self.rng = 0x853C49E6748FEA9B;
@@ -2940,7 +2940,7 @@ impl Interp {
             },
             "rand" => {
                 let r = mi_next_rand(&mut self.rng);
-                // 위쪽 53비트만 써서 0.0 이상 1.0 미만을 만듭니다.
+                // Use only the top 53 bits to produce a value in [0.0, 1.0).
                 Ok(Value::Float((r >> 11) as f64 / 9007199254740992.0))
             }
             "rand_int" => match (pos.first(), pos.get(1)) {
@@ -2995,7 +2995,7 @@ impl Interp {
                 _ => fail("E0241", tr!("jstr()는 Str을 받습니다", "jstr() takes Str"), line, col),
             },
 
-            // ---- std.re (정규식) ----
+            // ---- std.re (regular expressions) ----
             "test" | "find" | "find_all" | "groups" | "replace" | "split_re" => {
                 let pat = match pos.first() {
                     Some(Value::Str(p)) => p.as_str().to_string(),
@@ -3078,7 +3078,7 @@ impl Interp {
                         Ok(list_value(out))
                     }
                     _ => {
-                        // replace(패턴, 대상, 바꿀문자열)
+                        // replace(pattern, target, replacement)
                         let repl = match pos.get(2) {
                             Some(Value::Str(r)) => r.as_str().to_string(),
                             _ => {
@@ -3111,7 +3111,7 @@ impl Interp {
                 }
             }
 
-            // ---- 프렐류드 추가분 ----
+            // ---- prelude additions ----
             "sum" => match pos.first() {
                 Some(Value::List(items)) => {
                     let items = items.borrow();
@@ -3157,11 +3157,11 @@ impl Interp {
         }
     }
 
-    // ------------------------------------------------------------- 이항 연산
+    // ------------------------------------------------------------- binary operations
 
     fn binary(&mut self, op: BinOp, a: Value, b: Value, line: usize, col: usize) -> R<Value> {
         use BinOp::*;
-        // 동등 비교는 타입이 달라도 허용합니다 (결과는 false).
+        // Equality comparison is allowed across different types (result is false).
         if op == Eq {
             return Ok(Value::Bool(a.eq_value(&b)));
         }
@@ -3169,7 +3169,7 @@ impl Interp {
             return Ok(Value::Bool(!a.eq_value(&b)));
         }
 
-        // 포인터 산술: `p + 1` 은 한 칸 뒤를 가리킵니다.
+        // Pointer arithmetic: `p + 1` points to the next element.
         if let (Value::Raw(buf, off), Value::Int(n)) = (&a, &b) {
             let shifted = match op {
                 Add => *off as i64 + *n,
@@ -3269,12 +3269,12 @@ impl Interp {
 
     // ---------------------------------------------------------------- doctest
 
-    /// 설계 문서 §9.6. docstring 안의 `>>>` 예제를 실제로 실행합니다.
+    /// Design doc §9.6. Actually runs the `>>>` examples in docstrings.
     pub fn run_doctests(&mut self, prog: &Program) -> (usize, usize, Vec<String>) {
         crate::conc::enter();
         self.collect(&prog.stmts);
-        // 파일 맨 위의 `from std.re import find_all` 같은 줄을 먼저 실행해야
-        // doctest 안에서도 그 이름을 씁니다 (main 은 부르지 않습니다).
+        // Lines like `from std.re import find_all` at the top of the file must run first
+        // so those names work inside doctests (main is not called).
         for s in &prog.stmts {
             if matches!(s, Stmt::Fn(_) | Stmt::Struct(_) | Stmt::Enum(_) | Stmt::Interface(_)) {
                 continue;
@@ -3360,7 +3360,7 @@ impl Interp {
     }
 }
 
-/// 계약 실패 메시지에 조건식을 사람이 읽는 형태로 되살립니다.
+/// Reconstructs the condition expression in human-readable form for contract failure messages.
 pub fn render_expr(e: &Expr) -> String {
     match e {
         Expr::Int(n) => n.to_string(),

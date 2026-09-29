@@ -1,18 +1,18 @@
 # Siskin for VS Code
 
-Siskin(`.skn`) 파일을 위한 확장입니다.
+An extension for Siskin (`.skn`) files.
 
-- **색칠**: 키워드, 문자열(f-문자열 안의 `{식}` 포함), 숫자, 주석, 타입, 함수 이름
-- **오류 밑줄**: 글자를 칠 때마다 `siskin check` 와 같은 검사를 합니다. 밑줄에 마우스를 올리면 도움말이 보입니다
-- **코드 정리**: "문서 서식" (Shift+Alt+F) 이 `siskin fmt` 로 정리합니다
-- **정의로 이동**(F12), **마우스 올리면 설명**, **개요 창의 목차**, **이름 자동 완성**
-- **실행 버튼**: 편집기 오른쪽 위 ▷ 가 `siskin run` 을 터미널에서 돌립니다
+- **Syntax highlighting**: keywords, strings (including `{expr}` inside f-strings), numbers, comments, types, function names
+- **Error squiggles**: runs the same checks as `siskin check` as you type. Hover over a squiggle to see help
+- **Formatting**: "Format Document" (Shift+Alt+F) formats with `siskin fmt`
+- **Go to Definition** (F12), **hover documentation**, **outline view**, **name completion**
+- **Run button**: the ▷ at the top right of the editor runs `siskin run` in a terminal
 
-## 준비
+## Requirements
 
-`siskin` 프로그램이 PATH 에 있어야 합니다. 다른 곳에 있으면 설정의 `siskin.path` 에 경로를 적으세요.
+The `siskin` program must be on your PATH. If it is somewhere else, set its path in the `siskin.path` setting.
 
-## 설치
+## Installation
 
-`siskin-0.1.0.vsix` 를 받은 뒤, VS Code 의 확장 창 오른쪽 위 `…` → "VSIX에서 설치..." 로 고릅니다.
-또는 터미널에서 `code --install-extension siskin-0.1.0.vsix`.
+Download `siskin-0.1.0.vsix`, then in VS Code's Extensions view click `…` at the top right → "Install from VSIX..." and select it.
+Or from a terminal: `code --install-extension siskin-0.1.0.vsix`.

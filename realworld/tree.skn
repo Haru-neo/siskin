@@ -11,4 +11,4 @@ fn total(t: Tree) -> Int:
 
 fn main():
     let t = Node(l: Leaf(v: 1), r: Node(l: Leaf(v: 2), r: Leaf(v: 3)))
-    print("합계 " + str(total(t)) + "\n")
+    print("total " + str(total(t)) + "\n")

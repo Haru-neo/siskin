@@ -15,6 +15,6 @@ fn main():
     let b = Box(items: [1, 2, 3])
     var s = b.total()
     s = double(s)
-    print(f"합의 두 배: {s}\n")
-    let name = "미카"
+    print(f"twice the sum: {s}\n")
+    let name = "Mika"
     print(name + "\n")

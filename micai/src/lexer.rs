@@ -1,11 +1,11 @@
 use crate::error::SiskinError;
 use std::fmt;
 
-/// f-string 조각: 리터럴 텍스트이거나, 중괄호 안의 표현식 소스.
+/// An f-string piece: either literal text or the source of an expression inside braces.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FPart {
     Lit(String),
-    /// 표현식 소스와 서식 스펙(`{x:.2f}`의 `.2f`). 스펙이 없으면 빈 문자열.
+    /// Expression source and format spec (the `.2f` in `{x:.2f}`). Empty string if there is no spec.
     Expr(String, String),
 }
 
@@ -108,9 +108,9 @@ pub struct Token {
     pub col: usize,
 }
 
-/// 설계 문서 §4.7. `requires`/`ensures`/`self`/`arena` 등은
-/// 문맥 키워드라서 이 목록에 넣지 않습니다. 목록이 짧을수록
-/// 사람이 외울 것도, AI가 헷갈릴 것도 줄어듭니다.
+/// Design doc §4.7. `requires`/`ensures`/`self`/`arena` etc. are
+/// contextual keywords, so they are not in this list. The shorter the list,
+/// the less there is for people to memorize and for AI to confuse.
 pub const KEYWORDS: &[&str] = &[
     "fn", "let", "var", "if", "elif", "else", "for", "while", "in", "break", "continue", "return",
     "struct", "enum", "interface", "match", "case", "import", "from", "as", "pub", "try", "catch",
@@ -139,7 +139,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, SiskinError> {
     tokenize_at(src, 0)
 }
 
-/// 줄 번호를 `base + 1` 부터 셉니다 (import 로 합치는 파일용).
+/// Counts line numbers from `base + 1` (for files merged in via import).
 pub fn tokenize_at(src: &str, base: usize) -> Result<Vec<Token>, SiskinError> {
     let mut lx = Lexer {
         src: src.chars().collect(),
@@ -255,8 +255,8 @@ impl Lexer {
         Ok(())
     }
 
-    /// 줄 머리에서 들여쓰기를 처리합니다.
-    /// 반환값 false는 파일 끝에 도달했다는 뜻입니다.
+    /// Handles indentation at the start of a line.
+    /// Returns false when the end of the file has been reached.
     fn line_start(&mut self) -> Result<bool, SiskinError> {
         self.at_line_start = false;
         let line = self.line;
@@ -281,7 +281,7 @@ impl Lexer {
             return Ok(false);
         }
 
-        // 빈 줄과 주석만 있는 줄은 들여쓰기 계산에서 제외합니다.
+        // Blank lines and comment-only lines are excluded from indentation tracking.
         if self.peek() == '\n' || self.peek() == '\r' || self.peek() == '#' {
             while !self.eof() && self.peek() != '\n' {
                 self.bump();
@@ -339,8 +339,8 @@ impl Lexer {
             return self.lex_number(line, col);
         }
 
-        // r"..." / r'...' — 있는 그대로 읽습니다. 정규식에 좋습니다.
-        // 작은따옴표로 감싸면 안에 큰따옴표(")를 그대로 넣을 수 있습니다.
+        // r"..." / r'...' — read verbatim. Handy for regular expressions.
+        // Wrapping in single quotes lets you put double quotes (") inside as-is.
         if c == 'r' && (self.peek_at(1) == '"' || self.peek_at(1) == '\'') {
             let line = self.line;
             let col = self.col;
@@ -390,7 +390,7 @@ impl Lexer {
             return Ok(());
         }
 
-        // 연산자와 구두점
+        // Operators and punctuation
         self.bump();
         let tok = match c {
             '+' => {
@@ -518,7 +518,7 @@ impl Lexer {
             }
         }
         let mut is_float = false;
-        // `p.1.0` 의 `1.0` 은 실수가 아니라 튜플 번호 두 개입니다.
+        // The `1.0` in `p.1.0` is not a float but two tuple indices.
         let after_dot = matches!(self.out.last().map(|t| &t.tok), Some(Tok::Dot));
         if !after_dot && self.peek() == '.' && self.peek_at(1).is_ascii_digit() {
             is_float = true;
@@ -619,8 +619,8 @@ impl Lexer {
         Ok(s)
     }
 
-    /// f-string 본문을 읽어 리터럴/표현식 조각으로 나눕니다.
-    /// 여는 `f"`는 이미 소비된 상태로 들어옵니다.
+    /// Reads an f-string body and splits it into literal/expression pieces.
+    /// The opening `f"` has already been consumed on entry.
     fn lex_fstring(&mut self, line: usize, col: usize, quote: char) -> Result<Vec<FPart>, SiskinError> {
         let mut parts = Vec::new();
         let mut lit = String::new();
@@ -635,7 +635,7 @@ impl Lexer {
                 break;
             }
             if c == '\\' {
-                // 보통 문자열과 같은 표기를 받습니다. (전에는 `\r` 이 그냥 `r` 이 되었습니다.)
+                // Accepts the same escapes as regular strings. (Previously `\r` just became `r`.)
                 let eline = self.line;
                 let ecol = self.col;
                 self.bump();
@@ -675,7 +675,7 @@ impl Lexer {
                 }
                 let mut expr = String::new();
                 let mut spec = String::new();
-                let mut depth = 0i32; // () [] {} 중첩
+                let mut depth = 0i32; // () [] {} nesting
                 let mut in_spec = false;
                 let mut in_str: Option<char> = None;
                 loop {
@@ -689,7 +689,7 @@ impl Lexer {
                         .with_fix(tr!("`}`를 추가하세요", "add `}`")));
                     }
                     let ec = self.peek();
-                    // 표현식 안의 문자열 리터럴은 통째로 건너뜁니다.
+                    // String literals inside the expression are skipped whole.
                     if let Some(q) = in_str {
                         if ec == q {
                             in_str = None;
@@ -710,7 +710,7 @@ impl Lexer {
                             depth -= 1;
                         }
                         ':' if depth == 0 && !in_spec => {
-                            // 최상위 `:` 뒤부터는 서식 스펙입니다.
+                            // Everything after a top-level `:` is the format spec.
                             in_spec = true;
                             self.bump();
                             continue;

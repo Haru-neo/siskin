@@ -1,21 +1,21 @@
-# C 라이브러리를 통째로 가져옵니다.
-# 헤더 파일(라이브러리 설명서) 이름만 적으면, 그 안의 함수를 Siskin이 알아서 읽어 옵니다.
-# 함수를 하나씩 손으로 적을 필요가 없습니다.
+# Import a whole C library.
+# Just name the header file (the library's description) and Siskin reads the functions in it for you.
+# No need to declare functions one by one by hand.
 
-import c "zlib.h" link "z"      # zlib 압축 라이브러리
-import c "string.h"             # C 표준 문자열 함수 (링크할 게 없음)
+import c "zlib.h" link "z"      # the zlib compression library
+import c "string.h"             # C standard string functions (nothing to link)
 
 fn main():
     let s = "hello siskin"
 
-    # zlib 의 체크섬. 파이썬 zlib.crc32 와 같은 값이 나옵니다.
-    print("zlib 버전 = " + zlibVersion() + "\n")
+    # zlib's checksum. Gives the same value as Python's zlib.crc32.
+    print("zlib version = " + zlibVersion() + "\n")
     print("crc32     = " + str(crc32(0, s, strlen(s))) + "\n")
 
-    # C 표준 라이브러리도 그대로 씁니다.
-    print("strlen(안녕) = " + str(strlen("안녕")) + " 바이트\n")
+    # The C standard library works as is, too.
+    print("strlen(안녕) = " + str(strlen("안녕")) + " bytes\n")
 
-    # strcmp 는 C 에서 32비트 정수를 돌려줍니다. Siskin 은 64비트로 옮겨 담습니다.
+    # strcmp returns a 32-bit integer in C. Siskin widens it to 64 bits.
     print("strcmp(a,b)  = " + str(strcmp("a", "b")) + "\n")
 
-    # 어떤 함수를 쓸 수 있는지 보려면 터미널에서:  siskin ffi zlib.h --all
+    # To see which functions are available, run in a terminal:  siskin ffi zlib.h --all

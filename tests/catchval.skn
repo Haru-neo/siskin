@@ -1,18 +1,18 @@
 fn f() -> !Str:
-    return error("나쁨")
+    return error("bad")
 
 fn g(ok: Bool) -> !Int:
     if ok:
         return 5
-    return error("g 실패")
+    return error("g failed")
 
 fn main():
     let b = f() catch e:
-        "오류: " + e
+        "error: " + e
     print(b + "\n")
     let c = f() catch e:
-        print("블록\n")
-        "값"
+        print("block\n")
+        "value"
     print(c + "\n")
     var n = g(false) catch e:
         -1

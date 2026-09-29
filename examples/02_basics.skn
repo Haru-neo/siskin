@@ -1,4 +1,4 @@
-# 함수, 반복문, 리스트, f-string
+# Functions, loops, lists, f-strings
 
 fn sum(xs: [Int]) -> Int:
     var total = 0
@@ -13,8 +13,8 @@ fn fib(n: Int) -> Int:
 
 fn main():
     let xs = [1, 2, 3, 4, 5]
-    print(f"합계: {sum(xs)}\n")
-    print(f"길이: {len(xs)}\n")
+    print(f"sum: {sum(xs)}\n")
+    print(f"length: {len(xs)}\n")
 
     var i = 0
     while i < 10:
@@ -23,5 +23,5 @@ fn main():
     print("\n")
 
     let words = "the quick brown fox".split(" ")
-    print(f"단어 {len(words)}개: {words}\n")
-    print(f"대문자: {"siskin".upper()}\n")
+    print(f"{len(words)} words: {words}\n")
+    print(f"uppercase: {"siskin".upper()}\n")

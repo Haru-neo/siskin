@@ -1,12 +1,12 @@
-//! `siskin lsp` — 에디터와 이야기하는 언어 서버 (Language Server Protocol).
+//! `siskin lsp` — language server that talks to editors (Language Server Protocol).
 //!
-//! VS Code, Neovim, Helix, Zed 같은 에디터가 이 프로그램을 띄워 두고 표준 입출력으로
-//! JSON 을 주고받습니다. 첫 버전이 하는 일:
-//! - 오류 밑줄: 글자를 칠 때마다 `siskin check` 와 같은 검사를 돌려 알려 줍니다.
-//! - 정리: 에디터의 "문서 서식" 명령이 `siskin fmt` 를 부릅니다.
-//! - 목차: 파일 안의 함수·구조체·enum 목록 (개요 창, 기호로 이동).
-//! - 정의로 이동: 함수·구조체 이름에서 그 선언으로 (같은 파일과 import 한 파일).
-//! - 마우스를 올리면: 함수의 모양(시그니처)과 바로 위 주석을 보여 줍니다.
+//! Editors such as VS Code, Neovim, Helix and Zed launch this program and exchange JSON
+//! over stdin/stdout. What the first version does:
+//! - Error squiggles: on every keystroke, runs the same checks as `siskin check` and reports them.
+//! - Formatting: the editor's "Format Document" command calls `siskin fmt`.
+//! - Outline: list of functions, structs and enums in the file (outline view, go to symbol).
+//! - Go to definition: from a function/struct name to its declaration (same file and imported files).
+//! - Hover: shows a function's signature and the comment right above it.
 
 use crate::ast::Stmt;
 use crate::error::SiskinError;
@@ -38,7 +38,7 @@ fn get_int(v: &JRef, key: &str) -> Option<i64> {
 
 fn q(s: &str) -> String {
     let mut o = String::new();
-    json::escape(s, &mut o); // 따옴표까지 붙여 줍니다
+    json::escape(s, &mut o); // adds the quotes too
     o
 }
 
@@ -68,7 +68,7 @@ fn uri_to_path(uri: &str) -> String {
         i += 1;
     }
     let p = String::from_utf8_lossy(&out).to_string();
-    // 윈도우: file:///C:/... → C:/...
+    // Windows: file:///C:/... → C:/...
     if p.len() > 2 && p.as_bytes()[0] == b'/' && p.as_bytes()[2] == b':' {
         return p[1..].to_string();
     }
@@ -77,7 +77,7 @@ fn uri_to_path(uri: &str) -> String {
 
 fn path_to_uri(p: &str) -> String {
     let mut o = String::from("file://");
-    // 윈도우 경로 C:\a\b → /C:/a/b
+    // Windows path C:\a\b → /C:/a/b
     let p = p.replace('\\', "/");
     let p = p.as_str();
     if !p.starts_with('/') {
@@ -93,7 +93,7 @@ fn path_to_uri(p: &str) -> String {
     o
 }
 
-/// Siskin 의 열(글자 단위, 1부터)을 LSP 의 열(UTF-16 단위, 0부터)로 바꿉니다.
+/// Convert a Siskin column (characters, 1-based) to an LSP column (UTF-16 units, 0-based).
 fn utf16_col(line_text: &str, col1: usize) -> usize {
     line_text.chars().take(col1.saturating_sub(1)).map(|c| c.len_utf16()).sum()
 }
@@ -109,7 +109,7 @@ fn char_col_from_utf16(line_text: &str, u16col: usize) -> usize {
     line_text.chars().count()
 }
 
-/// 오류 자리에서 시작하는 이름(또는 글자 하나)의 끝.
+/// End of the name (or single character) starting at the error location.
 fn span_end(line_text: &str, col1: usize) -> usize {
     let chars: Vec<char> = line_text.chars().collect();
     let start = col1.saturating_sub(1);
@@ -153,12 +153,12 @@ fn diag_json(text: &str, e: &SiskinError, severity: u8) -> String {
     )
 }
 
-/// import 한 다른 파일 안의 오류를 import 줄에 붙일 때의 글.
+/// Text used when attaching an error inside another imported file to the import line.
 fn in_other_file(file: &str, line: usize, msg: &str) -> String {
     tr!(format!("{} {}번째 줄: {}", file, line, msg), format!("{} line {}: {}", file, line, msg))
 }
 
-/// 파일 하나를 검사해서 진단 목록(JSON 배열 안쪽)을 만듭니다. `siskin check` 와 같은 검사입니다.
+/// Check one file and build the diagnostics list (inside of a JSON array). Same checks as `siskin check`.
 fn diagnose(path: &str, text: &str) -> Vec<String> {
     let text = text.to_string();
     let path = path.to_string();
@@ -175,7 +175,7 @@ fn diagnose(path: &str, text: &str) -> Vec<String> {
             if p == path {
                 out.push(diag_json(&text, &e, 1));
             } else {
-                // 다른 파일 안의 오류는 import 줄에 붙입니다.
+                // Errors inside other files are attached to the import line.
                 let short = std::path::Path::new(&p)
                     .file_name()
                     .map(|s| s.to_string_lossy().to_string())
@@ -197,7 +197,7 @@ fn diagnose(path: &str, text: &str) -> Vec<String> {
         ty.check_program(&prog);
         let nlines = text.split('\n').count();
         for e in &ty.errors {
-            // import 한 파일 안의 오류는 그 import 줄에 붙입니다. 표준 라이브러리 조각은 건너뜁니다.
+            // Errors inside an imported file are attached to that import line. Standard library pieces are skipped.
             if let Some((f, _, l)) = crate::error::locate(e.line) {
                 if f.starts_with("<std.") {
                     continue;
@@ -238,7 +238,7 @@ fn diagnose(path: &str, text: &str) -> Vec<String> {
     r.unwrap_or_default()
 }
 
-/// 이 줄의 이 자리(글자 단위)에 있는 이름.
+/// The name at this position (in characters) on this line.
 fn word_at(line_text: &str, ch: usize) -> Option<String> {
     let chars: Vec<char> = line_text.chars().collect();
     let is_w = |c: char| c.is_alphanumeric() || c == '_';
@@ -317,7 +317,7 @@ fn symbols_json(text: &str, ds: &[Decl]) -> String {
     format!("[{}]", items.join(","))
 }
 
-/// 이 파일이 import 하는 내 파일들 (같은 폴더의 `이름.skn`).
+/// The user's own files this file imports (`name.skn` in the same folder).
 fn imported_files(path: &str, text: &str) -> Vec<String> {
     let dir = std::path::Path::new(path).parent().map(|p| p.to_path_buf()).unwrap_or_default();
     let mut out = Vec::new();
@@ -325,7 +325,7 @@ fn imported_files(path: &str, text: &str) -> Vec<String> {
         for s in &prog.stmts {
             if let Stmt::Import { path: ip, .. } = s {
                 if ip.first().map(|f| f.as_str()) != Some("std") && !ip.is_empty() {
-                    // 같은 폴더의 파일, 아니면 패키지(`siskin add` 로 넣은 것)
+                    // A file in the same folder, or else a package (added with `siskin add`)
                     crate::pkg::set_project_root(std::path::Path::new(path));
                     let f = match crate::pkg::resolve_module(&dir, ip) {
                         Ok(f) => f,
@@ -341,7 +341,7 @@ fn imported_files(path: &str, text: &str) -> Vec<String> {
     out
 }
 
-/// 이름의 선언을 찾습니다: (파일, 줄).
+/// Find a name's declaration: (file, line).
 fn find_decl(path: &str, text: &str, name: &str, docs: &HashMap<String, String>) -> Option<(String, String, usize)> {
     let mut places: Vec<(String, String)> = vec![(path.to_string(), text.to_string())];
     for f in imported_files(path, text) {
@@ -370,7 +370,7 @@ fn find_decl(path: &str, text: &str, name: &str, docs: &HashMap<String, String>)
 fn hover_text(text: &str, line: usize) -> String {
     let lines: Vec<&str> = text.split('\n').collect();
     let sig = lines.get(line.saturating_sub(1)).copied().unwrap_or("").trim().trim_end_matches(':').to_string();
-    // 바로 위의 주석 줄들을 설명으로 붙입니다.
+    // Attach the comment lines right above as the description.
     let mut doc: Vec<String> = Vec::new();
     let mut i = line.saturating_sub(1);
     while i > 0 {
@@ -400,7 +400,7 @@ pub fn run() -> i32 {
     let mut shutdown = false;
 
     loop {
-        // 머리: Content-Length: N\r\n ... \r\n
+        // Header: Content-Length: N\r\n ... \r\n
         let mut len: Option<usize> = None;
         loop {
             let mut h = String::new();
@@ -471,7 +471,7 @@ pub fn run() -> i32 {
                 publish(&mut out, &uri, &text);
             }
             "textDocument/didChange" => {
-                // 전체 동기화: 마지막 변경이 문서 전체입니다.
+                // Full sync: the last change is the whole document.
                 if let Some(ch) = params.as_ref().and_then(|p| get(p, "contentChanges")) {
                     let last = match &*ch.borrow() {
                         JsonVal::List(v) => v.last().cloned(),
@@ -548,7 +548,7 @@ pub fn run() -> i32 {
                 }
             }
             "textDocument/completion" => {
-                // 첫 버전: 키워드, 내장 함수, 이 파일과 import 한 파일의 이름들.
+                // First version: keywords, builtins, names in this file and imported files.
                 let text = docs.get(&uri).cloned().unwrap_or_default();
                 let path = uri_to_path(&uri);
                 let mut items: Vec<String> = Vec::new();
@@ -584,7 +584,7 @@ pub fn run() -> i32 {
                 }
             }
             _ => {
-                // 모르는 요청에는 "없는 방법" 이라고 답합니다. 알림(id 없음)은 무시합니다.
+                // Unknown requests get "method not found". Notifications (no id) are ignored.
                 if let Some(id) = &id {
                     send(
                         &mut out,

@@ -1,78 +1,84 @@
-# Siskin을 실제로 써 보고 남긴 메모 (2026-09-19)
+# Notes from actually using Siskin (2026-09-19)
 
-예제용 짧은 코드가 아니라, 진짜 쓸 만한 프로그램 세 개를 처음부터 끝까지
-Siskin으로 짜면서 막힌 곳을 적었습니다. 프로그램은 `realworld/` 에 있습니다.
+Instead of short snippets written for examples, I wrote three genuinely useful
+programs in Siskin from start to finish and wrote down every place I got stuck.
+The programs are in `realworld/`.
 
-| 프로그램 | 하는 일 | 결과 |
+| Program | What it does | Result |
 |---|---|---|
-| `realworld/loganalyze.skn` | 웹 서버 로그 400줄을 읽어 경로별 요청·에러·평균응답·용량 표로 | `run`·컴파일 모두 동작 |
-| `realworld/calc.skn` | 수식 계산기. 토큰 나누기 → 파싱 → 계산, 우선순위·괄호·오류 처리 | `run`만 동작, **컴파일 실패** |
-| `realworld/todo.skn` | 할 일 JSON 파일을 읽어 정리하고 다시 저장 | `run`·컴파일 모두 동작 |
+| `realworld/loganalyze.skn` | Reads 400 lines of web server logs and builds a per-path table of requests, errors, average response time and bytes | Works with both `run` and compilation |
+| `realworld/calc.skn` | Expression calculator. Tokenize → parse → evaluate, with precedence, parentheses and error handling | Works only with `run`, **compilation fails** |
+| `realworld/todo.skn` | Reads a to-do JSON file, tidies it up and saves it back | Works with both `run` and compilation |
 
-세 개 다 결국 돌아갔지만, 돌리기까지 우회해야 했던 것이 많았습니다.
-아래는 심각한 것부터 순서대로입니다.
+All three eventually ran, but getting there took a lot of workarounds.
+Below they are listed from most to least severe.
 
 ---
 
-## 해결 현황 (업데이트: 2026-09-20 — 20개 전부 해결)
+## Resolution status (updated 2026-09-20 — all 20 resolved)
 
-아래 문제들을 고쳤습니다. **모두 `siskin run` 과 `siskin build` 두 방식에서 같은
-결과가 나오는지 확인했고**, 기존 예제 8개와 realworld 프로그램 6개가 두 방식에서
-똑같이 도는 것도 회귀 검사로 확인했습니다.
+The problems below have been fixed. **For every one of them I confirmed that
+`siskin run` and `siskin build` give the same result**, and a regression check
+confirmed that the 8 existing examples and the 6 realworld programs behave
+identically under both.
 
-**고침 (16개, 양쪽 백엔드 검증):**
+**Fixed (16, verified on both backends):**
 
-- **(1)(2)(20) 값 의미론** — 이제 규칙이 하나입니다. `let`·읽기 전용 인자·`self`는
-  못 바꿉니다. 바꾸려면 `var`로 잡거나 인자를 `inout`으로 받아야 합니다. 어긴 코드는
-  `siskin check`가 컴파일 전에 잡습니다. `inout` 인자에는 `var`만 넘길 수 있습니다.
-- **(3) 재귀 enum** — `enum Tree: Node(l: Tree, r: Tree)` 가 이제 컴파일됩니다.
-- **(4) inout** — 스칼라·리스트·`self` 모두 두 방식에서 제대로 됩니다.
-  (조용히 무시하던 인터프리터, 아예 막던 컴파일러 둘 다 고침.)
-- **(5) 구조체의 `?T` 필드** — `?Str`·`?Int`·`?Float`·`?Bool`·`?Json` 필드가 됩니다.
-  (구조체를 담는 `?구조체`는 아직 `siskin run` 전용.)
-- **(6) f-string 서식** — `f"{x:.2f}"`, `f"{s:>10}"` 등이 됩니다.
-- **(7) import 검사** — 안 가져온 표준 라이브러리는 `check`·`build`가 잡습니다.
-- **(8) 입력** — `input()`, `args()`, `exit()` 추가.
-- **(13) `Json` 타입 이름** — 대소문자 완화가 더 이상 막지 않습니다.
-- **(14) `?T` 풀기 세 가지 다** — ① 가드 뒤 좁히기(`if v == none: return` 뒤에서 v가 좁혀짐),
+- **(1)(2)(20) Value semantics** — There is now a single rule. `let`, read-only
+  parameters and `self` cannot be modified. To modify something, bind it with `var`
+  or take the parameter as `inout`. Code that breaks the rule is caught by
+  `siskin check` before compilation. Only a `var` can be passed to an `inout` parameter.
+- **(3) Recursive enums** — `enum Tree: Node(l: Tree, r: Tree)` now compiles.
+- **(4) inout** — Works correctly for scalars, lists and `self` in both modes.
+  (Fixed both the interpreter, which silently ignored it, and the compiler, which rejected it outright.)
+- **(5) `?T` fields in structs** — `?Str`, `?Int`, `?Float`, `?Bool` and `?Json` fields work.
+  (`?Struct`, an optional holding a struct, is still `siskin run` only.)
+- **(6) f-string formatting** — `f"{x:.2f}"`, `f"{s:>10}"` and the like work.
+- **(7) Import checking** — `check` and `build` catch uses of standard library modules that were not imported.
+- **(8) Input** — Added `input()`, `args()` and `exit()`.
+- **(13) The `Json` type name** — Case folding no longer gets in the way.
+- **(14) All three ways of unwrapping `?T`** — ① narrowing after a guard (after `if v == none: return`, v is narrowed),
   ② `if v != none and v > 0`, ③ `let v = find(xs) else 0`.
-- **(15) `for k, v in d`** — 사전을 키·값으로 함께 돕니다(넣은 순서대로).
-- **(16) `d.get(키, 기본값)`** — 세는 일이 `counts[w] = counts.get(w, 0) + 1` 한 줄.
-- **(17) `pad_left` / `pad_right` / `width`** — 화면 폭 기준이라 한글(두 칸)도 표가 맞습니다.
-- **(18) 원시 문자열 안 따옴표** — `'작은따옴표 문자열'`, `r'...'`, `"""..."""` 됩니다.
-- **(19) 빈 enum 변형** — `LPar` 로 만들려 하면 `LPar()` 로 쓰라고 알려 줍니다.
-- (덤) `!T` 함수가 `try` 뒤에서 뒷문장을 건너뛰던 컴파일 버그도 고쳤습니다.
+- **(15) `for k, v in d`** — Iterates over a dictionary's keys and values together (in insertion order).
+- **(16) `d.get(key, default)`** — Counting is now one line: `counts[w] = counts.get(w, 0) + 1`.
+- **(17) `pad_left` / `pad_right` / `width`** — Based on display width, so tables line up even with Korean text (two columns per character).
+- **(18) Quotes inside raw strings** — `'single-quoted string'`, `r'...'` and `"""..."""` work.
+- **(19) Empty enum variants** — Trying to construct one as `LPar` now tells you to write `LPar()`.
+- (Bonus) Also fixed a compiler bug where a `!T` function skipped the following statements after a `try`.
 
-**큰 기능 4개 (9·10·11·12) 도 붙였습니다 (양쪽 백엔드 검증, 2026-09-20):**
+**The 4 big features (9, 10, 11, 12) were added too (verified on both backends, 2026-09-20):**
 
-- **(12) 튜플** — `fn f() -> (Int, Str)` 로 값을 여러 개 돌려주고
-  `let (a, b) = f()` 로 풀어 받습니다. 개수가 안 맞으면 `check`가 잡습니다.
-- **(11) 제네릭** — `fn 첫값[T](xs: [T]) -> ?T` 처럼 타입 자리를 비워 두면
-  부를 때 실제 타입이 채워집니다. 타입 두 개(`[A, B]`), 제네릭이 제네릭을
-  부르는 것, 구조체를 넘기는 것도 됩니다. 네이티브는 타입별로 함수를 자동
-  생성(단형화)합니다.
-- **(9) 파일 나누기(모듈)** — `import 파일이름` 으로 같은 폴더의 `.skn` 파일을
-  가져옵니다. 전이 import(A→B→C)와 중복 import를 자동으로 정리합니다.
-- **(10) 함수를 값으로 넘기기** — 함수 타입 `(Int) -> Int` 를 인자·반환·변수에
-  쓰고, 이름 붙은 함수를 값으로 넘깁니다. 이걸로 map/filter/콜백을 직접
-  만들 수 있습니다. (환경을 붙잡는 익명 함수/클로저는 C 함수 포인터로
-  표현이 안 돼서 아직입니다. 이름 붙은 함수로 대부분 해결됩니다.)
+- **(12) Tuples** — Return several values with `fn f() -> (Int, Str)` and
+  destructure them with `let (a, b) = f()`. `check` catches a count mismatch.
+- **(11) Generics** — Leave a type slot open, as in `fn first_value[T](xs: [T]) -> ?T`,
+  and the actual type is filled in at the call site. Two type parameters (`[A, B]`),
+  generics calling generics, and passing structs all work. The native backend
+  automatically generates one function per type (monomorphization).
+- **(9) Splitting into files (modules)** — `import filename` imports a `.skn` file
+  from the same folder. Transitive imports (A→B→C) and duplicate imports are
+  resolved automatically.
+- **(10) Passing functions as values** — Function types such as `(Int) -> Int` can be used
+  for parameters, return values and variables, and named functions can be passed as values.
+  With this you can write your own map/filter/callbacks. (Anonymous functions/closures
+  that capture their environment are not supported yet, because they cannot be
+  represented as C function pointers. Named functions cover most cases.)
 
-이 넷은 언어의 큰 뼈대라 "두 방식이 다른 답을 낸다"는 1등급 문제가 다시
-생기지 않도록 두 백엔드를 함께 구현하고 회귀로 확인했습니다.
+These four are major parts of the language's skeleton, so to make sure the tier-1
+problem of "the two modes giving different answers" never comes back, both backends
+were implemented together and verified with regression tests.
 
-**참고 (부분적):**
+**Note (partial):**
 
-- (5) 구조체 필드를 바로 좁히는 `if t.due != none:` 는 아직입니다.
-  `let d = t.due` 로 한 번 받으면 좁혀집니다(양쪽 백엔드 동작 확인).
+- (5) Narrowing a struct field directly with `if t.due != none:` is not supported yet.
+  Binding it once with `let d = t.due` does narrow (confirmed on both backends).
 
 ---
 
-## 1등급 — 같은 프로그램이 `siskin run` 과 컴파일에서 다른 답을 냅니다
+## Tier 1 — The same program gives different answers under `siskin run` and compilation
 
-가장 급한 문제입니다. 경고도 오류도 없이 답이 달라집니다.
+This is the most urgent problem. The answer changes with no warning and no error.
 
-### (1) 메서드가 자기 값을 고칠 때
+### (1) When a method modifies its own value
 
 ```siskin
 struct Counter:
@@ -88,43 +94,44 @@ fn main():
 ```
 
 - `siskin run` → `2`
-- `siskin build` 후 실행 → `0`
-- `siskin check` → 통과
+- run after `siskin build` → `0`
+- `siskin check` → passes
 
-재현 파일: `realworld/selftest.skn`
+Repro file: `realworld/selftest.skn`
 
-### (2) 리스트를 함수에 넘겨 항목을 추가할 때
+### (2) When a list is passed to a function that adds an item
 
 ```siskin
 fn add_item(xs: [Str]):
-    xs.push("몰래 추가")
+    xs.push("sneakily added")
 
 fn main():
-    let names = ["하루"]
+    let names = ["Haru"]
     add_item(names)
     print(str(names.len()) + "\n")
 ```
 
 - `siskin run` → `2`
-- `siskin build` 후 실행 → `1`
+- run after `siskin build` → `1`
 
-재현 파일: `realworld/aliastest.skn`
+Repro file: `realworld/aliastest.skn`
 
-### 왜 이게 같은 문제인가
+### Why these are the same problem
 
-둘 다 **"값을 함수에 넘기면 복사되는가, 같은 것을 가리키는가"** 가 정해지지 않아서
-생긴 일입니다. 인터프리터는 "공유한다"로, C 컴파일러는 "복사한다"로 각자 정했습니다.
-이건 버그를 고치는 문제가 아니라 **설계에서 먼저 정해야 하는 문제**입니다.
-정하기 전까지는 어떤 프로그램도 두 방식에서 같게 돌아간다고 믿을 수 없습니다.
+Both happen because it was never decided **"when you pass a value to a function,
+is it copied, or does it refer to the same thing?"** The interpreter chose "shared"
+and the C compiler chose "copied", each on its own.
+This is not a bug to fix but **a question the design has to settle first**.
+Until it is settled, you cannot trust any program to behave the same in both modes.
 
-참고로 `box[0] += 1` (항목 자체를 바꾸기)은 두 방식 모두 공유로 동작합니다.
-`push` 만 갈립니다. 규칙이 하나가 아니라는 뜻입니다.
+For reference, `box[0] += 1` (modifying an element in place) behaves as shared in both modes.
+Only `push` differs. That means there isn't one rule, but several.
 
 ---
 
-## 2등급 — `run` 은 되는데 컴파일이 안 되는 것
+## Tier 2 — Things that work with `run` but don't compile
 
-### (3) 재귀 enum — 트리와 수식을 담을 수 없습니다
+### (3) Recursive enums — you can't represent trees or expressions
 
 ```siskin
 enum Tree:
@@ -132,25 +139,25 @@ enum Tree:
     Node(l: Tree, r: Tree)
 ```
 
-`siskin check` 통과, `siskin run` 동작, `siskin build` **실패**. 재현: `realworld/tree.skn`
+`siskin check` passes, `siskin run` works, `siskin build` **fails**. Repro: `realworld/tree.skn`
 
-계산기(`calc.skn`)가 이것 때문에 컴파일되지 않습니다. 수식이나 트리를 담는 것은
-`enum` 의 가장 대표적인 용도라, 이게 막히면 파서·인터프리터·계산기·JSON 처리 같은
-부류의 프로그램을 네이티브로 못 만듭니다.
+This is why the calculator (`calc.skn`) doesn't compile. Holding expressions or trees is
+the most typical use of `enum`, so with this blocked you can't build parsers,
+interpreters, calculators, JSON processors and similar programs natively.
 
-게다가 오류가 이렇게 나옵니다.
+On top of that, the error looks like this:
 
 ```
 tb.c:1586:33: error: field 'v_l' has incomplete type
 ```
 
-쓴 사람이 본 적 없는 `tb.c` 파일의 줄 번호가 나옵니다. 무슨 뜻인지 알 수 없습니다.
-C 코드가 잘못 만들어질 때는 Siskin 쪽 오류로 바꿔서 보여줘야 합니다.
+It shows a line number in a `tb.c` file the author has never seen. There's no way to tell what it means.
+When the generated C code is wrong, it should be turned into a Siskin-level error.
 
-### (4) `inout` 인자
+### (4) `inout` parameters
 
-- 컴파일: 정직하게 "아직 안 됩니다, `siskin run` 을 쓰세요"라고 알려 줍니다. 좋습니다.
-- 인터프리터: 구조체에는 동작하지만 **Int·Float·Bool·Str 에는 조용히 아무 일도 안 합니다.**
+- Compiler: honestly says "not supported yet, use `siskin run`". Good.
+- Interpreter: works for structs, but **silently does nothing for Int, Float, Bool and Str.**
 
 ```siskin
 fn bump(inout n: Int):
@@ -159,149 +166,149 @@ fn bump(inout n: Int):
 fn main():
     var x = 0
     bump(x)
-    print(str(x) + "\n")   # 1이 나와야 하는데 0이 나옵니다
+    print(str(x) + "\n")   # should print 1, but prints 0
 ```
 
-안 되는 것을 조용히 넘기는 것보다는 오류를 내는 편이 낫습니다.
+Raising an error is better than silently letting something that doesn't work slip through.
 
-### (5) 구조체의 `?T` 필드
+### (5) `?T` fields in structs
 
-`struct Task: due: ?Str` — 컴파일이 정직하게 거부합니다. 다만 할 일 목록처럼
-"마감일이 없을 수도 있는" 구조체는 아주 흔해서, 우선순위가 높습니다.
+`struct Task: due: ?Str` — compilation honestly rejects it. But structs where something
+"may not have a due date", like a to-do list, are extremely common, so this is high priority.
 
 ---
 
-## 3등급 — 조용히 틀린 답을 내는 것
+## Tier 3 — Things that silently give wrong answers
 
-### (6) `f"{x:.2f}"` 가 서식을 무시합니다
+### (6) `f"{x:.2f}"` ignores the format spec
 
 ```siskin
 let x = 3.14159
-print(f"{x:.2f}\n")     # 3.14 를 기대 → 3.14159 가 나옵니다
-print(f"[{x:>10}]\n")   # 자리 맞춤도 무시
+print(f"{x:.2f}\n")     # expected 3.14 → prints 3.14159
+print(f"[{x:>10}]\n")   # alignment is ignored too
 ```
 
-`siskin check` 를 통과하고 실행도 됩니다. 아무 말 없이 무시만 합니다.
-초보자는 자기가 잘못 썼다고 생각하고 한참 헤맵니다.
-서식을 구현하거나, 구현 전에는 **오류를 내는 것이 맞습니다.**
+It passes `siskin check` and runs. It just silently ignores the spec.
+A beginner will assume they wrote it wrong and waste a long time.
+The right thing is to implement formatting or, until then, **raise an error.**
 
-이것 때문에 `loganalyze.skn` 에서 소수점 두 자리 출력을 손으로 만들었습니다.
-`0.1 + 0.2` 가 `0.30000000000000004` 로 찍히는 것도 같은 문제입니다.
-숫자를 출력하는 프로그램이면 무엇이든 여기에 걸립니다.
+Because of this I had to hand-roll two-decimal output in `loganalyze.skn`.
+`0.1 + 0.2` printing as `0.30000000000000004` is the same problem.
+Any program that prints numbers runs into this.
 
-### (7) `import` 를 안 해도 `check` 와 `build` 가 통과합니다
+### (7) `check` and `build` pass without the `import`
 
 ```siskin
 fn main():
-    print(str(sqrt(2.0)) + "\n")   # std.math 를 import 하지 않았음
+    print(str(sqrt(2.0)) + "\n")   # std.math was not imported
 ```
 
-- `siskin check` → 통과
-- `siskin build` → 컴파일 성공, 실행하면 정답이 나옴
-- `siskin run` → "함수 `sqrt` 을 찾을 수 없습니다"
+- `siskin check` → passes
+- `siskin build` → compiles, and running it prints the correct answer
+- `siskin run` → "function `sqrt` not found"
 
-문서는 "쓸 이름을 하나하나 적어야 한다"고 했으니 `check` 와 `build` 가 잡아야 합니다.
-지금은 컴파일해서 쓰다가 `siskin run` 으로 돌려 보는 순간 처음 터집니다.
+The docs say "you must list every name you use", so `check` and `build` should catch this.
+Right now it first blows up the moment you run something with `siskin run` that you had been compiling.
 
 ---
 
-## 4등급 — 없어서 진짜 프로그램을 만들 수 없는 것
+## Tier 4 — Missing things that make real programs impossible
 
-### (8) 입력이 전혀 없습니다
+### (8) There is no input at all
 
-키보드 입력(`input`), 명령행 인자(`args`), 종료 코드(`exit`) 가 모두 없습니다.
-그래서 **명령행 도구를 하나도 만들 수 없습니다.** 할 일 관리 프로그램을
-`todo add "장보기"` 처럼 쓸 수가 없어서, 파일에 미리 적어 두고 통째로 읽는
-방식으로 바꿔야 했습니다. 파일 경로도 코드에 박아야 합니다.
+Keyboard input (`input`), command-line arguments (`args`) and exit codes (`exit`) are all missing.
+So **you can't write a single command-line tool.** I couldn't use the to-do program
+as `todo add "groceries"`, so I had to switch to writing everything into a file
+beforehand and reading it all at once. The file path has to be hard-coded too.
 
-가장 먼저 채울 구멍이라고 생각합니다. 세 개뿐이고, 이게 없으면 만든 프로그램을
-남에게 줄 수가 없습니다.
+I think this is the first gap to fill. It's only three functions, and without them
+you can't hand a program you wrote to anyone else.
 
-### (9) 파일을 나눌 수 없습니다
+### (9) You can't split code into files
 
-`std.math` 처럼 표준 라이브러리는 가져오는데, **내가 만든 파일은 가져올 수 없습니다.**
-`import mylib` 도 `from mylib import hello` 도 안 됩니다.
-프로그램 하나는 무조건 파일 하나입니다. 조금만 커지면 못 버팁니다.
+You can import the standard library, like `std.math`, but **you can't import your own files.**
+Neither `import mylib` nor `from mylib import hello` works.
+One program is always exactly one file. It breaks down as soon as things get a bit bigger.
 
-### (10) 함수를 값으로 넘길 수 없습니다
+### (10) You can't pass functions as values
 
-중첩 함수도, 함수 타입도, 이름 없는 함수도 없습니다. 그래서:
+There are no nested functions, no function types and no anonymous functions. So:
 
-- 정렬 기준을 넘길 수 없습니다. `loganalyze.skn` 에서 **정렬을 손으로 짰습니다**
-  (15줄). 요청 수 순으로 줄 세우는 그 흔한 일을 매번 손으로 짜야 합니다.
-- `map` / `filter` 가 없습니다.
-- 콜백을 받는 함수를 만들 수 없습니다.
+- You can't pass a sort key. In `loganalyze.skn` **I wrote the sort by hand**
+  (15 lines). Something as common as ordering by request count has to be hand-written every time.
+- There is no `map` / `filter`.
+- You can't write a function that takes a callback.
 
-### (11) 제네릭이 없습니다
-
-```siskin
-fn first[T](xs: [T]) -> ?T:     # 타입 `T`를 찾을 수 없습니다
-```
-
-"목록의 첫 항목" 같은 함수를 타입마다 복사해서 만들어야 합니다.
-
-### (12) 튜플이 없습니다
-
-`return (node, pos)` 를 못 씁니다. 계산기에서 파서가 "만든 가지"와 "다음 위치"를
-같이 돌려줘야 했는데, 그것만을 위한 구조체(`Parsed`)를 따로 만들었습니다.
-두 값을 돌려줄 일은 아주 자주 생깁니다.
-
-### (13) JSON 값에 이름을 붙일 수 없습니다
+### (11) There are no generics
 
 ```siskin
-fn read_task(item: Json) -> !Task:    # 타입 `json`을 찾을 수 없습니다
+fn first[T](xs: [T]) -> ?T:     # type `T` not found
 ```
 
-`Json` 이라는 타입이 내부에는 있는데 쓸 수가 없습니다. **대소문자 완화 규칙이
-`Json` 을 `json` 으로 낮춰서 찾다가 실패하는 것으로 보입니다** (오류 메시지에
-소문자 `json` 이 찍힙니다). 대소문자 완화가 오히려 멀쩡한 이름을 막는 경우입니다.
+A function like "first item of a list" has to be copied for every type.
 
-결과: JSON 을 읽는 일을 함수로 나눌 수 없어서 `todo.skn` 는 전부 한 함수에
-밀어 넣어야 했습니다. 아래 (14)와 겹쳐서 최악이 됩니다.
+### (12) There are no tuples
+
+You can't write `return (node, pos)`. In the calculator, the parser had to return both
+"the node it built" and "the next position", so I made a struct (`Parsed`) just for that.
+Needing to return two values comes up very often.
+
+### (13) You can't name the type of a JSON value
+
+```siskin
+fn read_task(item: Json) -> !Task:    # type `json` not found
+```
+
+A `Json` type exists internally but can't be used. **It looks like the case-folding rule
+lowers `Json` to `json` and then fails to find it** (the error message prints
+lowercase `json`). This is a case where case folding actually blocks a perfectly good name.
+
+Result: reading JSON couldn't be split out into functions, so `todo.skn` had to cram
+everything into one function. Combined with (14) below, this is the worst of it.
 
 ---
 
-## 5등급 — 있지만 쓰기 아픈 것
+## Tier 5 — Things that exist but are painful to use
 
-### (14) "값이 없을 수도 있다(`?T`)" 를 풀기가 너무 번거롭습니다
+### (14) Unwrapping "may have no value" (`?T`) is far too cumbersome
 
-세 가지가 다 안 됩니다.
+None of these three work:
 
 ```siskin
-# ① 앞에서 막고 나서 쓰기 — 안 좁혀집니다
+# ① Guard first, then use — not narrowed
 if v == none:
-    return error("없음")
-print(str(v + 1))          # 여전히 ?Int 라고 거부당합니다
+    return error("missing")
+print(str(v + 1))          # still rejected as ?Int
 
-# ② 한 줄에 이어서 검사 — 안 좁혀집니다
-if v != none and v > 0:    # ?Int 와 Int 를 비교할 수 없습니다
+# ② Check on the same line — not narrowed
+if v != none and v > 0:    # cannot compare ?Int with Int
 
-# ③ 없으면 기본값 — 그런 문법이 없습니다
+# ③ Default if missing — no such syntax
 let v = find(xs) else 0
 ```
 
-되는 건 `if v != none:` 블록 **안에서** 쓰는 것 하나뿐입니다.
-값을 네 개 꺼내려면 if 를 네 겹 쌓아야 합니다.
+The only thing that works is using it **inside** an `if v != none:` block.
+To extract four values you have to stack four levels of `if`.
 
-`todo.skn` 의 JSON 읽는 부분이 실제로 **16단 중첩(들여쓰기 64칸)** 이 되었습니다.
-필드 다섯 개짜리 구조체 하나를 읽는 코드입니다.
-"파이썬처럼 쉬운 문법"과 가장 크게 어긋나는 지점입니다.
+The JSON-reading part of `todo.skn` actually ended up **nested 16 levels deep (64 columns of indentation)**.
+That's the code for reading a single struct with five fields.
+This is where it departs most from "syntax as easy as Python".
 
-고칠 방법은 셋 중 아무거나 하나만 있어도 크게 나아집니다. 개인적으로는
-①(가드 뒤 좁히기)이 가장 값어치가 큽니다. 코드 모양이 평평해집니다.
+Having any one of the three fixes would help a lot. Personally I think
+① (narrowing after a guard) is the most valuable. It flattens the shape of the code.
 
-### (15) 사전을 순회하기 불편합니다
+### (15) Iterating over a dictionary is awkward
 
 ```siskin
-for k, v in d:      # 없습니다
+for k, v in d:      # doesn't exist
 ```
 
-`keys()` 로 키를 돌고 `d[k]` 로 다시 꺼내야 하는데, **키가 있는 걸 아는데도
-`none` 검사를 또 해야 합니다.** `keys()` 에서 나온 키니까 없을 수가 없는데도요.
+You have to loop over `keys()` and fetch again with `d[k]`, and **even though you know the key
+exists, you still have to check for `none`.** The key came from `keys()`, so it can't be missing.
 
-### (16) 사전에 "없으면 넣고 있으면 더하기"가 매번 네 줄입니다
+### (16) "Insert if missing, add if present" takes four lines every time
 
-세는 일은 거의 모든 프로그램에 나옵니다. 지금은 이렇게 씁니다.
+Counting shows up in almost every program. Right now you write it like this:
 
 ```siskin
 let cur = by_tag[g]
@@ -311,96 +318,96 @@ else:
     by_tag[g] = 1
 ```
 
-### (17) 자리 맞춤과 소수점 서식이 없습니다
+### (17) There is no padding or decimal formatting
 
-표를 출력하려고 `padr` `padl` `fixed2` 세 함수를 손으로 만들었습니다(`loganalyze.skn`).
-`"-".repeat(10)` 은 있는데 `pad_right` 는 없습니다.
+To print a table I hand-wrote three functions, `padr`, `padl` and `fixed2` (`loganalyze.skn`).
+There's `"-".repeat(10)` but no `pad_right`.
 
-덤으로: 자리 맞춤을 **글자 수**로 하면 한글은 화면에서 안 맞습니다.
-한글은 한 글자가 화면에서 두 칸을 차지합니다. `loganalyze.skn` 의 표 머리글이
-실제로 어긋났습니다. 화면 폭을 재는 함수가 따로 필요합니다.
+Also: padding by **character count** doesn't line up Korean text on screen.
+Each Korean character takes two columns on screen. The table header in `loganalyze.skn`
+really was misaligned. A separate function that measures display width is needed.
 
-### (18) 원시 문자열 안에 `"` 를 넣을 수 없습니다
+### (18) You can't put `"` inside a raw string
 
-로그 한 줄이 `"GET /api HTTP/1.1"` 이라서 정규식에 `"` 가 들어가야 했는데,
-`r"...\"..."` 도 `'...'` 도 안 됩니다(작은따옴표 문자열이 없습니다).
-결국 이렇게 이어 붙였습니다.
+A log line looks like `"GET /api HTTP/1.1"`, so the regex needed a `"` in it, but
+neither `r"...\"..."` nor `'...'` works (there are no single-quoted strings).
+In the end I concatenated it like this:
 
 ```siskin
 let Q = "\""
 let pat = Q + r"(\w+) (\S+) HTTP/1\.1" + Q + r" (\d+) (\d+)"
 ```
 
-로그 파싱은 정규식의 가장 흔한 용도인데 바로 여기서 걸립니다.
+Log parsing is the most common use of regular expressions, and this is exactly where it gets stuck.
 
-### (19) 인자 없는 enum 변형의 모양이 세 군데 다 다릅니다
+### (19) A no-argument enum variant is written differently in three places
 
 ```siskin
 enum Tok:
-    LPar            # 선언은 괄호 없이
+    LPar            # declared without parentheses
 ...
-    out.push(LPar())   # 만들 때는 괄호를 붙여야 함
+    out.push(LPar())   # parentheses required when constructing
 ...
-    case LPar:         # match 에서는 다시 괄호 없이
+    case LPar:         # no parentheses again in match
 ```
 
-`LPar` 로 만들려다 "`LPar` 을 찾을 수 없습니다"만 나와서 한참 헤맸습니다.
-오류 메시지가 "`LPar()` 로 쓰세요"라고 알려 주면 될 일입니다.
+I tried to construct it as `LPar`, got only "`LPar` not found", and spent a long time lost.
+The error message should just say "write `LPar()`".
 
-### (20) `let` 으로 잡아도 메서드로 고쳐집니다
+### (20) A method can modify a value bound with `let`
 
 ```siskin
 let c = Counter(n: 0)
-c.bump()              # 막아야 하는데 그냥 됩니다
+c.bump()              # should be blocked, but it just works
 ```
 
-문서는 `fn bump(self)` 를 "읽기 전용"이라고 설명하는데 실제로는 안 막습니다.
-`let` 은 "못 바꿈"이라고 했는데 메서드를 통하면 바뀝니다. 1등급 문제와 같은 뿌리입니다.
+The docs describe `fn bump(self)` as "read-only", but it isn't actually enforced.
+`let` is supposed to mean "can't change", yet it changes through a method. Same root as the tier-1 problem.
 
 ---
 
-## 잘 되는 것 — 이건 그대로 두면 좋겠습니다
+## What works well — please keep these as they are
 
-써 보면서 기대보다 좋았던 것입니다.
+Things that turned out better than I expected while using it.
 
-- **오류 메시지 품질.** 줄·칸을 짚고 한국어로 설명하고 `도움말:` 로 방법까지 알려 줍니다.
-  타입 관련 오류는 거의 전부 무엇을 해야 할지 바로 알 수 있었습니다.
-- **런타임 안전 검사.** 0으로 나누기, 리스트·문자열 범위 초과를 그 자리에서 잡고,
-  `siskin run` 과 컴파일된 프로그램의 메시지가 같습니다.
-- **`!T` 와 `try` / `catch`.** 계산기의 오류 처리를 이걸로만 짰는데 아주 깔끔했습니다.
-  어느 줄이 실패할 수 있는지 눈에 보입니다. 이 설계는 성공입니다.
-- **`match` 빠짐 검사와 `case _`.** 변형을 빠뜨리면 정확히 알려 줍니다.
-- **계약(`requires`)과 doctest.** 둘 다 두 방식에서 모두 동작하고
-  `--release` 에서 계약이 사라지는 것까지 설계대로입니다.
-- **정규식·사전·JSON.** 정규식이 한글도 잘 먹고, JSON 은 한글이 든 파일을
-  읽고 다시 써도 그대로 보존됩니다.
-- **문자열을 글자 단위로 세는 것.** `"안녕하세요".len()` 이 5입니다. C++ 대비 확실한 장점입니다.
-- **상호 재귀 함수.** 파서에서 뒤에 선언한 함수를 앞에서 불러도 됩니다. 선언이 필요 없습니다.
-- **여러 줄에 걸친 식.** 표 출력할 때 `+` 로 줄을 이어 써도 잘 읽혔습니다.
-- `while` `break` `continue` `elif`, 리스트·사전·구조체를 겹쳐 담기, 구조체를 `print` 하기.
+- **Error message quality.** Errors point at the line and column, explain in plain language, and a `help:` line tells you how to fix it.
+  For nearly every type error I knew right away what to do.
+- **Runtime safety checks.** Division by zero and list/string out-of-range are caught on the spot,
+  and the messages are identical between `siskin run` and compiled programs.
+- **`!T` with `try` / `catch`.** I wrote the calculator's error handling with only these, and it was very clean.
+  You can see which lines can fail. This design is a success.
+- **`match` exhaustiveness checking and `case _`.** It tells you exactly which variant you missed.
+- **Contracts (`requires`) and doctests.** Both work in both modes, and
+  contracts disappearing under `--release` is exactly as designed.
+- **Regex, dictionaries, JSON.** Regex handles Korean text fine, and JSON files containing Korean
+  are preserved exactly when read and written back.
+- **Counting strings by character.** `"안녕하세요".len()` is 5. A clear advantage over C++.
+- **Mutually recursive functions.** In the parser, a function can call one declared later. No forward declarations needed.
+- **Expressions spanning multiple lines.** When printing tables, continuing lines with `+` read well.
+- `while` `break` `continue` `elif`, nesting lists, dictionaries and structs, and `print`ing structs.
 
 ---
 
-## 제가 생각하는 순서
+## The order I would suggest
 
-**먼저:** (1)(2) 함수에 값을 넘길 때 복사인지 공유인지 정하기. 이건 설계 결정이라
-다른 모든 것보다 앞섭니다. 정해지지 않은 상태에서 기능을 더하면 어긋난 것이 늘어납니다.
+**First:** (1)(2) Decide whether passing a value to a function copies or shares it. This is a design
+decision, so it comes before everything else. Adding features while it's undecided only multiplies the inconsistencies.
 
-**그다음 (작고 효과 큰 것):**
-- (6) 서식을 못 하면 오류라도 내기 — 조용히 틀리는 경우를 막기
-- (7) `check` 가 import 를 확인하게 하기
-- (8) `input` / `args` / `exit` 세 개 — 이게 있으면 만든 걸 쓸 수 있게 됩니다
-- (17)(18) `pad_right` / `pad_left`, 정규식에 `"` 넣을 방법
+**Next (small, high-impact):**
+- (6) If formatting isn't supported, at least raise an error — prevent silently wrong output
+- (7) Have `check` verify imports
+- (8) The three functions `input` / `args` / `exit` — with these, what you build becomes usable
+- (17)(18) `pad_right` / `pad_left`, and a way to put `"` in a regex
 
-**그다음 (문법이 편해지는 것):**
-- (14) 가드 뒤에 `?T` 좁히기 — 코드가 평평해집니다
-- (15)(16) `for k, v in d`, 사전 세기
-- (12) 튜플
-- (13) `Json` 타입 이름 고치기
+**Then (nicer syntax):**
+- (14) Narrow `?T` after a guard — flattens code
+- (15)(16) `for k, v in d`, dictionary counting
+- (12) Tuples
+- (13) Fix the `Json` type name
 
-**그다음 (큰 공사):**
-- (3) 재귀 enum 컴파일 — 안 되면 파서 같은 프로그램은 계속 `run` 전용입니다
-- (9) 파일 나누기
-- (10) 함수를 값으로
-- (4)(5) `inout`, 구조체의 `?T`
-- (11) 제네릭
+**Then (major work):**
+- (3) Compiling recursive enums — without it, programs like parsers stay `run`-only
+- (9) Splitting into files
+- (10) Functions as values
+- (4)(5) `inout`, `?T` in structs
+- (11) Generics

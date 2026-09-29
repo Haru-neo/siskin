@@ -2111,7 +2111,22 @@ impl Types {
                         *col,
                     ));
                 }
-                let c_ok = match target {
+                if let Some(o @ (BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr)) = op {
+                    for t in [&tt, &vt] {
+                        if *t != Ty::Int && *t != Ty::Unknown {
+                            self.errors.push(err(
+                                "T0081",
+                                tr!(format!("`{}=`는 Int에만 쓸 수 있는데 {}입니다", o.symbol(), t), format!("`{}=` only works on Int, found {}", o.symbol(), t)),
+                                *line,
+                                *col,
+                            ));
+                            break;
+                        }
+                    }
+                }
+                // `x **= 2` on a Float keeps it a Float.
+                let pow_ok = *op == Some(BinOp::Pow) && tt == Ty::Float && vt == Ty::Int;
+                let c_ok = pow_ok || match target {
                     Expr::Field(o, n, _, _) => {
                         let ot = self.infer_quiet(o);
                         self.c_field_accepts(&ot, n, &vt)
@@ -2771,6 +2786,20 @@ impl Types {
                         }
                         t
                     }
+                    UnOp::BitNot => {
+                        if t != Ty::Int && t != Ty::Unknown {
+                            self.errors.push(
+                                err("T0081", tr!(format!("`~`는 Int에만 쓸 수 있는데 {}입니다", t), format!("`~` only works on Int, found {}", t)), *l, *c).with_fix(
+                                    if t == Ty::Bool {
+                                        tr!("Bool을 뒤집으려면 `not`을 씁니다", "to flip a Bool, use `not`")
+                                    } else {
+                                        tr!("비트 연산자는 Int에만 씁니다", "bit operators only work on Int")
+                                    },
+                                ),
+                            );
+                        }
+                        Ty::Int
+                    }
                 }
             }
 
@@ -2831,6 +2860,56 @@ impl Types {
                             );
                         }
                         Ty::Bool
+                    }
+                    BitAnd | BitOr | BitXor | Shl | Shr => {
+                        for (t, side, side_en) in [(&at, "왼쪽", "left"), (&bt, "오른쪽", "right")] {
+                            if *t != Ty::Int && *t != Ty::Unknown {
+                                let fix = if *t == Ty::Bool && matches!(op, BitAnd | BitOr) {
+                                    tr!("Bool에는 `and` / `or`를 씁니다", "for Bool values, use `and` / `or`").to_string()
+                                } else {
+                                    tr!("비트 연산자는 Int에만 씁니다. 필요하면 `int(x)`로 바꾸세요", "bit operators only work on Int; convert with `int(x)` if needed").to_string()
+                                };
+                                self.errors.push(
+                                    err(
+                                        "T0081",
+                                        tr!(
+                                            format!("`{}`의 {}은 Int여야 하는데 {}입니다", op.symbol(), side, t),
+                                            format!("{} operand of `{}` must be Int, found {}", side_en, op.symbol(), t)
+                                        ),
+                                        *l,
+                                        *c,
+                                    )
+                                    .with_fix(fix),
+                                );
+                                break;
+                            }
+                        }
+                        Ty::Int
+                    }
+                    Pow => {
+                        if at == Ty::Unknown || bt == Ty::Unknown {
+                            return if at == Ty::Unknown { bt } else { at };
+                        }
+                        match (&at, &bt) {
+                            (Ty::Int, Ty::Int) => Ty::Int,
+                            // A Float raised to a whole number is common enough (`x ** 2`) to allow directly.
+                            (Ty::Float, Ty::Float) | (Ty::Float, Ty::Int) => Ty::Float,
+                            _ => {
+                                self.errors.push(
+                                    err(
+                                        "T0082",
+                                        tr!(format!("{}와(과) {}에 `**`을(를) 쓸 수 없습니다", at, bt), format!("cannot apply `**` to {} and {}", at, bt)),
+                                        *l,
+                                        *c,
+                                    )
+                                    .with_fix(tr!(
+                                        "`**`는 Int ** Int, Float ** Float, Float ** Int만 됩니다. `float(x)`로 맞추세요",
+                                        "`**` works on Int ** Int, Float ** Float and Float ** Int; convert with `float(x)`"
+                                    )),
+                                );
+                                Ty::Unknown
+                            }
+                        }
                     }
                     Add | Sub | Mul | Div | Mod => {
                         // Pointer arithmetic: `p + 8`

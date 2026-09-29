@@ -1047,7 +1047,7 @@ pub fn import_header(
     defines: &[String],
 ) -> Result<Imported, String> {
     // Skip-reason texts differ by language, so the cache is per language too.
-    let key = format!("{}|{}|{}|{}|v11{}", header, cpp, incdirs.join(":"), defines.join(":"), tr!("", "|en"));
+    let key = format!("{}|{}|{}|{}|v12{}", header, cpp, incdirs.join(":"), defines.join(":"), tr!("", "|en"));
     let cache = temp_dir().join(format!("{:016x}.txt", hash64(&key)));
     if let Some(hit) = load_cache(&cache) {
         return Ok(filter_only(hit, only));
@@ -1140,7 +1140,11 @@ pub fn import_header(
         } else if kind == "TypedefDecl" {
             let name = dstr(n, "name").unwrap_or_default();
             if let Some(id) = typedef_record_id(n) {
-                td_of.entry(id).or_insert(name);
+                let q = dget(n, "type").and_then(|t| dstr(&t, "qualType")).unwrap_or_default();
+                // `typedef struct {..} png_image, *png_imagep;` — the pointer name is not the struct's name.
+                if !q.trim_end().ends_with('*') {
+                    td_of.entry(id).or_insert(name);
+                }
             }
         }
     }
@@ -1158,6 +1162,12 @@ pub fn import_header(
         }
         sc.smap.insert(c_name.clone(), name.clone());
         sc.smap.insert(name.clone(), name.clone());
+        // How clang spells an unnamed struct behind a typedef: `struct png_image` (newer) or
+        // `struct (unnamed struct at png.h:2667:9)` (older). A pointer typedef such as
+        // `typedef struct {..} png_image, *png_imagep;` resolves to that spelling plus `*`.
+        if let Some(q) = td.get(&name) {
+            sc.smap.entry(tidy(q)).or_insert(name.clone());
+        }
         if let Some(tag) = tag {
             sc.smap.insert(format!("{} {}", kw, tag), name.clone());
         }
@@ -1350,7 +1360,7 @@ fn split(s: &str) -> Vec<String> {
 }
 
 fn save_cache(path: &PathBuf, im: &Imported) {
-    let mut s = String::from("siskin-ffi 11\n");
+    let mut s = String::from("siskin-ffi 12\n");
     s.push_str(&format!("H\t{}\n", im.header_path));
     for (f, t) in &im.files {
         s.push_str(&format!("W\t{}\t{}\n", f, t));
@@ -1437,7 +1447,7 @@ fn mty_of(s: &str) -> MTy {
 fn load_cache(path: &PathBuf) -> Option<Imported> {
     let s = std::fs::read_to_string(path).ok()?;
     let mut lines = s.lines();
-    if lines.next()? != "siskin-ffi 11" {
+    if lines.next()? != "siskin-ffi 12" {
         return None;
     }
     let mut im = Imported::default();

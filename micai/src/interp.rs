@@ -16,6 +16,19 @@ pub enum Flow {
 
 type R<T> = Result<T, Flow>;
 
+/// `x ** y` for Ints: repeated squaring. Wraps on overflow like `*` does (same as the C `mi_pow_i64`).
+fn int_pow(x: i64, y: i64) -> i64 {
+    let (mut base, mut e, mut r) = (x as u64, y as u64, 1u64);
+    while e > 0 {
+        if e & 1 == 1 {
+            r = r.wrapping_mul(base);
+        }
+        base = base.wrapping_mul(base);
+        e >>= 1;
+    }
+    r as i64
+}
+
 fn fail<T>(code: &'static str, msg: impl Into<String>, line: usize, col: usize) -> R<T> {
     Err(Flow::Fail(SiskinError::new(code, msg, line, col)))
 }
@@ -1222,6 +1235,13 @@ impl Interp {
                     (UnOp::Neg, Value::Int(n)) => Ok(Value::Int(-n)),
                     (UnOp::Neg, Value::Float(f)) => Ok(Value::Float(-f)),
                     (UnOp::Not, Value::Bool(b)) => Ok(Value::Bool(!b)),
+                    (UnOp::BitNot, Value::Int(n)) => Ok(Value::Int(!n)),
+                    (UnOp::BitNot, other) => fail(
+                        "E0219",
+                        tr!(format!("{} 값에는 `~`를 쓸 수 없습니다", other.type_name()), format!("cannot apply `~` to a {} value", other.type_name())),
+                        *l,
+                        *c,
+                    ),
                     (UnOp::Not, other) => fail_fix(
                         "E0202",
                         tr!(format!("`not`은 Bool에만 쓸 수 있는데 {}입니다", other.type_name()), format!("`not` only works on Bool, found {}", other.type_name())),
@@ -3339,10 +3359,43 @@ impl Interp {
             return Ok(Value::Raw(Rc::clone(buf), shifted as usize));
         }
 
+        // `Float ** Int` is allowed (`x ** 2`).
+        if let (Pow, Value::Float(x), Value::Int(y)) = (op, &a, &b) {
+            return Ok(Value::Float(x.powf(*y as f64)));
+        }
+
         match (&a, &b) {
             (Value::Int(x), Value::Int(y)) => {
                 let (x, y) = (*x, *y);
                 match op {
+                    BitAnd => Ok(Value::Int(x & y)),
+                    BitOr => Ok(Value::Int(x | y)),
+                    BitXor => Ok(Value::Int(x ^ y)),
+                    Shl | Shr => {
+                        if !(0..64).contains(&y) {
+                            return fail_fix(
+                                "E0264",
+                                tr!(format!("시프트 칸 수는 0부터 63까지인데 {}입니다", y), format!("shift amount must be between 0 and 63, found {}", y)),
+                                line,
+                                col,
+                                tr!("Int는 64비트라서 64칸 이상 밀 수 없습니다", "an Int has 64 bits, so it cannot be shifted by 64 or more"),
+                            );
+                        }
+                        // `<<` drops the bits pushed off the top; `>>` keeps the sign (like C on signed values).
+                        Ok(Value::Int(if op == Shl { ((x as u64) << y) as i64 } else { x >> y }))
+                    }
+                    Pow => {
+                        if y < 0 {
+                            return fail_fix(
+                                "E0265",
+                                tr!(format!("Int의 거듭제곱에 음수 지수 {}를 쓸 수 없습니다", y), format!("an Int power cannot have a negative exponent ({})", y)),
+                                line,
+                                col,
+                                tr!("분수 결과가 필요하면 `float(x) ** y`로 씁니다", "for a fractional result, write `float(x) ** y`"),
+                            );
+                        }
+                        Ok(Value::Int(int_pow(x, y)))
+                    }
                     Add => Ok(Value::Int(x.wrapping_add(y))),
                     Sub => Ok(Value::Int(x.wrapping_sub(y))),
                     Mul => Ok(Value::Int(x.wrapping_mul(y))),
@@ -3381,6 +3434,7 @@ impl Interp {
                         }
                     }
                     Mod => Ok(Value::Float(x % y)),
+                    Pow => Ok(Value::Float(x.powf(y))),
                     Lt => Ok(Value::Bool(x < y)),
                     Le => Ok(Value::Bool(x <= y)),
                     Gt => Ok(Value::Bool(x > y)),
@@ -3542,6 +3596,7 @@ pub fn render_expr(e: &Expr) -> String {
         Expr::Unary(op, a, _, _) => match op {
             UnOp::Neg => format!("-{}", render_expr(a)),
             UnOp::Not => format!("not {}", render_expr(a)),
+            UnOp::BitNot => format!("~{}", render_expr(a)),
         },
         Expr::Binary(op, a, b, _, _) => {
             format!("{} {} {}", render_expr(a), op.symbol(), render_expr(b))

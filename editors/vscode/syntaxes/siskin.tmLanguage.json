@@ -70,7 +70,7 @@
       ]
     },
     "numbers": {
-      "match": "\\b\\d[\\d_]*(\\.\\d+)?([eE][+-]?\\d+)?\\b",
+      "match": "\\b(0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|\\d[\\d_]*(\\.\\d+)?([eE][+-]?\\d+)?)\\b",
       "name": "constant.numeric.siskin"
     },
     "keywords": {
@@ -93,7 +93,7 @@
       "captures": { "1": { "name": "entity.name.function.call.siskin" } }
     },
     "operators": {
-      "match": "->|==|!=|<=|>=|\\+=|-=|\\*=|/=|[-+*/%=<>!?]",
+      "match": "\\*\\*=|<<=|>>=|\\*\\*|<<|>>|->|==|!=|<=|>=|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|[-+*/%=<>!?&|^~]",
       "name": "keyword.operator.siskin"
     }
   }

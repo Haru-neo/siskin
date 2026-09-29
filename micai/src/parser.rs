@@ -351,6 +351,12 @@ impl Parser {
             Tok::StarEq => Some(BinOp::Mul),
             Tok::SlashEq => Some(BinOp::Div),
             Tok::PercentEq => Some(BinOp::Mod),
+            Tok::AmpEq => Some(BinOp::BitAnd),
+            Tok::PipeEq => Some(BinOp::BitOr),
+            Tok::CaretEq => Some(BinOp::BitXor),
+            Tok::ShlEq => Some(BinOp::Shl),
+            Tok::ShrEq => Some(BinOp::Shr),
+            Tok::StarStarEq => Some(BinOp::Pow),
             _ => {
                 let catch = self.opt_catch()?;
                 if catch.is_none() {
@@ -1113,6 +1119,10 @@ impl Parser {
         if self.eat(&Tok::Star) {
             return Ok(TypeExpr::Raw(Box::new(self.type_expr()?)));
         }
+        // `**T` is lexed as one `**` token: a pointer to a pointer.
+        if self.eat(&Tok::StarStar) {
+            return Ok(TypeExpr::Raw(Box::new(TypeExpr::Raw(Box::new(self.type_expr()?)))));
+        }
         if self.eat(&Tok::LBracket) {
             let inner = self.type_expr()?;
             // `[F32; 4]` — a fixed-size array, laid out like C's `float x[4]`. Only as a struct field.
@@ -1238,7 +1248,7 @@ impl Parser {
     }
 
     fn cmp_expr(&mut self) -> Result<Expr, SiskinError> {
-        let mut left = self.add_expr()?;
+        let mut left = self.bor_expr()?;
         loop {
             let op = match self.tok() {
                 Tok::EqEq => BinOp::Eq,
@@ -1256,7 +1266,7 @@ impl Parser {
                     if negate {
                         self.bump();
                     }
-                    let right = self.add_expr()?;
+                    let right = self.bor_expr()?;
                     let call = Expr::Call {
                         callee: Box::new(Expr::Field(Box::new(right), "contains".into(), l, c)),
                         targs: Vec::new(),
@@ -1267,6 +1277,58 @@ impl Parser {
                     left = if negate { Expr::Unary(UnOp::Not, Box::new(call), l, c) } else { call };
                     continue;
                 }
+                _ => break,
+            };
+            let (l, c) = (self.line(), self.col());
+            self.bump();
+            let right = self.bor_expr()?;
+            left = Expr::Binary(op, Box::new(left), Box::new(right), l, c);
+        }
+        Ok(left)
+    }
+
+    // Bit operators sit between comparison and `+`, as in Python, so `flags & BIT == BIT`
+    // reads as `(flags & BIT) == BIT` (C would group it the other way).
+    // From loosest to tightest: `|`, `^`, `&`, `<<` `>>`.
+    fn bor_expr(&mut self) -> Result<Expr, SiskinError> {
+        let mut left = self.bxor_expr()?;
+        while self.at(&Tok::Pipe) {
+            let (l, c) = (self.line(), self.col());
+            self.bump();
+            let right = self.bxor_expr()?;
+            left = Expr::Binary(BinOp::BitOr, Box::new(left), Box::new(right), l, c);
+        }
+        Ok(left)
+    }
+
+    fn bxor_expr(&mut self) -> Result<Expr, SiskinError> {
+        let mut left = self.band_expr()?;
+        while self.at(&Tok::Caret) {
+            let (l, c) = (self.line(), self.col());
+            self.bump();
+            let right = self.band_expr()?;
+            left = Expr::Binary(BinOp::BitXor, Box::new(left), Box::new(right), l, c);
+        }
+        Ok(left)
+    }
+
+    fn band_expr(&mut self) -> Result<Expr, SiskinError> {
+        let mut left = self.shift_expr()?;
+        while self.at(&Tok::Amp) {
+            let (l, c) = (self.line(), self.col());
+            self.bump();
+            let right = self.shift_expr()?;
+            left = Expr::Binary(BinOp::BitAnd, Box::new(left), Box::new(right), l, c);
+        }
+        Ok(left)
+    }
+
+    fn shift_expr(&mut self) -> Result<Expr, SiskinError> {
+        let mut left = self.add_expr()?;
+        loop {
+            let op = match self.tok() {
+                Tok::Shl => BinOp::Shl,
+                Tok::Shr => BinOp::Shr,
                 _ => break,
             };
             let (l, c) = (self.line(), self.col());
@@ -1317,6 +1379,12 @@ impl Parser {
             let e = self.unary()?;
             return Ok(Expr::Unary(UnOp::Neg, Box::new(e), l, c));
         }
+        if self.at(&Tok::Tilde) {
+            let (l, c) = (self.line(), self.col());
+            self.bump();
+            let e = self.unary()?;
+            return Ok(Expr::Unary(UnOp::BitNot, Box::new(e), l, c));
+        }
         if self.at_kw("try") {
             let (l, c) = (self.line(), self.col());
             self.bump();
@@ -1352,7 +1420,20 @@ impl Parser {
                 c,
             ));
         }
-        self.postfix()
+        self.power()
+    }
+
+    /// `a ** b` binds tighter than unary minus and groups to the right, as in Python:
+    /// `-2 ** 2` is `-(2 ** 2)`, and `2 ** 3 ** 2` is `2 ** (3 ** 2)`.
+    fn power(&mut self) -> Result<Expr, SiskinError> {
+        let base = self.postfix()?;
+        if self.at(&Tok::StarStar) {
+            let (l, c) = (self.line(), self.col());
+            self.bump();
+            let exp = self.unary()?;
+            return Ok(Expr::Binary(BinOp::Pow, Box::new(base), Box::new(exp), l, c));
+        }
+        Ok(base)
     }
 
     fn postfix(&mut self) -> Result<Expr, SiskinError> {

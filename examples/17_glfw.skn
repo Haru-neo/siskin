@@ -1,0 +1,45 @@
+# Open a window with GLFW and clear it with OpenGL.
+# Needs the libraries installed (Ubuntu: apt install libglfw3-dev libgl-dev).
+# Constants like GLFW_KEY_ESCAPE and GL_COLOR_BUFFER_BIT come straight from the headers.
+
+import c "GLFW/glfw3.h" link "glfw"
+import c "GL/gl.h" link "GL"
+
+# GLFW calls this when a key is pressed. A named Siskin function can be passed as a C callback.
+fn on_key(win: Int, key: Int, scancode: Int, action: Int, mods: Int):
+    if key == GLFW_KEY_ESCAPE and action == GLFW_PRESS:
+        glfwSetWindowShouldClose(win, GLFW_TRUE)
+
+fn on_error(code: Int, message: Str):
+    print(f"GLFW error {code}: {message}\n")
+
+fn main():
+    glfwSetErrorCallback(on_error)
+    if glfwInit() != GLFW_TRUE:
+        print("could not start GLFW\n")
+        return
+    let win = glfwCreateWindow(640, 480, "Siskin + GLFW", 0, 0)
+    if win == 0:
+        print("could not open a window\n")
+        glfwTerminate()
+        return
+    glfwMakeContextCurrent(win)
+    glfwSetKeyCallback(win, on_key)
+
+    # C writes the size into these variables (the header says `int* width, int* height`).
+    var w = 0
+    var h = 0
+    glfwGetFramebufferSize(win, w, h)
+    print(f"window {w}x{h}, GLFW {GLFW_VERSION_MAJOR}.{GLFW_VERSION_MINOR}\n")
+
+    # Draw a few frames. A real program loops until glfwWindowShouldClose(win) is true.
+    var frame = 0
+    while frame < 3 and glfwWindowShouldClose(win) == 0:
+        glClearColor(0.1, 0.2, 0.3, 1.0)
+        glClear(GL_COLOR_BUFFER_BIT)
+        glfwSwapBuffers(win)
+        glfwPollEvents()
+        frame += 1
+    print(f"drew {frame} frames\n")
+    glfwDestroyWindow(win)
+    glfwTerminate()

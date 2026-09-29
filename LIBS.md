@@ -57,32 +57,124 @@ Here are actual measurements:
 
 | C side | Siskin side | Notes |
 |---|---|---|
-| `int`, `long`, `size_t`, `uint32_t` … | `Int` | All integers are `Int`, regardless of size |
+| `int`, `long`, `size_t`, `uint32_t` … | `Int` | All integer values are `Int`, regardless of size |
 | `float`, `double` | `Float` | |
 | `_Bool` | `Bool` | |
 | `const char *` | `Str` | A string the callee reads |
-| `char *` (parameter position) | `Int` | Means "write into here", so it's kept as an address |
+| `int *`, `float *`, `sqlite3 **` … | `CPtr[I32]`, `CPtr[F32]`, `CPtr[Int]` | "Write the result here": pass a `var` |
+| `const T *` | `CConst[T]` | "Read this": pass the value itself |
+| `char *` (parameter position) | `CPtr[I8]` | A buffer to write into, so it stays an address |
 | `char *` (return position) | `Str` | |
-| Other pointers (`FILE*`, `sqlite3*` …) | `Int` | A handle. Passed back and forth without looking inside |
-| `T **` | `inout Int` | A slot meaning "put the result here" |
-| Function pointer | function | You can pass your own function |
+| `void *`, `FILE *`, other handles | `CPtr[Unit]` | Pass a handle (`Int`) or a `*T` pointer |
+| A struct by value | the struct | `div_t`, `VkExtent2D` … |
+| Function pointer parameter | function | Pass your own named function |
+| Function pointer return value | `Int` | An address; see "Function pointers" below |
 | `void` | nothing | |
 
-### Slots that receive a result (`T **`)
+`siskin ffi header.h --all` shows every signature in these terms.
 
-C libraries often hand back results through a parameter rather than the return value.
+### What to pass for a C pointer
+
+A pointer parameter takes one of three things:
+
+- **A variable**: C gets its address. If the pointer is not `const`, what C writes lands in the variable,
+  so it must be a `var`.
+- **A `*T` pointer** (from `alloc`) or an **address** (`Int`) you got from C: passed as it is.
+  A number that is not a variable, such as `0`, is an address, so `0` is a null pointer.
+- **A value** for a `const` pointer (`CConst[T]`): C reads a copy of it.
 
 ```c
 int sqlite3_open(const char *filename, sqlite3 **ppDb);
+void glfwGetFramebufferSize(GLFWwindow* window, int* width, int* height);
+VkResult vkCreateInstance(const VkInstanceCreateInfo* info, const VkAllocationCallbacks* alloc, VkInstance* out);
 ```
-
-In Siskin, just pass a `var` variable and the result is stored in it.
 
 ```
 var db = 0
-if sqlite3_open(":memory:", db) != 0:
-    print("failed to open\n")
+sqlite3_open(":memory:", db)        # the handle lands in db
+
+var w = 0
+var h = 0
+glfwGetFramebufferSize(win, w, h)   # C writes both sizes
+
+var instance = 0
+vkCreateInstance(info, 0, instance) # info is read, 0 is a null pointer, instance is written
 ```
+
+### Constants
+
+`#define` numbers and strings and `enum` values become constants with the same names:
+
+```
+import c "GLFW/glfw3.h" link "glfw"
+
+if key == GLFW_KEY_ESCAPE and action == GLFW_PRESS:
+    ...
+```
+
+A `#define` whose value is an expression of other constants (`#define VK_API_VERSION_1_0 VK_MAKE_API_VERSION(0, 1, 0, 0)`)
+is worked out by the C compiler. Function-like macros themselves are not imported.
+
+### Structs and unions
+
+Structs and unions in the header become Siskin structs. They keep C's field names and
+the generated code uses the header's own type, so the memory layout is exactly C's.
+
+```
+var props = VkPhysicalDeviceProperties()          # every field starts as zero
+vkGetPhysicalDeviceProperties(device, props)      # C fills it in
+print(f"{props.deviceName} {props.limits.maxImageDimension2D}\n")
+
+var clear = VkClearValue()                        # a union: all views share the same bytes
+clear.color.float32 = [0.1, 0.2, 0.3, 1.0]
+```
+
+| C field | Siskin field | Reads as |
+|---|---|---|
+| `uint32_t`, `int16_t`, `float` … | `U32`, `I16`, `F32` … | `Int` / `Float` |
+| `float color[4]` | `[F32; 4]` | `[Float]` |
+| `char name[256]` | `Str` | `Str` (up to the first NUL; storing truncates) |
+| another struct | that struct | the struct |
+| `enum` | `I32` | `Int` |
+| a pointer | `Int` | an address; also takes a `*T` pointer |
+| `const char *` | `Int` | an address (read it with `cstr`); also takes a string, which stays alive |
+| a function pointer | `Int` | an address; also takes a named function |
+
+Fields not given when constructing start as zero, like `= {0}` in C.
+`size_of[T]()` and `offset_of[T]("field")` give C's `sizeof` and `offsetof`.
+The same fixed-size types can be used in your own structs (see GUIDE 9.5.5).
+
+### Function pointers
+
+A function pointer that C returns is an address (`Int`). The header's function pointer type
+turns it into a Siskin function you can call:
+
+```
+let addr = vkGetInstanceProcAddr(instance, "vkDestroyInstance")
+let destroy = PFN_vkDestroyInstance(addr)
+destroy(instance, 0)
+
+let previous = glfwSetKeyCallback(win, on_key)    # the callback that was set before (0 if none)
+if previous != 0:
+    GLFWkeyfun(previous)(win, key, scancode, action, mods)
+```
+
+If such a function takes a pointer, it takes it as an address: `address_of(p)` gives the address of a `*T` pointer.
+
+### Headers that include other headers, and macros they expect
+
+Headers included with quotes (`#include "vulkan_core.h"`) are read too, so `vulkan/vulkan.h`
+imports everything in `vulkan_core.h`. System headers included with `<...>` are not, so
+`stdio.h` functions still need their own `import c "stdio.h"`.
+
+Some headers only declare things when a macro is defined first. Put it on the import line:
+
+```
+import c "GL/glext.h" link "GL" define "GL_GLEXT_PROTOTYPES"
+import c "mylib.h" define "MYLIB_STATIC", "MYLIB_LEVEL=2"
+```
+
+The macros also apply to C files compiled with `also`.
 
 ### Passing your own function to a library (callbacks)
 
@@ -181,10 +273,14 @@ the same as with `siskin build`.
 | Reason | Examples |
 |---|---|
 | Functions with a variable number of arguments | `printf`, `sqlite3_config` |
-| Functions that pass or return structs by value | `div()`, some of the `localtime` family |
+| Function-like macros | `VK_MAKE_API_VERSION(...)`, `MIN(a, b)` |
 | Names Siskin already has | `abs`, `free`, `pow`, `exit` … the Siskin one wins |
 
 Run `siskin ffi <header>` to see what was left out and why.
+
+What Siskin does not try to replace: shaders stay in GLSL (Siskin passes them to OpenGL or Vulkan
+like any other file), and windows, physics and audio come from existing libraries such as GLFW, SDL,
+Jolt or miniaudio.
 
 ---
 

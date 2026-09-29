@@ -440,7 +440,7 @@ impl Resolver {
                     self.ty(a);
                 }
             }
-            TypeExpr::Optional(a) | TypeExpr::List(a) | TypeExpr::Raw(a) => self.ty(a),
+            TypeExpr::Optional(a) | TypeExpr::List(a) | TypeExpr::Raw(a) | TypeExpr::Array(a, _) => self.ty(a),
             TypeExpr::Fallible(a, e) => {
                 self.ty(a);
                 if let Some(e) = e {

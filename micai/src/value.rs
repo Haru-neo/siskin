@@ -87,6 +87,8 @@ pub struct RawBuf {
     pub alive: bool,
     /// Whether the memory is owned by an arena (if so, individual free is forbidden).
     pub in_arena: bool,
+    /// Element type (`F32`, `Vertex` ...). Values stored into a slot are converted to it, as C would.
+    pub elem: Option<crate::ast::TypeExpr>,
 }
 
 #[derive(Debug, Clone)]

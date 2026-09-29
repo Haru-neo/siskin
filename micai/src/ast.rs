@@ -18,6 +18,8 @@ pub enum TypeExpr {
     Dict(Box<TypeExpr>, Box<TypeExpr>),
     /// `*T` — raw pointer (Level 2, P4)
     Raw(Box<TypeExpr>),
+    /// `[T; N]` — fixed-size array (a struct field laid out like C's `T x[N]`)
+    Array(Box<TypeExpr>, usize),
     /// `(T, U, ...)` — tuple
     Tuple(Vec<TypeExpr>),
     /// `(A, B) -> R` — function type
@@ -41,6 +43,7 @@ impl TypeExpr {
             TypeExpr::List(t) => format!("[{}]", t.render()),
             TypeExpr::Dict(k, v) => format!("{{{}: {}}}", k.render(), v.render()),
             TypeExpr::Raw(t) => format!("*{}", t.render()),
+            TypeExpr::Array(t, n) => format!("[{}; {}]", t.render(), n),
             TypeExpr::Tuple(ts) => {
                 let inner: Vec<String> = ts.iter().map(|t| t.render()).collect();
                 format!("({})", inner.join(", "))
@@ -445,6 +448,40 @@ pub struct CSig {
     pub shim: Option<String>,
     /// For each position that expects a function to be passed, `(C parameter types, C return type)`.
     pub cbs: Vec<Option<(Vec<String>, String)>>,
+    /// Macros given with `define "NAME"` on the import line. Emitted before the `#include`.
+    pub defines: Vec<String>,
+    /// Not a real function: `GLFWkeyfun(addr)` for a function pointer typedef, which turns
+    /// an address into a callable Siskin function value. `call` is the typedef name and
+    /// `cbs[0]` its C shape.
+    pub fnptr: bool,
+}
+
+/// What Siskin knows about one field of a struct imported from a C header.
+#[derive(Debug, Clone)]
+pub struct CFieldInfo {
+    /// The C type as written in the header.
+    pub c_ty: String,
+    /// A pointer field. Reads as an address (Int); a `*T`, an Int address, or `0` may be stored.
+    pub ptr: bool,
+    /// A `char*` field: a Siskin string may also be stored (a copy that stays alive).
+    pub charp: bool,
+    /// A `char name[N]` field: reads as Str, and storing a Str copies it in.
+    pub chars: usize,
+    /// A function pointer field: `(C parameter types, C return type)`. A named Siskin function may be stored.
+    pub cb: Option<(Vec<String>, String)>,
+}
+
+/// A struct or union imported from a C header. Its layout is C's own:
+/// the generated C uses the header's type, not a copy of it.
+#[derive(Debug, Clone)]
+pub struct CStructInfo {
+    /// How C spells the type: `VkExtent2D` or `struct timespec`.
+    pub c_name: String,
+    pub header: String,
+    pub defines: Vec<String>,
+    pub is_union: bool,
+    /// One entry per field, in the same order as `StructDecl::fields`.
+    pub fields: Vec<CFieldInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -463,6 +500,8 @@ pub struct StructDecl {
     pub methods: Vec<Shared<FnDecl>>,
     pub doc: Option<String>,
     pub line: usize,
+    /// Set for structs imported from a C header with `import c`.
+    pub c: Option<CStructInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -606,6 +645,8 @@ pub enum Stmt {
         links: Vec<String>,
         incdirs: Vec<String>,
         only: Vec<String>,
+        /// `define "NAME"` / `define "NAME=VALUE"`: macros set before the header is read.
+        defines: Vec<String>,
         line: usize,
         col: usize,
     },

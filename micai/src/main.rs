@@ -82,6 +82,8 @@ struct Loader {
     /// Standard library pieces (visible everywhere)
     globals: Vec<ast::Stmt>,
     injected: HashSet<String>,
+    /// Names of everything imported from C headers (functions, constants, structs, function pointer types).
+    c_names: HashSet<String>,
 }
 
 impl Loader {
@@ -211,7 +213,7 @@ impl Loader {
                 inject_std(path, &mut self.injected, &mut self.globals);
             }
             if matches!(s, ast::Stmt::CHeader { .. }) {
-                expand_cheader(&s, dir, &mut stmts).map_err(|e| here(self, e))?;
+                expand_cheader(&s, dir, &mut stmts, &mut self.globals, &mut self.c_names).map_err(|e| here(self, e))?;
                 continue;
             }
             stmts.push(s);
@@ -223,13 +225,103 @@ impl Loader {
     }
 }
 
-/// Expand one line like `import c "zlib.h" link "z"` into many real function declarations.
-/// Functions read from the header are treated exactly like `extern` functions and carry
-/// their original C types in `c_sig`. cgen uses that to emit type-correct wrappers.
-fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::Stmt>) -> Result<(), error::SiskinError> {
-    let (header, cpp, links, incdirs, only, line, col) = match s {
-        ast::Stmt::CHeader { header, cpp, links, incdirs, only, line, col } => {
-            (header, *cpp, links, incdirs, only, *line, *col)
+/// Turns type text from the header reader (`CPtr[U32]`, `[F32; 4]`, `(Int, Str) -> Int`) into a type.
+fn parse_ty_text(s: &str) -> ast::TypeExpr {
+    fn one(s: &[char], i: &mut usize) -> ast::TypeExpr {
+        let skip = |i: &mut usize| {
+            while *i < s.len() && s[*i] == ' ' {
+                *i += 1;
+            }
+        };
+        skip(i);
+        if *i < s.len() && s[*i] == '[' {
+            *i += 1;
+            let inner = one(s, i);
+            skip(i);
+            if *i < s.len() && s[*i] == ';' {
+                *i += 1;
+                skip(i);
+                let st = *i;
+                while *i < s.len() && s[*i].is_ascii_digit() {
+                    *i += 1;
+                }
+                let n: usize = s[st..*i].iter().collect::<String>().parse().unwrap_or(1);
+                skip(i);
+                *i += 1; // ]
+                return ast::TypeExpr::Array(Box::new(inner), n);
+            }
+            *i += 1; // ]
+            return ast::TypeExpr::List(Box::new(inner));
+        }
+        if *i < s.len() && s[*i] == '(' {
+            *i += 1;
+            let mut ps = Vec::new();
+            skip(i);
+            while *i < s.len() && s[*i] != ')' {
+                ps.push(one(s, i));
+                skip(i);
+                if *i < s.len() && s[*i] == ',' {
+                    *i += 1;
+                }
+                skip(i);
+            }
+            *i += 1; // )
+            skip(i);
+            if *i + 1 < s.len() && s[*i] == '-' && s[*i + 1] == '>' {
+                *i += 2;
+                let r = one(s, i);
+                return ast::TypeExpr::Fn(ps, Box::new(r));
+            }
+            return ast::TypeExpr::Tuple(ps);
+        }
+        let st = *i;
+        while *i < s.len() && (s[*i].is_alphanumeric() || s[*i] == '_') {
+            *i += 1;
+        }
+        let name: String = s[st..*i].iter().collect();
+        let mut args = Vec::new();
+        if *i < s.len() && s[*i] == '[' {
+            *i += 1;
+            loop {
+                args.push(one(s, i));
+                skip(i);
+                if *i < s.len() && s[*i] == ',' {
+                    *i += 1;
+                    continue;
+                }
+                break;
+            }
+            *i += 1; // ]
+        }
+        ast::TypeExpr::Named(name, args)
+    }
+    let cs: Vec<char> = s.chars().collect();
+    let mut i = 0;
+    one(&cs, &mut i)
+}
+
+fn named(n: &str) -> ast::TypeExpr {
+    ast::TypeExpr::Named(n.to_string(), Vec::new())
+}
+
+fn cb_pair(cb: &Option<cheader::CbSig>) -> Option<(Vec<String>, String)> {
+    cb.as_ref().map(|cb| (cb.c_params.clone(), cb.c_ret.clone()))
+}
+
+/// Expand one line like `import c "zlib.h" link "z"` into real declarations.
+/// Functions read from the header are treated like `extern` functions and carry their original
+/// C types in `c_sig`, which cgen uses to emit type-correct wrappers. Constants, structs and
+/// function pointer types go into `globals` (visible from every file, once each).
+fn expand_cheader(
+    s: &ast::Stmt,
+    src_dir: &std::path::Path,
+    out: &mut Vec<ast::Stmt>,
+    globals: &mut Vec<ast::Stmt>,
+    c_names: &mut HashSet<String>,
+) -> Result<(), error::SiskinError> {
+    let (header, cpp, links, incdirs, only, defines, line, col) = match s {
+        ast::Stmt::CHeader { header, cpp, links, incdirs, only, defines, line, col } => {
+            (header, *cpp, links, incdirs, only, defines, *line, *col)
         }
         _ => return Ok(()),
     };
@@ -244,11 +336,15 @@ fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::S
         dirs.push(d.clone());
     }
     if let Some(d) = src_dir.to_str() {
-        if !d.is_empty() {
-            dirs.push(d.to_string());
-        }
+        // An empty folder means the current one (`siskin run app.skn`).
+        dirs.push(if d.is_empty() { ".".to_string() } else { d.to_string() });
     }
-    let im = match cheader::import_header(header, cpp, &dirs, only) {
+    // `import c "./vec.h"`: a header next to this file, found through this file's folder.
+    let header = &match header.strip_prefix("./") {
+        Some(rest) if src_dir.join(rest).is_file() => rest.to_string(),
+        _ => header.clone(),
+    };
+    let im = match cheader::import_header(header, cpp, &dirs, only, defines) {
         Ok(x) => x,
         Err(msg) => {
             return Err(error::SiskinError::new("E0155", msg, line, col)
@@ -258,20 +354,24 @@ fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::S
                 )))
         }
     };
-    if im.fns.is_empty() {
+    if im.fns.is_empty() && im.consts.is_empty() && im.structs.is_empty() && im.fnptrs.is_empty() {
         return Err(error::SiskinError::new(
             "E0156",
             tr!(
-                format!("`{}` 에서 가져올 수 있는 함수를 찾지 못했습니다", header),
-                format!("found no importable functions in `{}`", header)
+                format!("`{}` 에서 가져올 수 있는 것(함수·상수·구조체)을 찾지 못했습니다", header),
+                format!("found nothing importable (functions, constants, structs) in `{}`", header)
             ),
             line,
             col,
         )
         .with_fix(tr!(
-            "헤더 이름이 맞는지, 그 헤더가 정말 함수를 선언하는지 확인하세요",
-            "check that the header name is right and that the header actually declares functions"
+            "헤더 이름이 맞는지 확인하세요. 선언이 `#ifdef` 뒤에 숨어 있으면 `define \"이름\"` 을 붙입니다",
+            "check the header name; if the declarations sit behind an `#ifdef`, add `define \"NAME\"`"
         )));
+    }
+    // `define "X=1"` also applies to the C files compiled along with `also`.
+    for d in defines {
+        out.push(ast::Stmt::Link(format!(":def:{}", d), line));
     }
     for lib in links {
         // `also "x.cpp"` is a source file, resolved relative to this file's folder.
@@ -284,6 +384,23 @@ fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::S
         }
         out.push(ast::Stmt::Link(lib.clone(), line));
     }
+    // Use the location clang actually found, so that the C compiler sees the same file without `-I`.
+    let header_c = if std::path::Path::new(&im.header_path).is_absolute() || im.header_path.starts_with('/') {
+        im.header_path.clone()
+    } else {
+        header.clone()
+    };
+    let mk_sig = |ret: String, params: Vec<String>, call: String, shim: Option<String>, cbs: Vec<Option<(Vec<String>, String)>>, fnptr: bool| ast::CSig {
+        ret,
+        params,
+        header: header_c.clone(),
+        cpp,
+        call,
+        shim,
+        cbs,
+        defines: defines.clone(),
+        fnptr,
+    };
     let mut shadowed: Vec<String> = Vec::new();
     for f in &im.fns {
         // Names Siskin already has (`abs`, `free`, `pow` ...) take precedence on the Siskin side.
@@ -297,19 +414,16 @@ fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::S
             .enumerate()
             .map(|(i, t)| ast::Param {
                 name: format!("a{}", i),
-                // A parameter that takes a function becomes a Siskin function type `(Int, Str) -> Int`.
-                ty: Some(match f.cbs.get(i).and_then(|c| c.as_ref()) {
-                    Some(cb) => ast::TypeExpr::Fn(
-                        cb.params
-                            .iter()
-                            .map(|m| ast::TypeExpr::Named(m.siskin().to_string(), Vec::new()))
-                            .collect(),
-                        Box::new(ast::TypeExpr::Named(
-                            cb.ret.map(|m| m.siskin().to_string()).unwrap_or_else(|| "Unit".into()),
-                            Vec::new(),
-                        )),
-                    ),
-                    None => ast::TypeExpr::Named(t.siskin().to_string(), Vec::new()),
+                ty: Some(match f.tys.get(i) {
+                    Some(text) => parse_ty_text(text),
+                    // A parameter that takes a function becomes a Siskin function type `(Int, Str) -> Int`.
+                    None => match f.cbs.get(i).and_then(|c| c.as_ref()) {
+                        Some(cb) => ast::TypeExpr::Fn(
+                            cb.params.iter().map(|m| named(m.siskin())).collect(),
+                            Box::new(named(cb.ret.map(|m| m.siskin()).unwrap_or("Unit"))),
+                        ),
+                        None => named(t.siskin()),
+                    },
                 }),
                 conv: if f.outs.get(i).copied().unwrap_or(false) {
                     ast::Convention::Inout
@@ -319,11 +433,14 @@ fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::S
                 is_self: false,
             })
             .collect();
-        let ret = if f.ret == cheader::MTy::Unit {
+        let ret = if !f.ret_ty.is_empty() {
+            if f.ret_ty == "Unit" { None } else { Some(parse_ty_text(&f.ret_ty)) }
+        } else if f.ret == cheader::MTy::Unit {
             None
         } else {
-            Some(ast::TypeExpr::Named(f.ret.siskin().to_string(), Vec::new()))
+            Some(named(f.ret.siskin()))
         };
+        c_names.insert(f.name.clone());
         out.push(ast::Stmt::Fn(crate::ast::Shared::new(ast::FnDecl {
             name: f.name.clone(),
             generics: Vec::new(),
@@ -335,25 +452,88 @@ fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::S
             body: Vec::new(),
             line,
             is_extern: true,
-            c_sig: Some(ast::CSig {
-                ret: f.c_ret.clone(),
-                params: f.c_params.clone(),
-                // Use the location clang actually found, so that the C compiler
-                // sees the same file without `-I`.
-                header: if std::path::Path::new(&im.header_path).is_absolute() || im.header_path.starts_with('/') {
-                    im.header_path.clone()
-                } else {
-                    header.clone()
-                },
-                cpp,
-                call: f.name.clone(),
-                shim: f.cpp_shim.clone(),
-                cbs: f
-                    .cbs
-                    .iter()
-                    .map(|c| c.as_ref().map(|cb| (cb.c_params.clone(), cb.c_ret.clone())))
-                    .collect(),
+            c_sig: Some(mk_sig(
+                f.c_ret.clone(),
+                f.c_params.clone(),
+                f.name.clone(),
+                f.cpp_shim.clone(),
+                f.cbs.iter().map(|c| cb_pair(c)).collect(),
+                false,
+            )),
+        })));
+    }
+    // Constants: `let NAME = value` visible everywhere.
+    for c in &im.consts {
+        if !c_names.insert(c.name.clone()) {
+            continue;
+        }
+        let value = match &c.val {
+            cheader::CVal::Int(i) => ast::Expr::Int(*i),
+            cheader::CVal::Float(f) => ast::Expr::Float(*f),
+            cheader::CVal::Str(s) => ast::Expr::Str(crate::ast::Shared::new(s.clone())),
+        };
+        globals.push(ast::Stmt::Let { name: c.name.clone(), ty: None, value, mutable: false, catch: None, line, col });
+    }
+    // Structs: the C type itself is used in generated code, so the layout is exactly C's.
+    for st in &im.structs {
+        if !c_names.insert(st.name.clone()) {
+            continue;
+        }
+        let fields = st
+            .fields
+            .iter()
+            .map(|f| ast::FieldDecl { name: f.name.clone(), ty: Some(parse_ty_text(&f.ty)), default: None })
+            .collect();
+        let infos = st
+            .fields
+            .iter()
+            .map(|f| ast::CFieldInfo { c_ty: f.c_ty.clone(), ptr: f.ptr, charp: f.charp, chars: f.chars, cb: cb_pair(&f.cb) })
+            .collect();
+        globals.push(ast::Stmt::Struct(crate::ast::Shared::new(ast::StructDecl {
+            name: st.name.clone(),
+            generics: Vec::new(),
+            interfaces: Vec::new(),
+            fields,
+            methods: Vec::new(),
+            doc: None,
+            line,
+            c: Some(ast::CStructInfo {
+                c_name: st.c_name.clone(),
+                header: header_c.clone(),
+                defines: defines.clone(),
+                is_union: st.is_union,
+                fields: infos,
             }),
+        })));
+    }
+    // Function pointer types: `GLFWkeyfun(addr)` makes a callable function value from an address.
+    for p in &im.fnptrs {
+        if !c_names.insert(p.name.clone()) {
+            continue;
+        }
+        let fty = ast::TypeExpr::Fn(
+            p.sig.params.iter().map(|m| named(m.siskin())).collect(),
+            Box::new(named(p.sig.ret.map(|m| m.siskin()).unwrap_or("Unit"))),
+        );
+        globals.push(ast::Stmt::Fn(crate::ast::Shared::new(ast::FnDecl {
+            name: p.name.clone(),
+            generics: Vec::new(),
+            params: vec![ast::Param { name: "addr".into(), ty: Some(named("Int")), conv: ast::Convention::Borrow, is_self: false }],
+            ret: Some(fty),
+            doc: None,
+            requires: Vec::new(),
+            ensures: Vec::new(),
+            body: Vec::new(),
+            line,
+            is_extern: true,
+            c_sig: Some(mk_sig(
+                p.sig.c_ret.clone(),
+                p.sig.c_params.clone(),
+                p.name.clone(),
+                None,
+                vec![Some((p.sig.c_params.clone(), p.sig.c_ret.clone()))],
+                true,
+            )),
         })));
     }
     // Remember the names of functions that could not be imported, to explain why if they are called.
@@ -368,11 +548,115 @@ fn expand_cheader(s: &ast::Stmt, src_dir: &std::path::Path, out: &mut Vec<ast::S
             links: Vec::new(),
             incdirs: Vec::new(),
             only: vec![n.clone(), why.clone()],
+            defines: Vec::new(),
             line,
             col,
         });
     }
     Ok(())
+}
+
+/// Every struct name a type mentions (`CPtr[VkExtent2D]` → VkExtent2D).
+fn type_names(t: &ast::TypeExpr, out: &mut Vec<String>) {
+    match t {
+        ast::TypeExpr::Named(n, args) => {
+            out.push(n.clone());
+            for a in args {
+                type_names(a, out);
+            }
+        }
+        ast::TypeExpr::Optional(a) | ast::TypeExpr::List(a) | ast::TypeExpr::Raw(a) | ast::TypeExpr::Array(a, _) => type_names(a, out),
+        ast::TypeExpr::Fallible(a, b) => {
+            type_names(a, out);
+            if let Some(b) = b {
+                type_names(b, out);
+            }
+        }
+        ast::TypeExpr::Dict(a, b) => {
+            type_names(a, out);
+            type_names(b, out);
+        }
+        ast::TypeExpr::Tuple(ts) => ts.iter().for_each(|x| type_names(x, out)),
+        ast::TypeExpr::Fn(ps, r) => {
+            ps.iter().for_each(|x| type_names(x, out));
+            type_names(r, out);
+        }
+    }
+}
+
+/// A header like `vulkan.h` brings in thousands of functions, constants and structs.
+/// Keep only the ones the program's source mentions (letter case ignored, since Siskin forgives
+/// case mistakes), plus the structs those need. Everything else would only slow the build down.
+fn drop_unused_c(ld: &mut Loader) {
+    if ld.c_names.is_empty() {
+        return;
+    }
+    let mut used: HashSet<String> = HashSet::new();
+    for (_, src) in &ld.files {
+        for w in src.split(|c: char| !(c.is_alphanumeric() || c == '_')) {
+            if !w.is_empty() {
+                used.insert(w.to_lowercase());
+            }
+        }
+    }
+    let c_names = ld.c_names.clone();
+    let keep_direct = |n: &str| !c_names.contains(n) || used.contains(&n.to_lowercase());
+    // Structs reachable from what is kept (field types, parameter and return types).
+    let mut need: HashSet<String> = HashSet::new();
+    let mut struct_fields: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut scan_fn = |f: &ast::FnDecl, need: &mut HashSet<String>| {
+        let mut names = Vec::new();
+        for p in &f.params {
+            if let Some(t) = &p.ty {
+                type_names(t, &mut names);
+            }
+        }
+        if let Some(r) = &f.ret {
+            type_names(r, &mut names);
+        }
+        need.extend(names);
+    };
+    let all: Vec<&ast::Stmt> = ld.globals.iter().chain(ld.mods.iter().flat_map(|m| m.stmts.iter())).collect();
+    for s in &all {
+        match s {
+            ast::Stmt::Fn(f) if f.c_sig.is_some() && keep_direct(&f.name) => scan_fn(f, &mut need),
+            ast::Stmt::Struct(sd) if sd.c.is_some() => {
+                let mut names = Vec::new();
+                for fd in &sd.fields {
+                    if let Some(t) = &fd.ty {
+                        type_names(t, &mut names);
+                    }
+                }
+                struct_fields.insert(sd.name.clone(), names);
+                if keep_direct(&sd.name) {
+                    need.insert(sd.name.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut stack: Vec<String> = need.iter().cloned().collect();
+    while let Some(n) = stack.pop() {
+        if let Some(fs) = struct_fields.get(&n) {
+            for x in fs {
+                if need.insert(x.clone()) {
+                    stack.push(x.clone());
+                }
+            }
+        }
+    }
+    let keep = |s: &ast::Stmt| -> bool {
+        match s {
+            ast::Stmt::Fn(f) if f.c_sig.is_some() => keep_direct(&f.name),
+            ast::Stmt::Struct(sd) if sd.c.is_some() => need.contains(&sd.name),
+            ast::Stmt::Let { name, .. } if c_names.contains(name) => keep_direct(name),
+            _ => true,
+        }
+    };
+    ld.globals.retain(|s| keep(s));
+    for m in ld.mods.iter_mut() {
+        m.stmts.retain(|s| keep(s));
+    }
 }
 
 /// Resolve all user file imports and merge them into one program. Each file has its own
@@ -391,6 +675,7 @@ fn resolve_imports_err(
         order: Vec::new(),
         globals: Vec::new(),
         injected: HashSet::new(),
+        c_names: HashSet::new(),
     };
     if let Ok(c) = crate::canonicalize(main_path) {
         ld.index.insert(c.to_string_lossy().to_string(), 0);
@@ -401,6 +686,7 @@ fn resolve_imports_err(
         .unwrap_or_default();
     let main = ast::Program { stmts: std::mem::take(&mut prog.stmts) };
     ld.take(0, main, &dir)?;
+    drop_unused_c(&mut ld);
     // Names visible everywhere: standard pieces, builtins, C functions.
     let mut globals: HashSet<String> = types::SISKIN_BUILTINS.iter().map(|s| s.to_string()).collect();
     for s in ld.globals.iter().chain(ld.mods.iter().flat_map(|m| m.stmts.iter())) {
@@ -408,8 +694,11 @@ fn resolve_imports_err(
             ast::Stmt::Fn(f) if ld.globals.iter().any(|g| std::ptr::eq(g, s)) || f.is_extern || f.c_sig.is_some() => {
                 globals.insert(f.name.clone());
             }
-            ast::Stmt::Struct(sd) if ld.globals.iter().any(|g| std::ptr::eq(g, s)) => {
+            ast::Stmt::Struct(sd) if sd.c.is_some() || ld.globals.iter().any(|g| std::ptr::eq(g, s)) => {
                 globals.insert(sd.name.clone());
+            }
+            ast::Stmt::Let { name, .. } if ld.c_names.contains(name) => {
+                globals.insert(name.clone());
             }
             _ => {}
         }
@@ -531,8 +820,14 @@ fn uses_spawn(prog: &ast::Program) -> bool {
 
 /// Whether the program cannot run in the interpreter: it calls C functions or uses std.net.
 fn needs_native(prog: &ast::Program) -> bool {
+    // Reading and writing C addresses only means something next to real C code.
+    let dbg = format!("{:?}", prog.stmts);
+    if ["\"c_string\"", "\"address_of\"", "\"ptr_set\"", "\"cstr\"", "\"ptr_get\""].iter().any(|n| dbg.contains(&format!("Ident({}", n))) {
+        return true;
+    }
     prog.stmts.iter().any(|s| match s {
         ast::Stmt::Fn(f) => f.is_extern,
+        ast::Stmt::Struct(sd) => sd.c.is_some(),
         ast::Stmt::Import { path, .. } => path.len() == 2 && path[0] == "std" && path[1] == "net",
         _ => false,
     })
@@ -646,7 +941,13 @@ fn compile_native(
     // Items given with `also "x.cpp"` are files to compile together, not names to link.
     let mut links: Vec<String> = Vec::new();
     let mut extra_srcs: Vec<String> = Vec::new();
+    // Macros from `define "X"` on an `import c` line.
+    let mut defs: Vec<String> = Vec::new();
     for l in all_links {
+        if let Some(d) = l.strip_prefix(":def:") {
+            defs.push(format!("-D{}", d));
+            continue;
+        }
         match l.strip_prefix(":src:") {
             Some(f) => extra_srcs.push(f.to_string()),
             None => links.push(l.clone()),
@@ -668,6 +969,7 @@ fn compile_native(
         if is_cpp {
             cc.arg("-std=c++17");
         }
+        cc.args(&defs);
         cc.arg("-c").arg(f).arg("-o").arg(&o);
         match cc.status() {
             Ok(st) if st.success() => {}
@@ -685,7 +987,7 @@ fn compile_native(
         })?;
         let o = cpath.with_extension("ffi.o");
         let mut cxx = std::process::Command::new(c_compiler(true));
-        cxx.arg(opt).arg("-std=c++17").arg("-w").arg("-c").arg(&p).arg("-o").arg(&o);
+        cxx.arg(opt).arg("-std=c++17").arg("-w").args(&defs).arg("-c").arg(&p).arg("-o").arg(&o);
         if cfg!(windows) {
             cxx.arg("-D_USE_MATH_DEFINES");
         }
@@ -1064,18 +1366,23 @@ fn main() -> ExitCode {
         };
         let cpp = args.iter().any(|a| a == "--cpp" || a == "--c++");
         let mut dirs: Vec<String> = vec![".".into()];
+        let mut defines: Vec<String> = Vec::new();
         let mut i = 0;
         while i < args.len() {
-            if args[i] == "--from" {
+            if args[i] == "--from" || args[i] == "--define" {
                 if let Some(d) = args.get(i + 1) {
-                    dirs.push(d.clone());
+                    if args[i] == "--from" {
+                        dirs.push(d.clone());
+                    } else {
+                        defines.push(d.clone());
+                    }
                 }
                 i += 2;
                 continue;
             }
             i += 1;
         }
-        let im = match cheader::import_header(&header, cpp, &dirs, &[]) {
+        let im = match cheader::import_header(&header, cpp, &dirs, &[], &defines) {
             Ok(x) => x,
             Err(msg) => {
                 eprintln!("{}", msg);
@@ -1099,6 +1406,22 @@ fn main() -> ExitCode {
                 total,
                 usable * 100 / total
             );
+        }
+        let fields: usize = im.structs.iter().map(|s| s.fields.len()).sum();
+        let skipped_fields: usize = im.structs.iter().map(|s| s.skipped.len()).sum();
+        println!("  {}: {}", tr!("상수 (#define, enum)", "constants (#define, enum)"), im.consts.len());
+        println!(
+            "  {}: {} ({} {}, {} {})",
+            tr!("구조체", "structs"),
+            im.structs.len(),
+            fields,
+            tr!("필드", "fields"),
+            skipped_fields,
+            tr!("필드 못 가져옴", "fields skipped")
+        );
+        println!("  {}: {}", tr!("함수 포인터 타입", "function pointer types"), im.fnptrs.len());
+        if im.files.len() > 1 {
+            println!("  {}: {}", tr!("따라 읽은 헤더", "headers followed"), im.files.len());
         }
         let mut why: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
         for (_, w) in &im.skipped {
@@ -1128,21 +1451,56 @@ fn main() -> ExitCode {
                     .params
                     .iter()
                     .enumerate()
-                    .map(|(i, t)| {
-                        let inout = if f.outs.get(i).copied().unwrap_or(false) { "inout " } else { "" };
-                        if f.cbs.get(i).map(|c| c.is_some()).unwrap_or(false) {
-                            format!("{}{}", inout, tr!("함수", "fn"))
-                        } else {
-                            format!("{}{}", inout, t.siskin())
+                    .map(|(i, t)| match f.tys.get(i) {
+                        Some(text) => text.clone(),
+                        None => {
+                            if f.cbs.get(i).map(|c| c.is_some()).unwrap_or(false) {
+                                tr!("함수", "fn").to_string()
+                            } else {
+                                t.siskin().to_string()
+                            }
                         }
                     })
                     .collect();
-                let r = if f.ret == cheader::MTy::Unit {
+                let r = if !f.ret_ty.is_empty() {
+                    if f.ret_ty == "Unit" { String::new() } else { format!(" -> {}", f.ret_ty) }
+                } else if f.ret == cheader::MTy::Unit {
                     String::new()
                 } else {
                     format!(" -> {}", f.ret.siskin())
                 };
                 println!("    {}({}){}", f.name, ps.join(", "), r);
+            }
+            if !im.consts.is_empty() {
+                println!("  {}", tr!("가져온 상수:", "imported constants:"));
+                for c in &im.consts {
+                    let v = match &c.val {
+                        cheader::CVal::Int(i) => i.to_string(),
+                        cheader::CVal::Float(f) => format!("{:?}", f),
+                        cheader::CVal::Str(s) => format!("{:?}", s),
+                    };
+                    println!("    {} = {}", c.name, v);
+                }
+            }
+            if !im.structs.is_empty() {
+                println!("  {}", tr!("가져온 구조체:", "imported structs:"));
+                for st in &im.structs {
+                    let fs: Vec<String> = st.fields.iter().map(|f| format!("{}: {}", f.name, f.ty)).collect();
+                    println!("    {}{}({})", if st.is_union { "union " } else { "" }, st.name, fs.join(", "));
+                    for (n, w) in &st.skipped {
+                        println!("      - {}: {}", n, w);
+                    }
+                }
+            }
+            if !im.fnptrs.is_empty() {
+                println!("  {}", tr!("함수 포인터 타입:", "function pointer types:"));
+                for p in &im.fnptrs {
+                    println!(
+                        "    {}({})",
+                        p.name,
+                        p.sig.params.iter().map(|m| m.siskin()).collect::<Vec<_>>().join(", ")
+                    );
+                }
             }
         }
         return ExitCode::SUCCESS;

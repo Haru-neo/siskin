@@ -3,6 +3,7 @@
 # Usage: bash tests/same.sh <path to siskin>
 # Programs that are expected to differ (intentionally broken test files, programs that measure time) are listed in tests/same-expected-diff.txt.
 # The zlib and sqlite examples (08, 10) only run where those libraries are installed (SISKIN_TEST_LIBS=1).
+# The GLFW and Vulkan examples (17, 18) need those libraries, a driver and a display (SISKIN_TEST_GFX=1, e.g. under xvfb-run).
 M="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d)"
@@ -16,6 +17,7 @@ cd "$ROOT"
 for f in examples/*.skn tests/*.skn tests/ns/main.skn realworld/*.skn trial/*/*.skn trial2/*/*.skn; do
     n="$(basename "$f")"
     case "$n" in 08_cffi.skn|10_sqlite.skn) [ "$SISKIN_TEST_LIBS" = 1 ] || continue ;; esac
+    case "$n" in 17_glfw.skn|18_vulkan.skn) [ "$SISKIN_TEST_GFX" = 1 ] || continue ;; esac
     d="$(dirname "$f")"
     [ -n "$SISKIN_TEST_VERBOSE" ] && echo "... $f"
     a="$(cd "$d" && timeout 60 "$M" run "$n" </dev/null 2>&1; echo "code $?")"

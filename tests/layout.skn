@@ -1,0 +1,45 @@
+# Fixed-size numbers (F32, U8, ...) and fixed arrays laid out like C, in both run and build.
+struct Vertex:
+    pos: [F32; 3]
+    color: [U8; 4]
+    uv: [F32; 2]
+    id: U16
+
+struct Mat:
+    m: [[F32; 4]; 4]
+    scale: F32
+    flags: U32
+    small: I8
+
+fn main():
+    var v = Vertex(pos: [0.1, 0.2, 0.3], color: [255, 128, 300, -1], uv: [1.0], id: 70000)
+    print(f"{v.pos} {v.color} {v.uv} {v.id}\n")
+    v.pos[1] = 1.0 / 3.0
+    v.color[2] = 257
+    print(f"{v.pos[1]} {v.color[2]} {len(v.pos)}\n")
+    var m = Mat(m: [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]], scale: 0.1, flags: -1, small: 200)
+    m.m[2][2] = 2.5
+    m.scale += 0.2
+    print(f"{m.m[2]} {m.m[3][3]} {m.scale} {m.flags} {m.small}\n")
+    print(str(m.m) + "\n")
+    let oc = offset_of[Vertex]("color")
+    let ou = offset_of[Vertex]("uv")
+    let oi = offset_of[Vertex]("id")
+    print(f"size Vertex={size_of[Vertex]()} Mat={size_of[Mat]()} off color={oc} uv={ou} id={oi}\n")
+    unsafe:
+        let p = alloc[Vertex](3)
+        p[1].pos[0] = 5.5
+        p[2] = v
+        p[2].id = 7
+        print(f"{p[0].pos} {p[1].pos} {p[2].id} {p[2].pos[1]}\n")
+        let f = alloc[F32](2)
+        f[0] = 0.1
+        let u = alloc[U8](2)
+        u[1] = 511
+        print(f"{f[0]} {f[1]} {u[1]}\n")
+        free(p)
+        free(f)
+        free(u)
+    let copy = v.pos
+    print(str(copy) + "\n")
+    print(str(v) + "\n")

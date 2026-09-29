@@ -1,0 +1,53 @@
+# C structs, constants, pointer parameters and function pointers from a header (tests/clib/shapes.h).
+import c "shapes.h" from "clib" also "clib/shapes.c" define "SHAPES_EXTRA=42"
+
+fn label_len(value: Int, label: Str) -> Int:
+    print(f"  visited {label} with {value}\n")
+    return value + len(label)
+
+fn main():
+    # Constants: #define numbers and strings, enum values, from a header included with quotes.
+    print(f"{KIND_CIRCLE} {KIND_BOX} {KIND_OTHER} {SHAPES_MAGIC} {SHAPES_NAME} {SHAPES_PI} {shapes_extra()}\n")
+
+    # Structs passed and returned by value.
+    let v = vec_add(Vec2(x: 1.5, y: 2.0), Vec2(x: 0.25, y: 1.0))
+    print(f"{v} dot {vec_dot(v, v)}\n")
+    let p = pair_make(3, 0.5)
+    print(f"{p} sum {pair_sum(p)}\n")
+
+    # Pointer parameters: C writes into the variable.
+    var w = Vec2(x: 3.0, y: 4.0)
+    vec_scale(w, 0.5)
+    var n = 4294967295
+    var small = -32768
+    count_up(n, small)
+    print(f"scaled {w.x} {w.y}, counters {n} {small}\n")
+
+    # Fixed arrays, char arrays, nested structs, string and callback fields.
+    var s = Shape(kind: KIND_CIRCLE, name: "circle-too-long", pos: w, size: [2.0, 0.5])
+    s.color.rgba = [255, 128, 7]
+    s.note = "a note"
+    print(f"{s.name} {s.kind} {s.pos.x} {s.size} {s.color.rgba} note set {s.note != 0}\n")
+    print(f"no callback: {shape_visit(s, 5)}\n")
+    s.on_visit = label_len
+    print(f"callback: {shape_visit(s, 5)}\n")
+    s.size[1] = s.size[1] * 3.0
+    print(f"size {s.size[1]} sizeof {size_of[Shape]() > 0} name offset {offset_of[Vec2]("y")}\n")
+
+    # A union: both views share the same bytes.
+    var b = Both()
+    b.f = [1.0, -2.0]
+    print(f"bits {b.bits[0]} {b.bits[1]}\n")
+
+    # Function pointers returned by C, called as Siskin functions.
+    let f2 = Visit(pick_visit(0))
+    let f3 = Visit(pick_visit(1))
+    print(f"{f2(7, "x")} {f3(7, "x")}\n")
+
+    # A C array of structs, read through an address.
+    unsafe:
+        let list = shape_list(3)
+        let second = ptr_get[Shape](list, 2)
+        print(f"{second.name} {second.kind} {second.pos.x}\n")
+        ptr_set[Shape](list, 0, s)
+        print(f"{ptr_get[Shape](list, 0).name}\n")

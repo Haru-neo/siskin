@@ -31,18 +31,6 @@ fn fail_fix<T>(
 }
 
 /// The initial value `alloc[T](n)` fills in. Starts at 0, like C's calloc.
-fn zero_of(t: Option<&TypeExpr>) -> Value {
-    match t {
-        Some(TypeExpr::Named(n, _)) => match n.as_str() {
-            "Float" => Value::Float(0.0),
-            "Bool" => Value::Bool(false),
-            "Str" => Value::Str(Rc::new(String::new())),
-            _ => Value::Int(0),
-        },
-        _ => Value::Int(0),
-    }
-}
-
 /// Checks whether a pointer access is safe. Catches use-after-free and out-of-bounds access here.
 fn check_raw(b: &RawBuf, off: usize, n: i64, line: usize, col: usize) -> R<()> {
     if !b.alive {
@@ -304,8 +292,10 @@ impl Interp {
                 let o = self.eval(obj)?;
                 match o {
                     Value::Struct(s) => {
+                        let sname = s.borrow().name.clone();
+                        let fty = self.structs.get(&sname).and_then(|sd| sd.fields.iter().find(|f| &f.name == fname)).and_then(|f| f.ty.clone());
+                        let rhs = self.store_conv(fty.as_ref(), rhs, *l, *c)?;
                         let mut s = s.borrow_mut();
-                        let sname = s.name.clone();
                         match s.fields.iter_mut().find(|(n, _)| n == fname) {
                             Some(slot) => {
                                 slot.1 = rhs;
@@ -331,12 +321,19 @@ impl Interp {
                 let o = self.eval(obj)?;
                 let i = self.eval(idx)?;
                 if let (Value::Raw(b, off), Value::Int(n)) = (&o, &i) {
+                    let elem = b.borrow().elem.clone();
+                    let rhs = self.store_conv(elem.as_ref(), rhs, *l, *c)?;
                     let mut bb = b.borrow_mut();
                     check_raw(&bb, *off, *n, *l, *c)?;
                     let at = (*off as i64 + *n) as usize;
                     bb.data[at] = rhs;
                     return Ok(());
                 }
+                // `s.color[i] = v` on a fixed array field: convert like the element type (`F32` ...).
+                let rhs = match self.arr_elem_te(obj)? {
+                    Some(te) => self.store_conv(Some(&te), rhs, *l, *c)?,
+                    None => rhs,
+                };
                 match (&o, &i) {
                     (Value::List(items), Value::Int(n)) => {
                         let mut items = items.borrow_mut();
@@ -1496,11 +1493,12 @@ impl Interp {
                                 )
                             }
                         };
-                        let zero = zero_of(elem);
+                        let data = (0..n).map(|_| self.zero_value(elem)).collect();
                         let buf = Rc::new(RefCell::new(RawBuf {
-                            data: vec![zero; n],
+                            data,
                             alive: true,
                             in_arena: true,
+                            elem: elem.cloned(),
                         }));
                         chunks.borrow_mut().push(Rc::clone(&buf));
                         Ok(Value::Raw(buf, 0))
@@ -1523,7 +1521,21 @@ impl Interp {
         if let Expr::Ident(name, l, c) = callee {
             // Memory Level 2 built-ins
             match name.as_str() {
-                "cstr" | "ptr_get" => {
+                "size_of" | "offset_of" if !self.fns.contains_key(name.as_str()) => {
+                    let t = targs.first().cloned();
+                    let r = match name.as_str() {
+                        "size_of" => t.as_ref().and_then(|t| self.c_layout(t)).map(|(s, _)| s),
+                        _ => match (&t, args.first().map(|a| &a.value)) {
+                            (Some(TypeExpr::Named(sn, _)), Some(Expr::Str(f))) => self.c_offset(sn, f),
+                            _ => None,
+                        },
+                    };
+                    return match r {
+                        Some(n) => Ok(Value::Int(n as i64)),
+                        None => fail("E0241", tr!("C 메모리 배치를 계산할 수 없는 타입입니다", "cannot compute the C layout of this type"), *l, *c),
+                    };
+                }
+                "cstr" | "ptr_get" | "ptr_set" | "c_string" | "address_of" => {
                     return fail_fix(
                         "E0231",
                         tr!("C 라이브러리에서 받은 주소를 읽는 기능입니다", "this reads an address received from a C library"),
@@ -1538,9 +1550,9 @@ impl Interp {
                         Some(Value::Int(n)) if *n >= 0 => *n as usize,
                         _ => return fail("E0230", tr!("`alloc[T](개수)` 에는 0 이상의 Int가 필요합니다", "`alloc[T](count)` needs a non-negative Int"), *l, *c),
                     };
-                    let zero = zero_of(targs.first());
+                    let data = (0..n).map(|_| self.zero_value(targs.first())).collect();
                     return Ok(Value::Raw(
-                        Rc::new(RefCell::new(RawBuf { data: vec![zero; n], alive: true, in_arena: false })),
+                        Rc::new(RefCell::new(RawBuf { data, alive: true, in_arena: false, elem: targs.first().cloned() })),
                         0,
                     ));
                 }
@@ -1918,6 +1930,146 @@ impl Interp {
         Ok(result)
     }
 
+    /// C layout (size, alignment) of a type made of numbers, Bool, fixed arrays and such structs.
+    /// Must agree with the C compiler, since `siskin build` uses `sizeof` for the same thing.
+    fn c_layout(&self, t: &TypeExpr) -> Option<(usize, usize)> {
+        match t {
+            TypeExpr::Named(n, _) => {
+                if let Some(sd) = self.structs.get(n) {
+                    let mut off = 0usize;
+                    let mut align = 1usize;
+                    for f in &sd.fields {
+                        let (s, a) = self.c_layout(f.ty.as_ref()?)?;
+                        off = off.div_ceil(a) * a + s;
+                        align = align.max(a);
+                    }
+                    return Some((off.max(1).div_ceil(align) * align, align));
+                }
+                match n.as_str() {
+                    "Int" | "Float" | "I64" | "F64" => Some((8, 8)),
+                    "Bool" => Some((1, 1)),
+                    other => crate::types::NumK::from_name(other).map(|k| (k.size(), k.size())),
+                }
+            }
+            TypeExpr::Array(e, n) => {
+                let (s, a) = self.c_layout(e)?;
+                Some((s * n, a))
+            }
+            _ => None,
+        }
+    }
+
+    fn c_offset(&self, sname: &str, field: &str) -> Option<usize> {
+        let sd = self.structs.get(sname)?;
+        let mut off = 0usize;
+        for f in &sd.fields {
+            let (s, a) = self.c_layout(f.ty.as_ref()?)?;
+            off = off.div_ceil(a) * a;
+            if f.name == field {
+                return Some(off);
+            }
+            off += s;
+        }
+        None
+    }
+
+    /// Zero value of memory of type `t` (what `alloc[T](n)` hands out, like C's `calloc`).
+    fn zero_value(&self, t: Option<&TypeExpr>) -> Value {
+        match t {
+            Some(TypeExpr::Named(n, _)) => {
+                if let Some(sd) = self.structs.get(n).cloned() {
+                    let fields = sd.fields.iter().map(|f| (f.name.clone(), self.zero_value(f.ty.as_ref()))).collect();
+                    return Value::Struct(Rc::new(RefCell::new(StructVal { name: sd.name.clone(), fields })));
+                }
+                match n.as_str() {
+                    "Float" | "F64" | "F32" => Value::Float(0.0),
+                    "Bool" => Value::Bool(false),
+                    "Str" => Value::Str(Rc::new(String::new())),
+                    _ => Value::Int(0),
+                }
+            }
+            Some(TypeExpr::Array(e, n)) => {
+                Value::List(Rc::new(RefCell::new((0..*n).map(|_| self.zero_value(Some(e))).collect())))
+            }
+            Some(TypeExpr::List(_)) => Value::List(Rc::new(RefCell::new(Vec::new()))),
+            _ => Value::Int(0),
+        }
+    }
+
+    /// Converts a value being stored into memory of type `t` (a struct field or a `*T` slot):
+    /// `F32` rounds to 32-bit float, `I32`/`U8`... wrap around like C, `[T; N]` copies a list in.
+    fn store_conv(&self, t: Option<&TypeExpr>, v: Value, line: usize, col: usize) -> R<Value> {
+        match t {
+            Some(TypeExpr::Named(n, _)) if !self.structs.contains_key(n) => match crate::types::NumK::from_name(n) {
+                Some(k) => Ok(match v {
+                    Value::Float(f) if k.is_float() => Value::Float(f as f32 as f64),
+                    Value::Int(i) if !k.is_float() => Value::Int(k.wrap_int(i)),
+                    other => other,
+                }),
+                None => Ok(v),
+            },
+            Some(TypeExpr::Array(e, n)) => {
+                let items = match &v {
+                    Value::List(items) => items.borrow().clone(),
+                    _ => return Ok(v),
+                };
+                if items.len() > *n {
+                    return fail_fix(
+                        "E0240",
+                        tr!(
+                            format!("고정 배열에는 값이 {}개까지 들어가는데 {}개를 넣었습니다", n, items.len()),
+                            format!("a fixed array holds {} values, but {} were given", n, items.len())
+                        ),
+                        line,
+                        col,
+                        tr!("모자란 칸은 0 으로 채워집니다. 넘치게는 넣을 수 없습니다", "missing values are filled with zero; there cannot be more than fit"),
+                    );
+                }
+                let mut out = Vec::with_capacity(*n);
+                for x in items {
+                    out.push(self.store_conv(Some(e), x.deep_clone(), line, col)?);
+                }
+                while out.len() < *n {
+                    out.push(self.zero_value(Some(e)));
+                }
+                Ok(Value::List(Rc::new(RefCell::new(out))))
+            }
+            _ => Ok(v),
+        }
+    }
+
+    /// If field `fname` of struct type `sname` is a fixed array `[T; N]`, its type.
+    fn array_field_of(&self, sname: &str, fname: &str) -> Option<TypeExpr> {
+        let sd = self.structs.get(sname)?;
+        let f = sd.fields.iter().find(|f| f.name == fname)?;
+        match &f.ty {
+            Some(t @ TypeExpr::Array(..)) => Some(t.clone()),
+            _ => None,
+        }
+    }
+
+    /// If `e` is a fixed array (a `[T; N]` field, or a row of one), its element type `T`.
+    fn arr_elem_te(&mut self, e: &Expr) -> R<Option<TypeExpr>> {
+        let arr = match e {
+            Expr::Field(o, fname, _, _) => {
+                let ov = self.eval(o)?;
+                match &ov {
+                    Value::Struct(s) => {
+                        let n = s.borrow().name.clone();
+                        self.array_field_of(&n, fname)
+                    }
+                    _ => None,
+                }
+            }
+            Expr::Index(o, _, _, _) => self.arr_elem_te(o)?,
+            _ => None,
+        };
+        Ok(match arr {
+            Some(TypeExpr::Array(el, _)) => Some(*el),
+            _ => None,
+        })
+    }
+
     fn construct_struct(
         &mut self,
         sd: &crate::ast::Shared<StructDecl>,
@@ -1929,15 +2081,18 @@ impl Interp {
         let mut fields: Vec<(String, Value)> = Vec::new();
         for (i, f) in sd.fields.iter().enumerate() {
             if let Some((_, v)) = named.iter().find(|(n, _)| n == &f.name) {
-                fields.push((f.name.clone(), v.deep_clone()));
+                let v = self.store_conv(f.ty.as_ref(), v.deep_clone(), line, col)?;
+                fields.push((f.name.clone(), v));
                 continue;
             }
             if i < pos.len() {
-                fields.push((f.name.clone(), pos[i].deep_clone()));
+                let v = self.store_conv(f.ty.as_ref(), pos[i].deep_clone(), line, col)?;
+                fields.push((f.name.clone(), v));
                 continue;
             }
             if let Some(d) = &f.default {
                 let v = self.eval(d)?;
+                let v = self.store_conv(f.ty.as_ref(), v, line, col)?;
                 fields.push((f.name.clone(), v));
                 continue;
             }

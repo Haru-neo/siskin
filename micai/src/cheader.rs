@@ -145,6 +145,9 @@ pub struct Imported {
     /// Every header file read for this import (the header plus the `#include "..."` it follows),
     /// with modification times, so the cache is dropped when any of them changes.
     pub files: Vec<(String, u64)>,
+    /// Functions the header reaches only through files it does not follow (usually `#include <...>`):
+    /// (function name, file name). Not imported; kept so a call to one can say which header to `follow`.
+    pub hidden: Vec<(String, String)>,
 }
 
 // --------------------------------------------------------------- JSON helpers
@@ -627,7 +630,14 @@ fn follow_includes(start: &str, incdirs: &[String]) -> Vec<String> {
 struct Wanted {
     set: std::collections::HashSet<String>,
     header: String,
+    /// Extra headers named with `follow "..."` on the import line. `"*"` means every file.
+    follow: Vec<String>,
     memo: HashMap<String, bool>,
+}
+
+/// clang's own pseudo-files (`<built-in>`, `<command line>`) and our probe file.
+fn is_special(file: &str) -> bool {
+    file.is_empty() || file.starts_with('<') || file.contains("probe-")
 }
 
 impl Wanted {
@@ -635,7 +645,9 @@ impl Wanted {
         if let Some(b) = self.memo.get(file) {
             return *b;
         }
-        let b = self.set.contains(&canon(file)) || is_wanted(file, &self.header);
+        let b = self.set.contains(&canon(file))
+            || is_wanted(file, &self.header)
+            || (!is_special(file) && self.follow.iter().any(|f| f == "*" || is_wanted(file, f)));
         self.memo.insert(file.to_string(), b);
         b
     }
@@ -1242,9 +1254,18 @@ pub fn import_header(
     incdirs: &[String],
     only: &[String],
     defines: &[String],
+    follow: &[String],
 ) -> Result<Imported, String> {
     // Skip-reason texts differ by language, so the cache is per language too.
-    let key = format!("{}|{}|{}|{}|v12{}", header, cpp, incdirs.join(":"), defines.join(":"), tr!("", "|en"));
+    let key = format!(
+        "{}|{}|{}|{}|{}|v15{}",
+        header,
+        cpp,
+        incdirs.join(":"),
+        defines.join(":"),
+        follow.join(":"),
+        tr!("", "|en")
+    );
     let cache = temp_dir().join(format!("{:016x}.txt", hash64(&key)));
     if let Some(hit) = load_cache(&cache) {
         return Ok(filter_only(hit, only));
@@ -1265,7 +1286,8 @@ pub fn import_header(
     // 1. The preprocessor: where the header is, which files it pulls in, and its `#define`s.
     let (found, macros) = read_macros(header, false, incdirs, defines)?;
     let files = if found.is_empty() { Vec::new() } else { follow_includes(&found, incdirs) };
-    let mut wanted = Wanted { set: files.iter().cloned().collect(), header: header.to_string(), memo: HashMap::new() };
+    let mut wanted =
+        Wanted { set: files.iter().cloned().collect(), header: header.to_string(), follow: follow.to_vec(), memo: HashMap::new() };
 
     // 2. Macros that might be numbers are handed back to clang to compute, as `enum` values
     //    appended after the header. Ones that are not integer constants simply fail and are dropped.
@@ -1386,10 +1408,18 @@ pub fn import_header(
     let mut var_consts: Vec<(String, CVal)> = Vec::new();
     let mut known = all_enums;
     cur.clear();
+    let mut hidden: Vec<(String, String)> = Vec::new();
     for n in &top {
         cur = loc_file(n, &cur);
         let kind = dstr(n, "kind").unwrap_or_default();
         if !wanted.has(&cur) {
+            // Remember functions from headers that were not followed, to point at them if one is called.
+            if kind == "FunctionDecl" && !is_special(&cur) {
+                if let Some(name) = dstr(n, "name").filter(|x| !x.starts_with('_')) {
+                    let file = cur.replace('\\', "/").rsplit('/').next().unwrap_or("").to_string();
+                    hidden.push((name, file));
+                }
+            }
             continue;
         }
         if kind == "VarDecl" {
@@ -1497,8 +1527,26 @@ pub fn import_header(
         push(&mut res, &name, val);
     }
 
+    let mut hseen: std::collections::HashSet<String> = res.fns.iter().map(|f| f.name.clone()).collect();
+    hseen.extend(res.skipped.iter().map(|s| s.0.clone()));
+    for (name, file) in hidden {
+        if hseen.insert(name.clone()) {
+            res.hidden.push((name, file));
+        }
+    }
+
     abs_path(&mut res);
-    res.files = files.iter().map(|f| (f.clone(), mtime(f))).collect();
+    // Headers matched by `follow` count too: editing one drops the cache.
+    let mut all_files = files.clone();
+    for (f, yes) in &wanted.memo {
+        if *yes && !is_special(f) {
+            let c = canon(f);
+            if !all_files.contains(&c) {
+                all_files.push(c);
+            }
+        }
+    }
+    res.files = all_files.iter().map(|f| (f.clone(), mtime(f))).collect();
     save_cache(&cache, &res);
     Ok(filter_only(res, only))
 }
@@ -1576,7 +1624,7 @@ fn split(s: &str) -> Vec<String> {
 }
 
 fn save_cache(path: &PathBuf, im: &Imported) {
-    let mut s = String::from("siskin-ffi 14\n");
+    let mut s = String::from("siskin-ffi 15\n");
     s.push_str(&format!("H\t{}\n", im.header_path));
     for (f, t) in &im.files {
         s.push_str(&format!("W\t{}\t{}\n", f, t));
@@ -1632,6 +1680,9 @@ fn save_cache(path: &PathBuf, im: &Imported) {
     for (n, w) in &im.skipped_fnptrs {
         s.push_str(&format!("Q\t{}\t{}\n", n, w));
     }
+    for (n, f) in &im.hidden {
+        s.push_str(&format!("U\t{}\t{}\n", n, f));
+    }
     let _ = std::fs::write(path, s);
 }
 
@@ -1666,7 +1717,7 @@ fn mty_of(s: &str) -> MTy {
 fn load_cache(path: &PathBuf) -> Option<Imported> {
     let s = std::fs::read_to_string(path).ok()?;
     let mut lines = s.lines();
-    if lines.next()? != "siskin-ffi 14" {
+    if lines.next()? != "siskin-ffi 15" {
         return None;
     }
     let mut im = Imported::default();
@@ -1729,6 +1780,7 @@ fn load_cache(path: &PathBuf) -> Option<Imported> {
             Some(&"P") if f.len() >= 3 => im.fnptrs.push(CFnPtr { name: f[1].to_string(), sig: dec_cb(f[2])? }),
             Some(&"S") if f.len() >= 3 => im.skipped.push((f[1].to_string(), f[2].to_string())),
             Some(&"Q") if f.len() >= 3 => im.skipped_fnptrs.push((f[1].to_string(), f[2].to_string())),
+            Some(&"U") if f.len() >= 3 => im.hidden.push((f[1].to_string(), f[2].to_string())),
             _ => {}
         }
     }

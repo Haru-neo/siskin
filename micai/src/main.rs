@@ -322,9 +322,9 @@ fn expand_cheader(
     c_names: &mut HashSet<String>,
     c_fns: &mut HashSet<String>,
 ) -> Result<(), error::SiskinError> {
-    let (header, cpp, links, incdirs, only, defines, line, col) = match s {
-        ast::Stmt::CHeader { header, cpp, links, incdirs, only, defines, line, col } => {
-            (header, *cpp, links, incdirs, only, defines, *line, *col)
+    let (header, cpp, links, incdirs, only, defines, follow, line, col) = match s {
+        ast::Stmt::CHeader { header, cpp, links, incdirs, only, defines, follow, line, col } => {
+            (header, *cpp, links, incdirs, only, defines, follow, *line, *col)
         }
         _ => return Ok(()),
     };
@@ -347,7 +347,7 @@ fn expand_cheader(
         Some(rest) if src_dir.join(rest).is_file() => rest.to_string(),
         _ => header.clone(),
     };
-    let im = match cheader::import_header(header, cpp, &dirs, only, defines) {
+    let im = match cheader::import_header(header, cpp, &dirs, only, defines, follow) {
         Ok(x) => x,
         Err(msg) => {
             return Err(error::SiskinError::new("E0155", msg, line, col)
@@ -375,6 +375,16 @@ fn expand_cheader(
     // `define "X=1"` also applies to the C files compiled along with `also`.
     for d in defines {
         out.push(ast::Stmt::Link(format!(":def:{}", d), line));
+    }
+    // `from "dir"` is also a search folder when compiling, so headers the imported one pulls in
+    // with `#include <...>` from that folder are found by the C compiler too.
+    for d in incdirs {
+        let near = src_dir.join(d);
+        let p = if near.is_dir() { near } else { std::path::PathBuf::from(d) };
+        if p.is_dir() {
+            let abs = crate::canonicalize(&p).unwrap_or(p);
+            out.push(ast::Stmt::Link(format!(":inc:{}", abs.to_string_lossy().replace('\\', "/")), line));
+        }
     }
     for lib in links {
         // `also "x.cpp"` is a source file, resolved relative to this file's folder.
@@ -560,6 +570,22 @@ fn expand_cheader(
             incdirs: Vec::new(),
             only: vec![n.clone(), why.clone()],
             defines: Vec::new(),
+            follow: Vec::new(),
+            line,
+            col,
+        });
+    }
+    // Functions declared in headers this one includes but that were not followed (`#include <...>`):
+    // calling one says which header to add with `follow "..."`.
+    for (n, file) in &im.hidden {
+        out.push(ast::Stmt::CHeader {
+            header: header.clone(),
+            cpp,
+            links: Vec::new(),
+            incdirs: Vec::new(),
+            only: vec![n.clone(), String::new(), file.clone()],
+            defines: Vec::new(),
+            follow: Vec::new(),
             line,
             col,
         });
@@ -955,9 +981,15 @@ fn compile_native(
     let mut extra_srcs: Vec<String> = Vec::new();
     // Macros from `define "X"` on an `import c` line.
     let mut defs: Vec<String> = Vec::new();
+    // Folders from `from "dir"` on an `import c` line.
+    let mut incs: Vec<String> = Vec::new();
     for l in all_links {
         if let Some(d) = l.strip_prefix(":def:") {
             defs.push(format!("-D{}", d));
+            continue;
+        }
+        if let Some(d) = l.strip_prefix(":inc:") {
+            incs.push(format!("-I{}", d));
             continue;
         }
         match l.strip_prefix(":src:") {
@@ -981,7 +1013,7 @@ fn compile_native(
         if is_cpp {
             cc.arg("-std=c++17");
         }
-        cc.args(&defs);
+        cc.args(&defs).args(&incs);
         cc.arg("-c").arg(f).arg("-o").arg(&o);
         match cc.status() {
             Ok(st) if st.success() => {}
@@ -999,7 +1031,7 @@ fn compile_native(
         })?;
         let o = cpath.with_extension("ffi.o");
         let mut cxx = std::process::Command::new(c_compiler(true));
-        cxx.arg(opt).arg("-std=c++17").arg("-w").args(&defs).arg("-c").arg(&p).arg("-o").arg(&o);
+        cxx.arg(opt).arg("-std=c++17").arg("-w").args(&defs).args(&incs).arg("-c").arg(&p).arg("-o").arg(&o);
         if cfg!(windows) {
             cxx.arg("-D_USE_MATH_DEFINES");
         }
@@ -1046,6 +1078,7 @@ fn compile_native(
     if release {
         cc.arg("-DMI_RELEASE");
     }
+    cc.args(&incs);
     if !needs_cxx {
         cc.arg(cpath);
     }
@@ -1371,7 +1404,7 @@ fn main() -> ExitCode {
             None => {
                 eprintln!(
                     "{}",
-                    tr!("사용법: siskin ffi <헤더.h> [--cpp] [--from <폴더>]", "usage: siskin ffi <header.h> [--cpp] [--from <dir>]")
+                    tr!("사용법: siskin ffi <헤더.h> [--cpp] [--from <폴더>] [--follow <헤더>]", "usage: siskin ffi <header.h> [--cpp] [--from <dir>] [--follow <header>]")
                 );
                 return ExitCode::from(2);
             }
@@ -1379,14 +1412,15 @@ fn main() -> ExitCode {
         let cpp = args.iter().any(|a| a == "--cpp" || a == "--c++");
         let mut dirs: Vec<String> = vec![".".into()];
         let mut defines: Vec<String> = Vec::new();
+        let mut follow: Vec<String> = Vec::new();
         let mut i = 0;
         while i < args.len() {
-            if args[i] == "--from" || args[i] == "--define" {
+            if args[i] == "--from" || args[i] == "--define" || args[i] == "--follow" {
                 if let Some(d) = args.get(i + 1) {
-                    if args[i] == "--from" {
-                        dirs.push(d.clone());
-                    } else {
-                        defines.push(d.clone());
+                    match args[i].as_str() {
+                        "--from" => dirs.push(d.clone()),
+                        "--define" => defines.push(d.clone()),
+                        _ => follow.push(d.clone()),
                     }
                 }
                 i += 2;
@@ -1394,7 +1428,7 @@ fn main() -> ExitCode {
             }
             i += 1;
         }
-        let im = match cheader::import_header(&header, cpp, &dirs, &[], &defines) {
+        let im = match cheader::import_header(&header, cpp, &dirs, &[], &defines, &follow) {
             Ok(x) => x,
             Err(msg) => {
                 eprintln!("{}", msg);
@@ -1471,6 +1505,29 @@ fn main() -> ExitCode {
             }
             if !all && im.skipped_fnptrs.len() > 20 {
                 println!("    ... {} {}", im.skipped_fnptrs.len() - 20, tr!("개 더 (--all 로 모두 보기)", "more (--all shows all)"));
+            }
+        }
+        // Functions in headers pulled in with `#include <...>`, grouped by file, most first.
+        if !im.hidden.is_empty() {
+            let mut by_file: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+            for (_, f) in &im.hidden {
+                *by_file.entry(f.as_str()).or_insert(0) += 1;
+            }
+            let mut v: Vec<(&str, usize)> = by_file.into_iter().collect();
+            v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+            println!(
+                "  {}",
+                tr!(
+                    "따라가지 않은 헤더의 함수 (`follow \"이름\"` 으로 가져옴):",
+                    "functions in headers not followed (import them with `follow \"name\"`):"
+                )
+            );
+            let all = args.iter().any(|a| a == "--all");
+            for (f, n) in v.iter().take(if all { usize::MAX } else { 10 }) {
+                println!("    {:4}  {}", n, f);
+            }
+            if !all && v.len() > 10 {
+                println!("    ... {} {}", v.len() - 10, tr!("개 더 (--all 로 모두 보기)", "more (--all shows all)"));
             }
         }
         if args.iter().any(|a| a == "--all") {

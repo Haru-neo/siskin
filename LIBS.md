@@ -184,6 +184,35 @@ Headers included with quotes (`#include "vulkan_core.h"`) are read too, so `vulk
 imports everything in `vulkan_core.h`. System headers included with `<...>` are not, so
 `stdio.h` functions still need their own `import c "stdio.h"`.
 
+Sometimes a header puts part of itself behind `<...>`, and which part depends on the platform.
+On Windows, `stdlib.h` declares `malloc` in `<corecrt_malloc.h>` and `string.h` declares `memcpy`
+in `<corecrt_memory.h>`, so a program that works on Linux can lose those functions on Windows.
+Name the extra headers with `follow` and they count as part of the import:
+
+```
+import c "stdlib.h" follow "corecrt_malloc.h"
+import c "mylib.h" from "include" follow "mylib/detail.h", "mylib/types.h"
+import c "mylib.h" follow "*"          # every header it pulls in, system headers included
+```
+
+A name matches a header whose path ends with it, so `"corecrt_malloc.h"` is enough. A `follow`
+name that the header never reaches (on Linux, `corecrt_malloc.h`) does nothing, so the same line works everywhere.
+`follow "*"` brings in everything, `stdio.h` and the rest, so prefer naming the headers you need.
+
+You don't have to know these names in advance. Calling a function that the header only reaches
+through `<...>` says where it is:
+
+```
+error[T0048]: `malloc` is declared in `corecrt_malloc.h`, which `stdlib.h` pulls in with `#include <...>`, so it was not imported
+  help: add `follow "corecrt_malloc.h"` to the import line: `import c "stdlib.h" follow "corecrt_malloc.h"`
+```
+
+`siskin ffi <header>` lists them too, under "functions in headers not followed", and
+`siskin ffi <header> --follow <name>` shows the result of following one.
+
+Folders given with `from` are also passed to the C compiler, so a header there that includes
+another one from the same folder with `<...>` compiles.
+
 Some headers only declare things when a macro is defined first. Put it on the import line:
 
 ```

@@ -661,6 +661,9 @@ pub enum Stmt {
         only: Vec<String>,
         /// `define "NAME"` / `define "NAME=VALUE"`: macros set before the header is read.
         defines: Vec<String>,
+        /// `follow "corecrt_malloc.h"`: more headers whose declarations count as part of this one
+        /// (by default only the header and the files it includes with `#include "..."`). `"*"` = all.
+        follow: Vec<String>,
         line: usize,
         col: usize,
     },

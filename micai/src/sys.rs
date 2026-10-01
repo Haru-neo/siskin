@@ -195,6 +195,14 @@ pub fn errmsg(path: &str, e: &std::io::Error) -> String {
     format!("{}: {}", path, why)
 }
 
+/// `write_bytes` was given a value that is not a byte. Same text as `mi_byte_range` in `rt_sys.c`.
+pub fn byte_range_msg(path: &str, index: i64, value: &str) -> String {
+    tr!(
+        format!("{}: {}번째 값 {}은(는) 바이트(0..255)가 아닙니다", path, index, value),
+        format!("{}: value {} at index {} is not a byte (0..255)", path, value, index)
+    )
+}
+
 /// One shell command line. `sh -c` on Unix, `cmd /C` on Windows (same as native `rt_sys.c`).
 #[cfg(unix)]
 fn shell_command(prog: &str) -> std::process::Command {

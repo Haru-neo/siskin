@@ -179,7 +179,7 @@ pub(crate) const MODULES: &[(&str, &[&str])] = &[
         "math",
         &["sqrt", "floor", "ceil", "pow", "sin", "cos", "tan", "log", "log10", "exp", "round", "pi", "e"],
     ),
-    ("fs", &["read_text", "write_text", "append_text", "exists", "remove", "list_dir", "make_dir", "is_dir"]),
+    ("fs", &["read_text", "write_text", "append_text", "exists", "remove", "list_dir", "make_dir", "is_dir", "read_bytes", "write_bytes", "append_bytes"]),
     ("io", &["print"]),
     ("time", &["now", "clock", "sleep"]),
     ("process", &["env", "set_env", "cwd", "set_cwd", "pid"]),
@@ -2981,6 +2981,42 @@ impl Interp {
                     }
                 }
                 _ => fail("E0241", tr!("append_text()는 경로와 내용을 받습니다", "append_text() takes a path and contents"), line, col),
+            },
+            "read_bytes" => match pos.first() {
+                Some(Value::Str(p)) => match std::fs::read(p.as_str()) {
+                    Ok(b) => Ok(list_value(b.into_iter().map(|x| Value::Int(x as i64)).collect())),
+                    Err(e) => Ok(Value::Error(Rc::new(crate::sys::errmsg(p, &e)))),
+                },
+                _ => fail("E0241", tr!("read_bytes()는 Str 경로를 받습니다", "read_bytes() takes a Str path"), line, col),
+            },
+            "write_bytes" | "append_bytes" => match (pos.first(), pos.get(1)) {
+                (Some(Value::Str(p)), Some(Value::List(items))) => {
+                    use std::io::Write;
+                    let mut buf: Vec<u8> = Vec::with_capacity(items.borrow().len());
+                    for (i, v) in items.borrow().iter().enumerate() {
+                        match v {
+                            Value::Int(x) if (0..=255).contains(x) => buf.push(*x as u8),
+                            other => return Ok(Value::Error(Rc::new(crate::sys::byte_range_msg(p, i as i64, &other.display())))),
+                        }
+                    }
+                    let r = std::fs::OpenOptions::new()
+                        .create(true)
+                        .write(true)
+                        .append(name == "append_bytes")
+                        .truncate(name == "write_bytes")
+                        .open(p.as_str())
+                        .and_then(|mut f| f.write_all(&buf));
+                    match r {
+                        Ok(()) => Ok(Value::None),
+                        Err(e) => Ok(Value::Error(Rc::new(crate::sys::errmsg(p, &e)))),
+                    }
+                }
+                _ => fail(
+                    "E0241",
+                    tr!(format!("{}()는 경로와 바이트 리스트([Int])를 받습니다", name), format!("{}() takes a path and a list of bytes ([Int])", name)),
+                    line,
+                    col,
+                ),
             },
             "exists" => match pos.first() {
                 Some(Value::Str(p)) => Ok(Value::Bool(std::path::Path::new(p.as_str()).exists())),

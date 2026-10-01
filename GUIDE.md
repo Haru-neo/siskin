@@ -1066,6 +1066,32 @@ If you import the whole module with `import std.time`, you can use names directl
 | `list_dir(dir)` | Names inside, sorted by name (`![Str]`) |
 | `make_dir(dir)` | Creates it, including intermediate folders; does nothing if it already exists |
 | `is_dir(path)` | Checks whether it's a folder (`Bool`) |
+| `read_bytes(path)` | The whole file as bytes: a `[Int]` list, one value 0..255 per byte |
+| `write_bytes(path, bytes)` | Writes a new file from a `[Int]` list of bytes |
+| `append_bytes(path, bytes)` | Appends bytes to the end |
+
+`read_text` and `write_text` are for text. For anything else (images, SPIR-V shaders, archives) use the
+`_bytes` functions: nothing is changed on the way in or out, on any platform. A value outside 0..255 is an
+error, and nothing is written.
+
+```siskin
+from std.fs import read_bytes, write_bytes
+
+fn main() -> !():
+    let spv = try read_bytes("shader.spv")
+    print(f"{len(spv)} bytes, magic {spv[0]} {spv[1]} {spv[2]} {spv[3]}\n")   # 3 2 35 7
+    try write_bytes("copy.spv", spv)
+```
+
+To hand the bytes to a C library (for example `vkCreateShaderModule`), copy them into memory C can read:
+
+```siskin
+unsafe:
+    let code = alloc[U8](len(spv))
+    for i in range(len(spv)):
+        code[i] = spv[i]
+    # pass address_of(code) as pCode and len(spv) as codeSize, then free(code)
+```
 
 Error messages are the same whichever way you run the program: things like "no such file or directory", "permission denied",
 "already exists", "not a directory".
@@ -1281,6 +1307,10 @@ destroy(instance, 0)
   A pointer field also takes a `*T` pointer, a `char *` field a string, and a function pointer field a named function.
 - Macros a header expects to be defined go on the import line: `import c "GL/glext.h" define "GL_GLEXT_PROTOTYPES"`
   (or `define "NAME=1"`). They also apply to C files compiled with `also`.
+- Only the header and the files it includes with quotes (`#include "..."`) are imported. A header pulled in
+  with `#include <...>` is followed only when you name it: `import c "stdlib.h" follow "corecrt_malloc.h"`
+  (`follow "*"` follows all of them). This matters on Windows, where `stdlib.h` keeps `malloc` in
+  `<corecrt_malloc.h>`. Calling a function that was left out this way is error T0048, which names the header to follow.
 
 [examples/17_glfw.skn](examples/17_glfw.skn) opens a window and [examples/18_vulkan.skn](examples/18_vulkan.skn)
 lists the GPUs. Shaders stay in GLSL; Siskin passes them to the library like any other file.

@@ -5846,6 +5846,22 @@ impl CGen {
                 let a = self.expr(&args[0].value);
                 format!("mi_make_dir({})", a)
             }
+            "read_bytes" => {
+                let a = self.expr(&args[0].value);
+                let rn = self.res_name(&Ty::List(Box::new(Ty::Int)), &Ty::Str, line);
+                format!(
+                    "({{ MiRes_MiList_B _r = mi_read_bytes({}); (({}){{ .ok = _r.ok, .val = _r.val, .err = _r.err }}); }})",
+                    a, rn
+                )
+            }
+            "write_bytes" | "append_bytes" => {
+                let a = self.expr(&args[0].value);
+                // So that `write_bytes(path, [])` knows the empty list holds Ints.
+                self.expect = Some(Ty::List(Box::new(Ty::Int)));
+                let b = self.expr(&args[1].value);
+                self.expect = None;
+                format!("mi_write_bytes({}, {}, {})", a, b, if name == "append_bytes" { 1 } else { 0 })
+            }
             "is_dir" => {
                 let a = self.expr(&args[0].value);
                 format!("mi_is_dir({})", a)

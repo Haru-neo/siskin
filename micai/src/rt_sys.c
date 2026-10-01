@@ -259,6 +259,49 @@ static bool mi_is_dir(MiStr p) { struct stat s; return stat(mi_cstr(p), &s) == 0
 
 static int mi_cmp_str_p(const void* a, const void* b) { return mi_str_cmp(*(const MiStr*)a, *(const MiStr*)b); }
 
+/* ---- std.fs binary files: bytes are a [Int] list, one value 0..255 per byte ---- */
+typedef struct { bool ok; MiList val; MiStr err; } MiRes_MiList_B;
+static MiRes_MiList_B mi_read_bytes(MiStr path) {
+    MiRes_MiList_B r; r.val = mi_list_new((int64_t)sizeof(int64_t));
+    MiRes_MiStr t = mi_read_text(path);
+    if (!t.ok) { r.ok = false; r.err = t.err; return r; }
+    if (t.val.len > 0) {
+        r.val.data = malloc((size_t)t.val.len * sizeof(int64_t));
+        if (!r.val.data) mi_panic(MI_T("메모리가 부족합니다", "out of memory"));
+        int64_t* d = (int64_t*)r.val.data;
+        for (int64_t i = 0; i < t.val.len; i++) d[i] = (unsigned char)t.val.p[i];
+        r.val.len = r.val.cap = t.val.len;
+    }
+    free((void*)t.val.p);
+    r.ok = true; r.err = mi_str("");
+    return r;
+}
+
+static MiRes_int64_t mi_write_bytes(MiStr path, MiList data, int append) {
+    MiRes_int64_t r; r.val = 0;
+    unsigned char* buf = (unsigned char*)malloc((size_t)(data.len ? data.len : 1));
+    if (!buf) mi_panic(MI_T("메모리가 부족합니다", "out of memory"));
+    for (int64_t i = 0; i < data.len; i++) {
+        int64_t v = ((int64_t*)data.data)[i];
+        if (v < 0 || v > 255) {
+            char tmp[96];
+            snprintf(tmp, sizeof tmp, MI_T("%lld번째 값 %lld은(는) 바이트(0..255)가 아닙니다", "value %lld at index %lld is not a byte (0..255)"),
+                     MI_KO ? (long long)i : (long long)v, MI_KO ? (long long)v : (long long)i);
+            free(buf);
+            r.ok = false; r.err = mi_cat(mi_cat(path, mi_str(": ")), mi_str(tmp));
+            return r;
+        }
+        buf[i] = (unsigned char)v;
+    }
+    FILE* f = mi_fopen(mi_cstr(path), append ? "ab" : "wb");
+    if (!f) { free(buf); r.ok = false; r.err = mi_errmsg(path, errno); return r; }
+    fwrite(buf, 1, (size_t)data.len, f);
+    fclose(f);
+    free(buf);
+    r.ok = true; r.err = mi_str("");
+    return r;
+}
+
 typedef struct { bool ok; MiList val; MiStr err; } MiRes_MiList_S;
 static MiRes_MiList_S mi_list_dir(MiStr p) {
     MiRes_MiList_S r; r.val = mi_list_new((int64_t)sizeof(MiStr)); r.err = mi_str("");

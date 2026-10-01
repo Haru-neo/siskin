@@ -1,0 +1,7 @@
+# `follow` imports what a header pulls in with `#include <...>`.
+# wrap.h declares wrap_add in <wrap_impl.h>, like Windows' stdlib.h declares malloc in <corecrt_malloc.h>.
+import c "wrap.h" from "clib/sysinc" follow "wrap_impl.h" also "clib/sysinc/wrap.c"
+
+fn main():
+    print(f"version {wrap_version()} (WRAP_VERSION {WRAP_VERSION})\n")
+    print(f"add {wrap_add(2, 3)}, scale {wrap_scale(4)}, limit {WRAP_LIMIT}\n")

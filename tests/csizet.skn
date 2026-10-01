@@ -1,11 +1,10 @@
 # size_t parameters from system headers. Newer clang (21+) reports size_t as `__size_t`,
 # which generated C wrappers must spell as `size_t` (fread/fwrite failed with LLVM-MinGW clang 22).
+# Only stdio.h: on Windows, string.h declares most functions in files it pulls in with <...>.
 import c "stdio.h"
-import c "string.h"
 from std.fs import remove
 
 fn main():
-    print(f"strncmp = {strncmp("siskin", "siskit", 5)}\n")
     unsafe:
         let out = alloc[U8](5)
         for i in range(5):
@@ -14,7 +13,8 @@ fn main():
         print(f"wrote = {fwrite(out, 1, 5, f)}\n")
         fclose(f)
         let back = alloc[U8](8)
-        memset(back, 0, 8)
+        for i in range(8):
+            back[i] = 0
         let g = fopen("csizet.tmp", "rb")
         print(f"read = {fread(back, 1, 8, g)}\n")
         fclose(g)

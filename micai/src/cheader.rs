@@ -1610,7 +1610,7 @@ fn split(s: &str) -> Vec<String> {
 }
 
 fn save_cache(path: &PathBuf, im: &Imported) {
-    let mut s = String::from("siskin-ffi 15\n");
+    let mut s = String::from("siskin-ffi 16\n");
     s.push_str(&format!("H\t{}\n", im.header_path));
     for (f, t) in &im.files {
         s.push_str(&format!("W\t{}\t{}\n", f, t));
@@ -1700,7 +1700,7 @@ fn mty_of(s: &str) -> MTy {
 fn load_cache(path: &PathBuf) -> Option<Imported> {
     let s = std::fs::read_to_string(path).ok()?;
     let mut lines = s.lines();
-    if lines.next()? != "siskin-ffi 15" {
+    if lines.next()? != "siskin-ffi 16" {
         return None;
     }
     let mut im = Imported::default();

@@ -219,6 +219,38 @@ const INT_TYPES: &[&str] = &[
     "__size_t", "__signed_size_t", "__ptrdiff_t",
 ];
 
+/// Newer clang (21+) prints some standard types under internal names (`__size_t`) that C
+/// and C++ code cannot use. Type text copied into generated wrappers goes through this so
+/// it spells them the standard way. Type analysis still sees the original text.
+pub fn c_spelling(q: &str) -> String {
+    const NAMES: &[(&str, &str)] = &[
+        ("__size_t", "size_t"),
+        ("__signed_size_t", "ptrdiff_t"),
+        ("__ptrdiff_t", "ptrdiff_t"),
+        ("__wchar_t", "wchar_t"),
+    ];
+    if !q.contains("__") {
+        return q.to_string();
+    }
+    let mut out = String::with_capacity(q.len());
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut String| {
+        let w = NAMES.iter().find(|(from, _)| from == word).map(|(_, to)| *to).unwrap_or(word);
+        out.push_str(w);
+        word.clear();
+    };
+    for c in q.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            word.push(c);
+        } else {
+            flush(&mut word, &mut out);
+            out.push(c);
+        }
+    }
+    flush(&mut word, &mut out);
+    out
+}
+
 /// Collapse whitespace and drop meaningless qualifiers.
 fn tidy(q: &str) -> String {
     let mut s = q.to_string();
@@ -417,7 +449,7 @@ fn parse_fnptr(q: &str, td: &HashMap<String, String>) -> Result<CbSig, String> {
             m => Some(m),
         }
     };
-    Ok(CbSig { ret: rt, params: ps, c_ret: ret_c, c_params: params })
+    Ok(CbSig { ret: rt, params: ps, c_ret: c_spelling(&ret_c), c_params: params.iter().map(|p| c_spelling(p)).collect() })
 }
 
 /// A pointer to a function, `ret (*)(params)`, as opposed to a pointer to such a pointer
@@ -1132,7 +1164,7 @@ impl<'a> Scope<'a> {
     /// One struct field.
     fn field(&self, name: &str, q: &str) -> Result<CField, String> {
         let t = tidy(q);
-        let mut f = CField { name: name.to_string(), ty: String::new(), c_ty: q.to_string(), ptr: false, charp: false, chars: 0, cb: None };
+        let mut f = CField { name: name.to_string(), ty: String::new(), c_ty: c_spelling(q), ptr: false, charp: false, chars: 0, cb: None };
         if let Some(open) = t.find('[') {
             let base = t[..open].trim().to_string();
             let mut dims = Vec::new();
@@ -1495,7 +1527,9 @@ pub fn import_header(
             continue;
         }
         let outs = vec![false; params.len()];
-        res.fns.push(ImportedFn { name, ret, params, c_ret: ret_c, c_params: params_c, cpp_shim: None, outs, cbs, tys, ret_ty });
+        let c_ret = c_spelling(&ret_c);
+        let c_params = params_c.iter().map(|p| c_spelling(p)).collect();
+        res.fns.push(ImportedFn { name, ret, params, c_ret, c_params, cpp_shim: None, outs, cbs, tys, ret_ty });
     }
 
     // 5. Constants: enum values first, then `#define`s, in the order they appear.
@@ -1624,7 +1658,7 @@ fn split(s: &str) -> Vec<String> {
 }
 
 fn save_cache(path: &PathBuf, im: &Imported) {
-    let mut s = String::from("siskin-ffi 15\n");
+    let mut s = String::from("siskin-ffi 16\n");
     s.push_str(&format!("H\t{}\n", im.header_path));
     for (f, t) in &im.files {
         s.push_str(&format!("W\t{}\t{}\n", f, t));
@@ -1717,7 +1751,7 @@ fn mty_of(s: &str) -> MTy {
 fn load_cache(path: &PathBuf) -> Option<Imported> {
     let s = std::fs::read_to_string(path).ok()?;
     let mut lines = s.lines();
-    if lines.next()? != "siskin-ffi 15" {
+    if lines.next()? != "siskin-ffi 16" {
         return None;
     }
     let mut im = Imported::default();
@@ -1969,14 +2003,14 @@ impl<'a> CppCtx<'a> {
             .map(|(i, s)| format!("{} a{}", s.mty.cty(), i))
             .collect();
         let plist = if plist.is_empty() { "void".to_string() } else { plist.join(", ") };
-        let shim = format!(
+        let shim = c_spelling(&format!(
             "/* {} */\nextern \"C\" {} mx_{}({}) {{\n    {}\n}}\n",
             pretty,
             rty.cty(),
             siskin_name,
             plist,
             body
-        );
+        ));
         self.seen.insert(siskin_name.clone(), ());
         self.out.fns.push(ImportedFn {
             name: siskin_name,

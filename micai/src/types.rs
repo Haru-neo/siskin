@@ -3823,6 +3823,23 @@ impl Types {
                         }
                         Ty::Unit
                     }
+                    // `cast[*T](addr)`, `cast[*T](p)`, `cast[Int](p)`.
+                    "cast" => {
+                        let ok_from = |t: &Ty| matches!(t, Ty::Int | Ty::Raw(_) | Ty::Unknown);
+                        let ok = arg_tys.len() == 1
+                            && match &targ {
+                                Some(Ty::Raw(_)) => ok_from(&arg_tys[0]),
+                                Some(Ty::Int) => matches!(arg_tys[0], Ty::Raw(_) | Ty::Unknown),
+                                _ => false,
+                            };
+                        if !ok {
+                            self.errors.push(
+                                err("T0046", tr!("`cast` 는 주소(Int)나 `*T` 포인터 하나를 `*T` 나 Int 로 바꿉니다", "`cast` turns one address (Int) or `*T` pointer into a `*T` pointer or an Int"), *l, *c)
+                                    .with_fix(tr!("`cast[*F32](주소)` 처럼 씁니다", "write it like `cast[*F32](addr)`")),
+                            );
+                        }
+                        targ.unwrap_or(Ty::Unknown)
+                    }
                     _ => match targ {
                         Some(t) => t,
                         None => Ty::Unknown,

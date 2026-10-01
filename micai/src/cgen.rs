@@ -373,6 +373,7 @@ static MiPtr mi_ptr_arena(MiArena* a, int64_t bytes) {
 static MiPtr mi_ptr_null(void) { MiPtr p; p.g = NULL; p.off = 0; p.gen = 0; return p; }
 
 static void mi_ptr_free(MiPtr p) {
+    if (!p.g && p.off) { free((void*)(intptr_t)p.off); return; }   /* foreign: C's own free */
     if (!p.g) mi_panic(MI_T("빈 포인터를 해제했습니다", "freed a null pointer"));
     if (p.g->in_arena) mi_panic(MI_T("아레나 메모리는 따로 해제하지 않습니다 (블록이 끝나면 한꺼번에 사라집니다)", "arena memory is not freed individually (it is all released when the block ends)"));
     if (p.off != 0) mi_panic(MI_T("포인터 중간을 해제할 수 없습니다", "cannot free a pointer into the middle of an allocation"));
@@ -383,8 +384,15 @@ static void mi_ptr_free(MiPtr p) {
     /* Don't release the memory itself; quarantine it to catch use-after-free. */
 }
 
+/* A pointer to memory Siskin did not allocate (an address from C, via `cast[*T](addr)`).
+   It has no guard, so `off` holds the address itself and accesses are not bounds-checked. */
+static MiPtr mi_ptr_foreign(int64_t addr) { MiPtr p; p.g = NULL; p.off = addr; p.gen = 0; return p; }
+
 static void* mi_ptr_at(MiPtr p, int64_t byteoff, int64_t size) {
-    if (!p.g) mi_panic(MI_T("빈 포인터에 접근했습니다", "null pointer access"));
+    if (!p.g) {
+        if (p.off) return (char*)(intptr_t)p.off + byteoff;
+        mi_panic(MI_T("빈 포인터에 접근했습니다", "null pointer access"));
+    }
     if (p.g->gen != p.gen) mi_panic(MI_T("이미 해제된 메모리에 접근했습니다 (use-after-free)", "access to freed memory (use-after-free)"));
     int64_t at = p.off + byteoff;
     if (at < 0 || at + size > p.g->size) {
@@ -413,6 +421,8 @@ static void* mi_raw_alloc(int64_t bytes) {
   #define MI_AT(T, p, i)   (((T*)(p))[(i)])
   #define MI_ADD(T, p, n)  ((T*)(p) + (n))
   #define MI_NULL(T)       ((T*)0)
+  #define MI_FROM_ADDR(T, a) ((T*)(intptr_t)(a))
+  #define MI_RECAST(T, p)  ((T*)(p))
 #else
   #define MI_PTR(T)        MiPtr
   #define MI_ALLOC(T, n)   mi_ptr_alloc((int64_t)(n) * (int64_t)sizeof(T))
@@ -421,6 +431,8 @@ static void* mi_raw_alloc(int64_t bytes) {
   #define MI_AT(T, p, i)   (*(T*)mi_ptr_at((p), (int64_t)(i) * (int64_t)sizeof(T), (int64_t)sizeof(T)))
   #define MI_ADD(T, p, n)  mi_ptr_add((p), (int64_t)(n) * (int64_t)sizeof(T))
   #define MI_NULL(T)       mi_ptr_null()
+  #define MI_FROM_ADDR(T, a) mi_ptr_foreign((int64_t)(a))
+  #define MI_RECAST(T, p)  (p)
 #endif
 
 /* ---------------- Standard library ---------------- */
@@ -4823,7 +4835,7 @@ impl CGen {
                 };
             }
             // C layout built-ins: `size_of[T]()`, `offset_of[T]("field")`, `c_string(s)`, `ptr_set[T](addr, i, v)`.
-            if matches!(name.as_str(), "size_of" | "offset_of" | "c_string" | "ptr_set" | "address_of") && self.ty.fns.get(name).is_none() {
+            if matches!(name.as_str(), "size_of" | "offset_of" | "c_string" | "ptr_set" | "address_of" | "cast") && self.ty.fns.get(name).is_none() {
                 let t = match targs.first() {
                     Some(te) => self.ty.resolve(te, *l),
                     None => Ty::Int,
@@ -4855,6 +4867,29 @@ impl CGen {
                         };
                         let ec = self.ctype(&et, *l);
                         format!("((int64_t)(intptr_t)MI_RAW({}, {}))", ec, v)
+                    }
+                    // `cast[*T](addr)` turns a C address (Int) into a pointer; `cast[*T](p)` reinterprets a pointer;
+                    // `cast[Int](p)` is the same as `address_of(p)`.
+                    "cast" => {
+                        let (v, at) = match args.first() {
+                            Some(a) => (self.expr(&a.value), self.infer(&a.value)),
+                            None => ("0".into(), Ty::Int),
+                        };
+                        match (&t, &at) {
+                            (Ty::Raw(et), Ty::Raw(_)) => {
+                                let ec = self.ctype(et, *l);
+                                format!("MI_RECAST({}, {})", ec, v)
+                            }
+                            (Ty::Raw(et), _) => {
+                                let ec = self.ctype(et, *l);
+                                format!("MI_FROM_ADDR({}, {})", ec, v)
+                            }
+                            (_, Ty::Raw(et)) => {
+                                let ec = self.ctype(et, *l);
+                                format!("((int64_t)(intptr_t)MI_RAW({}, {}))", ec, v)
+                            }
+                            _ => v,
+                        }
                     }
                     "c_string" => {
                         let v = args.first().map(|a| self.expr(&a.value)).unwrap_or_else(|| "mi_str(\"\")".into());

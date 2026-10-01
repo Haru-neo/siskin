@@ -103,7 +103,7 @@ vkCreateInstance(info, 0, instance) # info is read, 0 is a null pointer, instanc
 
 ### Constants
 
-`#define` numbers and strings and `enum` values become constants with the same names:
+`#define` numbers and strings, `enum` values and `static const` values become constants with the same names:
 
 ```
 import c "GLFW/glfw3.h" link "glfw"
@@ -114,6 +114,16 @@ if key == GLFW_KEY_ESCAPE and action == GLFW_PRESS:
 
 A `#define` whose value is an expression of other constants (`#define VK_API_VERSION_1_0 VK_MAKE_API_VERSION(0, 1, 0, 0)`)
 is worked out by the C compiler. Function-like macros themselves are not imported.
+
+`static const` values are read from their initialiser, the way Vulkan 1.3 declares its 64-bit flags:
+
+```
+import c "vulkan/vulkan.h" link "vulkan"
+
+let stages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_COPY_BIT
+```
+
+All 64 bits are kept; a value with the top bit set reads as a negative Int, as `0x8000000000000000` does.
 
 ### Structs and unions
 
@@ -200,6 +210,23 @@ unsafe:
     let text = cstr(addr)            # reads a NUL-terminated C string
     let third = ptr_get(addr, 2)     # the value in slot 2 of what the address points to
 ```
+
+To read and write a whole C buffer, turn the address into a `*T` pointer with `cast[*T](addr)`.
+This is what `vkMapMemory` and similar "here is my memory" functions need:
+
+```
+var data = 0
+vkMapMemory(device, memory, 0, size, 0, data)   # C writes the buffer's address into data
+unsafe:
+    let v = cast[*F32](data)
+    v[0] = 0.5                                   # writes straight into the mapped memory
+    v[1] = -0.5
+vkUnmapMemory(device, memory)
+```
+
+`cast[*U8](p)` reinterprets a pointer as another element type, and `cast[Int](p)` gives
+the address back (the same as `address_of(p)`). Siskin cannot check bounds on memory it did
+not allocate, so stay inside the buffer the library gave you.
 
 ---
 

@@ -879,6 +879,11 @@ Side by side with C++:
 This only works inside `unsafe:`. Using it outside is a compile error.
 It's a marker in the code that says "I take responsibility here".
 
+An address a C library gives you (an Int) becomes a pointer with `cast[*T](addr)`,
+like `(float*)addr` in C. `cast[*U8](p)` reinterprets a pointer and `cast[Int](p)` turns it
+back into an address. Memory reached this way was not allocated by Siskin, so its bounds
+are not checked (see LIBS.md).
+
 ### 9.5.4 What happens when you make a mistake
 
 In C++ these slip by silently and blow up somewhere unrelated much later.
@@ -1241,7 +1246,8 @@ A plain number that is not a variable, like `0`, is passed as an address, so `0`
 
 ### Constants, structs and function pointers from headers
 
-The header's `#define` numbers and strings and its `enum` values become constants,
+The header's `#define` numbers and strings, its `enum` values and its `static const` values
+(such as Vulkan 1.3's 64-bit `VK_PIPELINE_STAGE_2_*` flags) become constants,
 and its structs and unions become Siskin structs with C's own layout and field names.
 Headers it includes with quotes (`#include "vulkan_core.h"`) are read too.
 
@@ -1677,6 +1683,7 @@ See the example `examples/15_concurrency.skn`.
 | `**Int` | Pointer to a pointer | `long long**` |
 | `alloc[Int](4)` | Get 4 slots | `new long long[4]` |
 | `free(p)` | Give back | `delete[] p` |
+| `cast[*F32](addr)` | Use a C address as a pointer | `(float*)addr` |
 | `from std.x import y` | Import one name | `#include` + `using` |
 | `extern "C" fn ...` | Declares a C function to use | a function declaration in a header |
 | `extern "C" link "z"` | Link a library | `-lz` |

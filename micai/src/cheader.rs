@@ -134,7 +134,7 @@ pub struct Imported {
     pub skipped: Vec<(String, String)>,
     /// The actual path of the header found by clang.
     pub header_path: String,
-    /// `#define` number/string constants and `enum` constants.
+    /// `#define` number/string constants, `enum` constants and `static const` values.
     pub consts: Vec<CConst>,
     /// Complete struct/union definitions.
     pub structs: Vec<CStruct>,
@@ -762,6 +762,175 @@ fn first_value(n: &JRef) -> Option<String> {
     None
 }
 
+/// A `const` variable with a constant initialiser, such as Vulkan 1.3's
+/// `static const VkPipelineStageFlagBits2 VK_PIPELINE_STAGE_2_NONE = 0ULL;`.
+/// These are not macros or enum values, so they are read from clang's syntax tree.
+fn const_var(n: &JRef, td: &HashMap<String, String>, known: &HashMap<String, CVal>) -> Option<(String, CVal)> {
+    let name = dstr(n, "name").filter(|s| !s.is_empty() && !s.starts_with('_'))?;
+    if dstr(n, "storageClass").as_deref() == Some("extern") || dstr(n, "init").is_none() {
+        return None;
+    }
+    let q = dget(n, "type").and_then(|t| dstr(&t, "qualType")).unwrap_or_default();
+    let is_const = q.starts_with("const ") || q.ends_with(" const");
+    if !is_const {
+        return None;
+    }
+    let init = dlist(n, "inner").into_iter().next()?;
+    let v = eval_const(&init, td, known)?;
+    // Convert to the declared type: `static const float F = 1;` is a Float.
+    let ty = c_scalar(n, td);
+    let v = match (v, ty.as_deref()) {
+        (CVal::Str(s), _) => CVal::Str(s),
+        (v, Some(t)) => convert_scalar(v, t),
+        (_, None) => return None,
+    };
+    Some((name, v))
+}
+
+/// The storage name (`I32`, `U64`, `F32`, ...) of a node's C type, or `Str` for `const char *`.
+fn c_scalar(n: &JRef, td: &HashMap<String, String>) -> Option<String> {
+    let t = dget(n, "type")?;
+    let q = dstr(&t, "qualType").unwrap_or_default();
+    let r = tidy(&resolve(&q, td, 0));
+    if r == "char *" || r == "char*" {
+        return Some("Str".into());
+    }
+    let d = dstr(&t, "desugaredQualType").map(|d| tidy(&d));
+    scalar_storage(&r).or_else(|| d.as_deref().and_then(scalar_storage)).map(|s| s.to_string()).or_else(|| {
+        // An enum type converts like `int`.
+        if r.starts_with("enum ") || d.as_deref().map_or(false, |d| d.starts_with("enum ")) {
+            Some("I32".into())
+        } else {
+            None
+        }
+    })
+}
+
+/// Wrap or convert a value the way C does when storing it in type `t`.
+fn convert_scalar(v: CVal, t: &str) -> CVal {
+    let as_int = |v: &CVal| match v {
+        CVal::Int(i) => *i,
+        CVal::Float(f) => *f as i64,
+        CVal::Str(_) => 0,
+    };
+    match t {
+        "F32" => CVal::Float(match v { CVal::Float(f) => f as f32 as f64, _ => as_int(&v) as f32 as f64 }),
+        "Float" => CVal::Float(match v { CVal::Float(f) => f, _ => as_int(&v) as f64 }),
+        "Bool" => CVal::Int((as_int(&v) != 0) as i64),
+        "I8" => CVal::Int(as_int(&v) as i8 as i64),
+        "U8" => CVal::Int(as_int(&v) as u8 as i64),
+        "I16" => CVal::Int(as_int(&v) as i16 as i64),
+        "U16" => CVal::Int(as_int(&v) as u16 as i64),
+        "I32" => CVal::Int(as_int(&v) as i32 as i64),
+        "U32" => CVal::Int(as_int(&v) as u32 as i64),
+        "Str" => v,
+        _ => CVal::Int(as_int(&v)),
+    }
+}
+
+/// Evaluate a constant initialiser from clang's syntax tree: literals, casts, parentheses,
+/// unary and binary arithmetic/bit operators, and names of enum values or earlier constants.
+fn eval_const(n: &JRef, td: &HashMap<String, String>, known: &HashMap<String, CVal>) -> Option<CVal> {
+    let kind = dstr(n, "kind").unwrap_or_default();
+    let inner = dlist(n, "inner");
+    let unsigned = || c_scalar(n, td).map_or(false, |t| t.starts_with('U'));
+    match kind.as_str() {
+        "IntegerLiteral" | "CharacterLiteral" => dstr(n, "value").and_then(|v| parse_c_int(&v)).map(CVal::Int),
+        "FloatingLiteral" => dstr(n, "value").and_then(|v| v.parse::<f64>().ok()).map(CVal::Float),
+        "StringLiteral" => {
+            let v = dstr(n, "value")?;
+            let s = json::parse(&v).ok()?;
+            let out = match &*s.borrow() {
+                JsonVal::Str(x) => Some(CVal::Str(x.clone())),
+                _ => None,
+            };
+            out
+        }
+        "ParenExpr" | "ConstantExpr" => eval_const(inner.first()?, td, known),
+        "ImplicitCastExpr" | "CStyleCastExpr" => {
+            let v = eval_const(inner.first()?, td, known)?;
+            match c_scalar(n, td) {
+                Some(t) => Some(convert_scalar(v, &t)),
+                None => match v {
+                    CVal::Str(_) => Some(v),
+                    _ => None,
+                },
+            }
+        }
+        "DeclRefExpr" => {
+            let r = dget(n, "referencedDecl")?;
+            known.get(&dstr(&r, "name")?).cloned()
+        }
+        "UnaryOperator" => {
+            let v = eval_const(inner.first()?, td, known)?;
+            let op = dstr(n, "opcode")?;
+            Some(match (op.as_str(), v) {
+                ("-", CVal::Int(i)) => CVal::Int(i.wrapping_neg()),
+                ("-", CVal::Float(f)) => CVal::Float(-f),
+                ("+", v) => v,
+                ("~", CVal::Int(i)) => CVal::Int(!i),
+                ("!", CVal::Int(i)) => CVal::Int((i == 0) as i64),
+                _ => return None,
+            })
+        }
+        "BinaryOperator" => {
+            if inner.len() != 2 {
+                return None;
+            }
+            let a = eval_const(&inner[0], td, known)?;
+            let b = eval_const(&inner[1], td, known)?;
+            let op = dstr(n, "opcode")?;
+            match (a, b) {
+                (CVal::Int(x), CVal::Int(y)) => {
+                    let u = unsigned();
+                    let v = match op.as_str() {
+                        "+" => x.wrapping_add(y),
+                        "-" => x.wrapping_sub(y),
+                        "*" => x.wrapping_mul(y),
+                        "/" if y != 0 => if u { ((x as u64) / (y as u64)) as i64 } else { x.wrapping_div(y) },
+                        "%" if y != 0 => if u { ((x as u64) % (y as u64)) as i64 } else { x.wrapping_rem(y) },
+                        "<<" if (0..64).contains(&y) => x.wrapping_shl(y as u32),
+                        ">>" if (0..64).contains(&y) => if u { ((x as u64) >> y) as i64 } else { x >> y },
+                        "|" => x | y,
+                        "&" => x & y,
+                        "^" => x ^ y,
+                        "==" => (x == y) as i64,
+                        "!=" => (x != y) as i64,
+                        "<" => (x < y) as i64,
+                        ">" => (x > y) as i64,
+                        "<=" => (x <= y) as i64,
+                        ">=" => (x >= y) as i64,
+                        "&&" => (x != 0 && y != 0) as i64,
+                        "||" => (x != 0 || y != 0) as i64,
+                        _ => return None,
+                    };
+                    // Keep the width of the result type (`int` arithmetic wraps at 32 bits).
+                    Some(match c_scalar(n, td) {
+                        Some(t) => convert_scalar(CVal::Int(v), &t),
+                        None => CVal::Int(v),
+                    })
+                }
+                (a, b) => {
+                    let f = |v: CVal| match v {
+                        CVal::Int(i) => Some(i as f64),
+                        CVal::Float(f) => Some(f),
+                        CVal::Str(_) => None,
+                    };
+                    let (x, y) = (f(a)?, f(b)?);
+                    Some(CVal::Float(match op.as_str() {
+                        "+" => x + y,
+                        "-" => x - y,
+                        "*" => x * y,
+                        "/" => x / y,
+                        _ => return None,
+                    }))
+                }
+            }
+        }
+        _ => None,
+    }
+}
+
 fn parse_c_int(v: &str) -> Option<i64> {
     v.parse::<i64>().ok().or_else(|| v.parse::<u64>().ok().map(|u| u as i64))
 }
@@ -1104,6 +1273,8 @@ pub fn import_header(
     let mut td_of: HashMap<String, String> = HashMap::new();
     let mut evals: HashMap<String, i64> = HashMap::new();
     let mut enum_consts: Vec<(String, i64)> = Vec::new();
+    // Every enum value by name, so `static const` initialisers can refer to them.
+    let mut all_enums: HashMap<String, CVal> = HashMap::new();
     for n in &top {
         cur = loc_file(n, &cur);
         let kind = dstr(n, "kind").unwrap_or_default();
@@ -1117,6 +1288,9 @@ pub fn import_header(
                 let name = dstr(&c, "name").unwrap_or_default();
                 let v = first_value(&c).and_then(|v| parse_c_int(&v)).unwrap_or(prev.wrapping_add(1));
                 prev = v;
+                if !name.is_empty() {
+                    all_enums.insert(name.clone(), CVal::Int(v));
+                }
                 if let Some(i) = name.strip_prefix("__siskin_c").and_then(|x| x.parse::<usize>().ok()) {
                     if first_value(&c).is_some() {
                         if let Some((mname, _)) = cands.get(i) {
@@ -1179,13 +1353,23 @@ pub fn import_header(
         res.structs.push(st);
     }
 
-    // 4. Functions and function pointer types.
+    // 4. Functions, function pointer types and `static const` values.
     let mut seen: HashMap<String, ()> = HashMap::new();
+    let mut var_consts: Vec<(String, CVal)> = Vec::new();
+    let mut known = all_enums;
     cur.clear();
     for n in &top {
         cur = loc_file(n, &cur);
         let kind = dstr(n, "kind").unwrap_or_default();
         if !wanted.has(&cur) {
+            continue;
+        }
+        if kind == "VarDecl" {
+            // `static const VkPipelineStageFlagBits2 VK_PIPELINE_STAGE_2_NONE = 0ULL;`
+            if let Some((name, v)) = const_var(n, &td, &known) {
+                known.insert(name.clone(), v.clone());
+                var_consts.push((name, v));
+            }
             continue;
         }
         if kind == "TypedefDecl" {
@@ -1268,6 +1452,9 @@ pub fn import_header(
     };
     for (n, v) in &enum_consts {
         push(&mut res, n, CVal::Int(*v));
+    }
+    for (n, v) in var_consts {
+        push(&mut res, &n, v);
     }
     for (name, k) in cands {
         let val = match k {
@@ -1360,7 +1547,7 @@ fn split(s: &str) -> Vec<String> {
 }
 
 fn save_cache(path: &PathBuf, im: &Imported) {
-    let mut s = String::from("siskin-ffi 12\n");
+    let mut s = String::from("siskin-ffi 13\n");
     s.push_str(&format!("H\t{}\n", im.header_path));
     for (f, t) in &im.files {
         s.push_str(&format!("W\t{}\t{}\n", f, t));
@@ -1447,7 +1634,7 @@ fn mty_of(s: &str) -> MTy {
 fn load_cache(path: &PathBuf) -> Option<Imported> {
     let s = std::fs::read_to_string(path).ok()?;
     let mut lines = s.lines();
-    if lines.next()? != "siskin-ffi 12" {
+    if lines.next()? != "siskin-ffi 13" {
         return None;
     }
     let mut im = Imported::default();

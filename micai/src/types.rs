@@ -19,7 +19,7 @@ pub const SISKIN_BUILTINS: &[&str] = &[
     "find_all", "groups", "split_re", "replace", "round", "floor", "ceil", "pow", "read_text",
     "write_text", "alloc", "free", "cast", "main", "cstr", "ptr_get", "sleep", "env", "set_env",
     "cwd", "set_cwd", "pid", "list_dir", "make_dir", "is_dir", "channel", "size_of", "offset_of",
-    "c_string", "ptr_set", "address_of",
+    "c_string", "ptr_set", "address_of", "read_bytes", "write_bytes", "append_bytes",
 ];
 
 /// Fixed-size number types for memory laid out like C (struct fields, `*T` pointers).
@@ -314,6 +314,8 @@ pub struct Types {
     pub links: Vec<String>,
     /// Functions present in a header that could not be imported automatically: name -> (header, reason)
     pub c_skipped: std::collections::HashMap<String, (String, String)>,
+    /// Functions a header reaches only through a header it does not follow: name -> (header, file to `follow`)
+    pub c_hidden: std::collections::HashMap<String, (String, String)>,
     /// Whether we are inside `unsafe:`. Raw pointer operations are allowed only here.
     unsafe_depth: usize,
     /// Whether we are inside `with arena:`.
@@ -734,6 +736,7 @@ impl Types {
             externs: HashSet::new(),
             links: Vec::new(),
             c_skipped: std::collections::HashMap::new(),
+            c_hidden: std::collections::HashMap::new(),
             unsafe_depth: 0,
             arena_depth: 0,
             tainted: HashSet::new(),
@@ -798,6 +801,9 @@ impl Types {
                 if only.len() == 2 {
                     self.c_skipped
                         .insert(only[0].clone(), (header.clone(), only[1].clone()));
+                }
+                if only.len() == 3 {
+                    self.c_hidden.entry(only[0].clone()).or_insert((header.clone(), only[2].clone()));
                 }
             }
         }
@@ -4325,6 +4331,7 @@ impl Types {
             ("exists", "fs"), ("remove", "fs"),
             ("now", "time"), ("clock", "time"), ("sleep", "time"),
             ("list_dir", "fs"), ("make_dir", "fs"), ("is_dir", "fs"),
+            ("read_bytes", "fs"), ("write_bytes", "fs"), ("append_bytes", "fs"),
             ("env", "process"), ("set_env", "process"), ("cwd", "process"), ("set_cwd", "process"),
             ("pid", "process"),
             ("seed", "random"), ("rand", "random"), ("rand_int", "random"),
@@ -4433,6 +4440,7 @@ impl Types {
             ("tan", 1, 1), ("log", 1, 1), ("log10", 1, 1), ("exp", 1, 1), ("round", 1, 1), ("pi", 0, 0),
             ("e", 0, 0), ("read_text", 1, 1), ("write_text", 2, 2), ("append_text", 2, 2), ("exists", 1, 1),
             ("remove", 1, 1), ("list_dir", 1, 1), ("make_dir", 1, 1), ("is_dir", 1, 1), ("now", 0, 0),
+            ("read_bytes", 1, 1), ("write_bytes", 2, 2), ("append_bytes", 2, 2),
             ("clock", 0, 0), ("sleep", 1, 1), ("env", 1, 1), ("set_env", 2, 2), ("cwd", 0, 0),
             ("set_cwd", 1, 1), ("pid", 0, 0), ("seed", 1, 1), ("rand", 0, 0), ("rand_int", 2, 2),
             ("test", 2, 2), ("find_all", 2, 2), ("groups", 2, 2), ("split_re", 2, 2), ("stringify", 1, 1),
@@ -4606,6 +4614,29 @@ impl Types {
             "list_dir" => Ty::fallible(Ty::List(Box::new(Ty::Str))),
             "make_dir" | "set_cwd" => Ty::fallible(Ty::Unit),
             "is_dir" => Ty::Bool,
+            "read_bytes" => Ty::fallible(Ty::List(Box::new(Ty::Int))),
+            "write_bytes" | "append_bytes" => {
+                match args.get(1) {
+                    Some(Ty::List(t)) if matches!(**t, Ty::Int | Ty::Unknown) => {}
+                    Some(Ty::Unknown) | None => {}
+                    Some(other) => self.errors.push(
+                        err(
+                            "T0039",
+                            tr!(
+                                format!("{}()는 바이트 리스트([Int])를 받는데 {}이(가) 왔습니다", name, other),
+                                format!("{}() takes a list of bytes ([Int]), found {}", name, other)
+                            ),
+                            l,
+                            c,
+                        )
+                        .with_fix(tr!(
+                            "각 바이트를 0..255 Int 로 담은 리스트를 넘깁니다. 글자는 `write_text` 로 씁니다",
+                            "pass a list with one Int (0..255) per byte; write text with `write_text`"
+                        )),
+                    ),
+                }
+                Ty::fallible(Ty::Unit)
+            }
             // std.time, std.process
             "sleep" => {
                 if args.first() == Some(&Ty::Int) {
@@ -4648,6 +4679,31 @@ impl Types {
                              급하면 C 쪽에 이 함수를 감싼 함수를 하나 만들어 그걸 가져오세요",
                             "run `siskin ffi <header>` to see what is missing; as a workaround, write a C wrapper \
                              function around it and import that instead"
+                        )),
+                    );
+                    return Ty::Unknown;
+                }
+                // Declared in a header this one includes with `#include <...>`, which is not followed by default.
+                if let Some((header, file)) = self.c_hidden.get(other).cloned() {
+                    self.errors.push(
+                        err(
+                            "T0048",
+                            tr!(
+                                format!(
+                                    "`{}`은(는) `{}` 에 선언되어 있는데, `{}` 이(가) 이 파일을 `#include <...>` 로 불러와서 따라가지 않았습니다",
+                                    other, file, header
+                                ),
+                                format!(
+                                    "`{}` is declared in `{}`, which `{}` pulls in with `#include <...>`, so it was not imported",
+                                    other, file, header
+                                )
+                            ),
+                            l,
+                            c,
+                        )
+                        .with_fix(tr!(
+                            format!("import 줄 끝에 `follow \"{}\"` 를 붙입니다: `import c \"{}\" follow \"{}\"`", file, header, file),
+                            format!("add `follow \"{}\"` to the import line: `import c \"{}\" follow \"{}\"`", file, header, file)
                         )),
                     );
                     return Ty::Unknown;

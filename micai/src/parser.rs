@@ -607,7 +607,32 @@ impl Parser {
         let mut incdirs = Vec::new();
         let mut only = Vec::new();
         let mut defines = Vec::new();
+        let mut follow = Vec::new();
         loop {
+            // `follow "corecrt_malloc.h"` — also import what this header pulls in with `#include <...>`.
+            if self.at_ident("follow") {
+                self.bump();
+                loop {
+                    match self.tok().clone() {
+                        Tok::Str(s) => {
+                            self.bump();
+                            follow.push(s);
+                        }
+                        _ => {
+                            return Err(self
+                                .err("E0160", tr!("따라갈 헤더 이름이 필요합니다", "expected a header name to follow"))
+                                .with_fix(tr!(
+                                    "`follow \"corecrt_malloc.h\"` 처럼 따옴표로 적습니다 (`follow \"*\"` 는 전부)",
+                                    "write it in quotes: `follow \"corecrt_malloc.h\"` (`follow \"*\"` follows every header)"
+                                )))
+                        }
+                    }
+                    if !self.eat(&Tok::Comma) {
+                        break;
+                    }
+                }
+                continue;
+            }
             // `define "GL_GLEXT_PROTOTYPES"` / `define "NAME=VALUE"` — set a macro before the header is read.
             if self.at_ident("define") {
                 self.bump();
@@ -701,7 +726,7 @@ impl Parser {
             break;
         }
         self.expect(Tok::Newline, "E0101", tr!("줄바꿈", "newline"))?;
-        Ok(Stmt::CHeader { header, cpp, links, incdirs, only, defines, line, col })
+        Ok(Stmt::CHeader { header, cpp, links, incdirs, only, defines, follow, line, col })
     }
 
     fn import_stmt(&mut self) -> Result<Stmt, SiskinError> {

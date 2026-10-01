@@ -80,6 +80,16 @@ grep -q "function pointer types: 3 (2 skipped)" "$T/ffi.out" && grep -q "PFN_byV
 mkdir -p "$T/fp" && cp -r "$HERE/clib" "$T/fp/" && printf 'import c "accel.h" from "clib" also "clib/accel.c"\n\nfn main():\n    let f = PFN_byValue(get_proc("x"))\n' > "$T/fp/bad.skn"
 (cd "$T/fp" && "$M" run bad.skn) 2>&1 | grep -q "T0048.*PFN_byValue.*function pointer type" && ok || bad "T0048 for a skipped fn pointer type"
 
+# Headers pulled in with `#include <...>` are not followed by default; calling a function from one
+# names the header to `follow`, and `siskin ffi` lists them.
+"$M" ffi wrap.h --from "$HERE/clib/sysinc" > "$T/ffi2.out" 2>&1
+grep -q "headers not followed" "$T/ffi2.out" && grep -q "2  wrap_impl.h" "$T/ffi2.out" && ok || { bad "ffi lists headers not followed"; cat "$T/ffi2.out"; }
+printf 'import c "wrap.h" from "clib/sysinc" also "clib/sysinc/wrap.c"\n\nfn main():\n    print(f"{wrap_add(1, 2)}\\n")\n' > "$T/fp/nofollow.skn"
+(cd "$T/fp" && "$M" run nofollow.skn) > "$T/nf.out" 2>&1
+grep -q "T0048.*wrap_add.*wrap_impl.h" "$T/nf.out" && grep -q 'follow "wrap_impl.h"' "$T/nf.out" && ok || { bad "T0048 names the header to follow"; cat "$T/nf.out"; }
+sed 's/also/follow "*" also/' "$T/fp/nofollow.skn" > "$T/fp/all.skn"
+[ "$(cd "$T/fp" && "$M" run all.skn 2>&1)" = "3" ] && ok || bad 'follow "*"'
+
 # https server: create a test certificate and check that run and build match
 if command -v openssl > /dev/null; then
   # (MSYS_NO_PATHCONV: stops Git Bash from converting /CN=localhost into a path)

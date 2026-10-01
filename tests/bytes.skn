@@ -1,0 +1,25 @@
+# Binary files with std.fs: bytes are a [Int] list, one value 0..255 per byte.
+from std.fs import read_bytes, write_bytes, append_bytes, remove
+
+fn main() -> !():
+    let path = "bytes_test.bin"
+    # A PNG signature: 137 'P' 'N' 'G' \r \n 26 \n — includes a zero-free \r\n that text mode would mangle.
+    try write_bytes(path, [137, 80, 78, 71, 13, 10, 26, 10])
+    try append_bytes(path, [0, 255, 10, 13])
+    let data = try read_bytes(path)
+    print(f"{len(data)} bytes: {data}\n")
+    print(f"sum {sum(data)}\n")
+
+    # An empty file reads back as an empty list.
+    try write_bytes(path, [])
+    print(f"empty: {len(try read_bytes(path))}\n")
+
+    # Values that are not bytes are an error, and nothing is written.
+    write_bytes(path, [1, 256]) catch e:
+        print(f"error: {e}\n")
+    print(f"still empty: {len(try read_bytes(path))}\n")
+    let missing = read_bytes("no_such_file.bin") catch e:
+        print(f"error: {e}\n")
+        [0]
+    print(f"{missing}\n")
+    try remove(path)

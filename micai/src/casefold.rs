@@ -32,7 +32,7 @@ const BUILTIN_NAMES: &[&str] = &[
     "append_text", "exists", "remove", "time", "now", "clock", "random", "seed", "rand",
     "rand_int", "sort", "index_of", "slice", "clear", "find", "repeat", "alloc", "free", "arena",
     "get", "width", "pad_left", "pad_right", "sleep", "env", "set_env", "cwd", "set_cwd", "pid",
-    "list_dir", "make_dir", "is_dir", "process", "net", "map", "filter", "any", "all", "sort_by",
+    "list_dir", "make_dir", "is_dir", "read_bytes", "write_bytes", "append_bytes", "process", "net", "map", "filter", "any", "all", "sort_by",
 ];
 
 pub fn fold(prog: &mut Program) -> Vec<CaseFix> {

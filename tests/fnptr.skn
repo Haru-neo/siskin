@@ -1,0 +1,28 @@
+# A function pointer type whose parameter is an array of pointers (`const T* const*`),
+# like Vulkan's PFN_vkCmdBuildAccelerationStructuresKHR.
+import c "accel.h" from "clib" also "clib/accel.c"
+
+fn main():
+    # A loader that hands back function pointers, like vkGetDeviceProcAddr.
+    let loader = PFN_getProc(get_loader())
+    let build = PFN_cmdBuild(loader("cmdBuild"))
+    print(f"missing is null: {loader("nope") == 0}\n")
+    unsafe:
+        let infos = alloc[BuildInfo](2)
+        infos[0] = BuildInfo(geometryCount: 1, dst: 100)
+        infos[1] = BuildInfo(geometryCount: 2, dst: 200)
+        let first = alloc[RangeInfo](1)
+        first[0] = RangeInfo(primitiveCount: 3, primitiveOffset: 1)
+        let second = alloc[RangeInfo](2)
+        second[0] = RangeInfo(primitiveCount: 4, primitiveOffset: 2)
+        second[1] = RangeInfo(primitiveCount: 5, primitiveOffset: 3)
+        # The array of pointers: one address per info.
+        let ranges = alloc[Int](2)
+        ranges[0] = address_of(first)
+        ranges[1] = address_of(second)
+        print(f"{build(0, 2, address_of(infos), address_of(ranges))}\n")
+        print(f"{build(1, 1, address_of(infos), address_of(ranges))}\n")
+        free(ranges)
+        free(second)
+        free(first)
+        free(infos)

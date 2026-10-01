@@ -170,6 +170,13 @@ if previous != 0:
 ```
 
 If such a function takes a pointer, it takes it as an address: `address_of(p)` gives the address of a `*T` pointer.
+That includes arrays of pointers (`const T* const*`), as in `PFN_vkCmdBuildAccelerationStructuresKHR`:
+fill an `alloc[Int](n)` with one `address_of(...)` per element and pass `address_of` of that.
+A function pointer that the type returns (`PFN_vkGetInstanceProcAddr`) comes back as an address too.
+
+A function pointer type that cannot be imported yet (one taking a struct by value, a function, or `...`)
+is listed with the reason under "function pointer types not importable yet" in `siskin ffi <header>`,
+and using it is error T0048 with the same reason.
 
 ### Headers that include other headers, and macros they expect
 

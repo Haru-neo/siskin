@@ -74,6 +74,12 @@ for f in shift pow; do
   { [ $rc1 = 1 ] && [ $rc2 = 1 ] && grep -qi "shift amount\|negative exponent" "$T/$f.run" && grep -qi "shift amount\|negative exponent" "$T/$f.bld"; } && ok || bad "runtime error: $f"
 done
 
+# C function pointer types that cannot be imported yet are reported, not dropped silently
+"$M" ffi "$HERE/clib/accel.h" > "$T/ffi.out" 2>&1
+grep -q "function pointer types: 3 (2 skipped)" "$T/ffi.out" && grep -q "PFN_byValue: function passing or returning a struct by value" "$T/ffi.out" && ok || { bad "ffi skipped fn pointer types"; cat "$T/ffi.out"; }
+mkdir -p "$T/fp" && cp -r "$HERE/clib" "$T/fp/" && printf 'import c "accel.h" from "clib" also "clib/accel.c"\n\nfn main():\n    let f = PFN_byValue(get_proc("x"))\n' > "$T/fp/bad.skn"
+(cd "$T/fp" && "$M" run bad.skn) 2>&1 | grep -q "T0048.*PFN_byValue.*function pointer type" && ok || bad "T0048 for a skipped fn pointer type"
+
 # https server: create a test certificate and check that run and build match
 if command -v openssl > /dev/null; then
   # (MSYS_NO_PATHCONV: stops Git Bash from converting /CN=localhost into a path)

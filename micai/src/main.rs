@@ -546,6 +546,9 @@ fn expand_cheader(
     }
     // Remember the names of functions that could not be imported, to explain why if they are called.
     let mut skipped = im.skipped.clone();
+    for (n, why) in &im.skipped_fnptrs {
+        skipped.push((n.clone(), format!("{} ({})", why, tr!("함수 포인터 타입", "function pointer type"))));
+    }
     for n in shadowed {
         skipped.push((n, SHADOWED_WHY().into()));
     }
@@ -1428,7 +1431,17 @@ fn main() -> ExitCode {
             skipped_fields,
             tr!("필드 못 가져옴", "fields skipped")
         );
-        println!("  {}: {}", tr!("함수 포인터 타입", "function pointer types"), im.fnptrs.len());
+        if im.skipped_fnptrs.is_empty() {
+            println!("  {}: {}", tr!("함수 포인터 타입", "function pointer types"), im.fnptrs.len());
+        } else {
+            println!(
+                "  {}: {} ({} {})",
+                tr!("함수 포인터 타입", "function pointer types"),
+                im.fnptrs.len(),
+                im.skipped_fnptrs.len(),
+                tr!("못 가져옴", "skipped")
+            );
+        }
         if im.files.len() > 1 {
             println!("  {}: {}", tr!("따라 읽은 헤더", "headers followed"), im.files.len());
         }
@@ -1448,6 +1461,16 @@ fn main() -> ExitCode {
                 } else {
                     println!("    {:3}  {}", n, w);
                 }
+            }
+        }
+        if !im.skipped_fnptrs.is_empty() {
+            println!("  {}", tr!("못 가져온 함수 포인터 타입:", "function pointer types not importable yet:"));
+            let all = args.iter().any(|a| a == "--all");
+            for (n, w) in im.skipped_fnptrs.iter().take(if all { usize::MAX } else { 20 }) {
+                println!("    {}: {}", n, w);
+            }
+            if !all && im.skipped_fnptrs.len() > 20 {
+                println!("    ... {} {}", im.skipped_fnptrs.len() - 20, tr!("개 더 (--all 로 모두 보기)", "more (--all shows all)"));
             }
         }
         if args.iter().any(|a| a == "--all") {

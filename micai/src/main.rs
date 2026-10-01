@@ -831,7 +831,7 @@ fn uses_spawn(prog: &ast::Program) -> bool {
 fn needs_native(prog: &ast::Program) -> bool {
     // Reading and writing C addresses only means something next to real C code.
     let dbg = format!("{:?}", prog.stmts);
-    if ["\"c_string\"", "\"address_of\"", "\"ptr_set\"", "\"cstr\"", "\"ptr_get\""].iter().any(|n| dbg.contains(&format!("Ident({}", n))) {
+    if ["\"c_string\"", "\"address_of\"", "\"cast\"", "\"ptr_set\"", "\"cstr\"", "\"ptr_get\""].iter().any(|n| dbg.contains(&format!("Ident({}", n))) {
         return true;
     }
     prog.stmts.iter().any(|s| match s {
@@ -1418,7 +1418,7 @@ fn main() -> ExitCode {
         }
         let fields: usize = im.structs.iter().map(|s| s.fields.len()).sum();
         let skipped_fields: usize = im.structs.iter().map(|s| s.skipped.len()).sum();
-        println!("  {}: {}", tr!("상수 (#define, enum)", "constants (#define, enum)"), im.consts.len());
+        println!("  {}: {}", tr!("상수 (#define, enum, static const)", "constants (#define, enum, static const)"), im.consts.len());
         println!(
             "  {}: {} ({} {}, {} {})",
             tr!("구조체", "structs"),

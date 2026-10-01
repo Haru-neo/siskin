@@ -1,0 +1,26 @@
+# `static const` values from a C header, and `cast[*T](addr)` on an address C gave back.
+import c "flags.h" from "clib" also "clib/flags.c"
+
+fn main():
+    print(f"{STAGE_2_NONE} {STAGE_2_TOP_OF_PIPE_BIT} {STAGE_2_COPY_BIT} {STAGE_2_HIGH_BIT}\n")
+    let stages = STAGE_2_MIXED | STAGE_2_COPY_BIT
+    print(f"mixed {STAGE_2_MIXED} has top {stages & STAGE_2_TOP_OF_PIPE_BIT != 0} has copy {stages & STAGE_2_COPY_BIT != 0}\n")
+    print(f"{SHIFTED} {ALL_U32} {RATIO} {HALF} {LABEL}\n")
+
+    var addr = 0
+    map_floats(4, addr)
+    unsafe:
+        # A C buffer seen as `*F32`: read it, then write into it.
+        let p = cast[*F32](addr)
+        print(f"{p[0]} {p[1]} {p[3]}\n")
+        p[0] = 10.0
+        print(f"sum {sum_floats(addr, 4)}\n")
+        # Reinterpreting a pointer, and back to an address.
+        let bytes = cast[*U8](p)
+        print(f"same address {cast[Int](bytes) == addr} {address_of(p) == addr}\n")
+        # Memory from `alloc` passed to C by address.
+        let mine = alloc[F32](2)
+        mine[0] = 1.25
+        mine[1] = 2.5
+        print(f"mine {sum_floats(address_of(mine), 2)}\n")
+        free(mine)

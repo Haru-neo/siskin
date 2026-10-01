@@ -1,0 +1,12 @@
+import c "counter.h" from "../clib" also "../clib/counter.c"
+import c "string.h"
+
+fn total(n: Int) -> Int:
+    let c = counter_new(n)
+    counter_add(c, n)
+    let t = counter_get(c)
+    counter_free(c)
+    return t
+
+fn width(s: Str) -> Int:
+    return strlen(s)

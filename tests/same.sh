@@ -14,7 +14,7 @@ if ! command -v timeout > /dev/null; then
     else timeout() { t="$1"; shift; perl -e 'alarm shift; exec @ARGV or exit 127' "$t" "$@"; }; fi
 fi
 cd "$ROOT"
-for f in examples/*.skn tests/*.skn tests/ns/main.skn realworld/*.skn trial/*/*.skn trial2/*/*.skn; do
+for f in examples/*.skn tests/*.skn tests/ns/main.skn tests/cdup/main.skn realworld/*.skn trial/*/*.skn trial2/*/*.skn; do
     n="$(basename "$f")"
     case "$n" in 08_cffi.skn|10_sqlite.skn) [ "$SISKIN_TEST_LIBS" = 1 ] || continue ;; esac
     case "$n" in 17_glfw.skn|18_vulkan.skn) [ "$SISKIN_TEST_GFX" = 1 ] || continue ;; esac

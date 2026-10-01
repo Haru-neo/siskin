@@ -84,6 +84,8 @@ struct Loader {
     injected: HashSet<String>,
     /// Names of everything imported from C headers (functions, constants, structs, function pointer types).
     c_names: HashSet<String>,
+    /// C functions already declared by an `import c` in any file.
+    c_fns: HashSet<String>,
 }
 
 impl Loader {
@@ -213,7 +215,7 @@ impl Loader {
                 inject_std(path, &mut self.injected, &mut self.globals);
             }
             if matches!(s, ast::Stmt::CHeader { .. }) {
-                expand_cheader(&s, dir, &mut stmts, &mut self.globals, &mut self.c_names).map_err(|e| here(self, e))?;
+                expand_cheader(&s, dir, &mut stmts, &mut self.globals, &mut self.c_names, &mut self.c_fns).map_err(|e| here(self, e))?;
                 continue;
             }
             stmts.push(s);
@@ -318,6 +320,7 @@ fn expand_cheader(
     out: &mut Vec<ast::Stmt>,
     globals: &mut Vec<ast::Stmt>,
     c_names: &mut HashSet<String>,
+    c_fns: &mut HashSet<String>,
 ) -> Result<(), error::SiskinError> {
     let (header, cpp, links, incdirs, only, defines, line, col) = match s {
         ast::Stmt::CHeader { header, cpp, links, incdirs, only, defines, line, col } => {
@@ -440,6 +443,11 @@ fn expand_cheader(
         } else {
             Some(named(f.ret.siskin()))
         };
+        // The same function may come from a header imported in several files (or twice in
+        // one file). C function names are global, so declare it only once.
+        if !c_fns.insert(f.name.clone()) {
+            continue;
+        }
         c_names.insert(f.name.clone());
         out.push(ast::Stmt::Fn(crate::ast::Shared::new(ast::FnDecl {
             name: f.name.clone(),
@@ -676,6 +684,7 @@ fn resolve_imports_err(
         globals: Vec::new(),
         injected: HashSet::new(),
         c_names: HashSet::new(),
+        c_fns: HashSet::new(),
     };
     if let Ok(c) = crate::canonicalize(main_path) {
         ld.index.insert(c.to_string_lossy().to_string(), 0);

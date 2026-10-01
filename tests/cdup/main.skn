@@ -1,0 +1,12 @@
+# The same C header imported from two files (and twice in one file) declares each C function once.
+import c "counter.h" from "../clib" also "../clib/counter.c"
+import c "string.h"
+import c "string.h"
+import helper
+
+fn main():
+    let c = counter_new(10)
+    counter_add(c, 1)
+    print(f"main: {counter_get(c)} {strlen("siskin")}\n")
+    counter_free(c)
+    print(f"helper: {helper.total(5)} {helper.width("abc")}\n")

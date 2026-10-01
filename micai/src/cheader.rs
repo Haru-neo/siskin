@@ -140,6 +140,8 @@ pub struct Imported {
     pub structs: Vec<CStruct>,
     /// Function pointer typedefs.
     pub fnptrs: Vec<CFnPtr>,
+    /// (function pointer typedef, reason it could not be imported)
+    pub skipped_fnptrs: Vec<(String, String)>,
     /// Every header file read for this import (the header plus the `#include "..."` it follows),
     /// with modification times, so the cache is dropped when any of them changes.
     pub files: Vec<(String, u64)>,
@@ -345,20 +347,27 @@ fn why_variadic() -> String {
 
 /// Parse a function pointer like `int (*)(void *, int)`,
 /// so that our own functions can be passed to the library.
-fn parse_fnptr(q: &str, td: &HashMap<String, String>) -> Option<CbSig> {
+fn parse_fnptr(q: &str, td: &HashMap<String, String>) -> Result<CbSig, String> {
     let r = resolve(q, td, 0);
-    let open = r.find("(*")?;
+    let bad_shape = || tr!("함수 포인터 모양을 읽지 못함", "unrecognized function pointer shape").to_string();
+    if !is_plain_fnptr(&r) {
+        return Err(bad_shape());
+    }
+    let open = r.find("(*").ok_or_else(bad_shape)?;
     let ret_c = r[..open].trim().to_string();
     // Skip past `(*)` and find the opening parenthesis of the parameter list.
     let after = &r[open..];
-    let close = after.find(')')?;
+    let close = after.find(')').ok_or_else(bad_shape)?;
     let rest = after[close + 1..].trim_start();
     if !rest.starts_with('(') {
-        return None;
+        return Err(bad_shape());
     }
     let (_, mut params) = split_sig(&format!("x {}", rest));
-    if params.iter().any(|p| p.contains("...") || p.contains("(*")) {
-        return None;
+    if params.iter().any(|p| p.contains("...")) {
+        return Err(why_variadic());
+    }
+    if params.iter().any(|p| is_fnptr_text(p)) {
+        return Err(tr!("함수를 받는 매개변수가 있는 함수 포인터", "function pointer with a parameter that takes a function").into());
     }
     // Resolving typedefs drops `const`, but `const char*` (a string C hands us) and `char*`
     // (a buffer) mean different things. Take the parameters from the written text when it has them.
@@ -386,17 +395,36 @@ fn parse_fnptr(q: &str, td: &HashMap<String, String>) -> Option<CbSig> {
     }
     let mut ps = Vec::new();
     for p in &params {
-        match map_ty(p, td, false) {
-            Ok(m) => ps.push(m),
-            Err(_) => return None,
+        // `void` alone means "no parameters" (`void (*)(void)`).
+        if params.len() == 1 && resolve(p, td, 0) == "void" {
+            break;
         }
+        ps.push(map_ty(p, td, false)?);
     }
-    let rt = match map_ty(&ret_c, td, true) {
-        Ok(MTy::Unit) => None,
-        Ok(m) => Some(m),
-        Err(_) => return None,
+    if ps.is_empty() {
+        params.clear();
+    }
+    // A function pointer that returns a function pointer (`PFN_vkGetInstanceProcAddr`):
+    // the returned one comes back as an address, as it does from a plain C function.
+    let rt = if is_fnptr_text(&resolve(&ret_c, td, 0)) {
+        Some(MTy::Int)
+    } else {
+        match map_ty(&ret_c, td, true)? {
+            MTy::Unit => None,
+            m => Some(m),
+        }
     };
-    Some(CbSig { ret: rt, params: ps, c_ret: ret_c, c_params: params })
+    Ok(CbSig { ret: rt, params: ps, c_ret: ret_c, c_params: params })
+}
+
+/// A pointer to a function, `ret (*)(params)`, as opposed to a pointer to such a pointer
+/// (`ret (**)(params)`) or a block (`ret (^)(params)`). Pointer-to-pointer parameters inside the
+/// parameter list (`const T* const*`) are fine.
+fn is_plain_fnptr(r: &str) -> bool {
+    match r.find("(*") {
+        Some(o) => r[o + 2..].trim_start().starts_with(')'),
+        None => false,
+    }
 }
 
 /// A parameter pointing to another pointer, like `T**`, almost always means "put the result here"
@@ -1031,8 +1059,8 @@ impl<'a> Scope<'a> {
     fn param(&self, q: &str) -> Result<(String, MTy, Option<CbSig>), String> {
         let r = resolve(q, self.td, 0).replace(" *", "*");
         let r = r.trim().to_string();
-        if is_fnptr_text(&r) && !r.ends_with("**") {
-            if let Some(cb) = parse_fnptr(q, self.td) {
+        if is_plain_fnptr(&r) {
+            if let Ok(cb) = parse_fnptr(q, self.td) {
                 return Ok((cb_ty_text(&cb), MTy::Int, Some(cb)));
             }
             return Err(why_callback().into());
@@ -1129,10 +1157,10 @@ impl<'a> Scope<'a> {
         }
         let r = resolve(q, self.td, 0).replace(" *", "*");
         let r = r.trim();
-        if is_fnptr_text(r) && !r.ends_with("**") {
+        if is_plain_fnptr(r) {
             f.ty = "Int".into();
             f.ptr = true;
-            f.cb = parse_fnptr(q, self.td);
+            f.cb = parse_fnptr(q, self.td).ok();
             return Ok(f);
         }
         if r.ends_with('*') {
@@ -1376,9 +1404,10 @@ pub fn import_header(
             let name = dstr(n, "name").unwrap_or_default();
             let q = dget(n, "type").and_then(|t| dstr(&t, "qualType")).unwrap_or_default();
             let r = resolve(&q, &td, 0);
-            if is_fnptr_text(&r) && !r.contains("**") && !name.starts_with('_') {
-                if let Some(sig) = parse_fnptr(&q, &td) {
-                    res.fnptrs.push(CFnPtr { name, sig });
+            if is_fnptr_text(&r) && !name.starts_with('_') {
+                match parse_fnptr(&q, &td) {
+                    Ok(sig) => res.fnptrs.push(CFnPtr { name, sig }),
+                    Err(why) => res.skipped_fnptrs.push((name, why)),
                 }
             }
             continue;
@@ -1547,7 +1576,7 @@ fn split(s: &str) -> Vec<String> {
 }
 
 fn save_cache(path: &PathBuf, im: &Imported) {
-    let mut s = String::from("siskin-ffi 13\n");
+    let mut s = String::from("siskin-ffi 14\n");
     s.push_str(&format!("H\t{}\n", im.header_path));
     for (f, t) in &im.files {
         s.push_str(&format!("W\t{}\t{}\n", f, t));
@@ -1600,6 +1629,9 @@ fn save_cache(path: &PathBuf, im: &Imported) {
     for (n, w) in &im.skipped {
         s.push_str(&format!("S\t{}\t{}\n", n, w));
     }
+    for (n, w) in &im.skipped_fnptrs {
+        s.push_str(&format!("Q\t{}\t{}\n", n, w));
+    }
     let _ = std::fs::write(path, s);
 }
 
@@ -1634,7 +1666,7 @@ fn mty_of(s: &str) -> MTy {
 fn load_cache(path: &PathBuf) -> Option<Imported> {
     let s = std::fs::read_to_string(path).ok()?;
     let mut lines = s.lines();
-    if lines.next()? != "siskin-ffi 13" {
+    if lines.next()? != "siskin-ffi 14" {
         return None;
     }
     let mut im = Imported::default();
@@ -1696,6 +1728,7 @@ fn load_cache(path: &PathBuf) -> Option<Imported> {
             }
             Some(&"P") if f.len() >= 3 => im.fnptrs.push(CFnPtr { name: f[1].to_string(), sig: dec_cb(f[2])? }),
             Some(&"S") if f.len() >= 3 => im.skipped.push((f[1].to_string(), f[2].to_string())),
+            Some(&"Q") if f.len() >= 3 => im.skipped_fnptrs.push((f[1].to_string(), f[2].to_string())),
             _ => {}
         }
     }
